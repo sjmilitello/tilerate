@@ -1,0 +1,745 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8C1820AC2E7E404C003D9E08 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1820AB2E7E404C003D9E08 /* AppState.swift */; };
+		8C2A81A52E77952100A14094 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2A81A42E77951100A14094 /* APIClient.swift */; };
+		8CAB8A6D2E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CAB8A672E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift */; };
+		8CE7D4672F425291005C2965 /* EstimatorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4662F425291005C2965 /* EstimatorModels.swift */; };
+		8CE7D4692F42529E005C2965 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4682F42529E005C2965 /* Store.swift */; };
+		8CE7D46B2F4252C8005C2965 /* Pricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D46A2F4252C8005C2965 /* Pricing.swift */; };
+		8CE7D46D2F4252E1005C2965 /* AdminAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D46C2F4252E1005C2965 /* AdminAuthManager.swift */; };
+		8CE7D46F2F425342005C2965 /* AdminViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D46E2F425342005C2965 /* AdminViews.swift */; };
+		8CE7D4712F425385005C2965 /* PDFViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4702F425385005C2965 /* PDFViews.swift */; };
+		8CE7D4732F4253A2005C2965 /* PDFGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4722F4253A2005C2965 /* PDFGenerator.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8CAB8A482E520920005F2C18 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8CAB8A2F2E52091E005F2C18 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8CAB8A362E52091E005F2C18;
+			remoteInfo = "Integrity Tile Estimator";
+		};
+		8CAB8A522E520920005F2C18 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8CAB8A2F2E52091E005F2C18 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8CAB8A362E52091E005F2C18;
+			remoteInfo = "Integrity Tile Estimator";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		8C1820AB2E7E404C003D9E08 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		8C2A81A42E77951100A14094 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		8CAB8A372E52091F005F2C18 /* TileRate Installation Estimator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "TileRate Installation Estimator.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8CAB8A472E520920005F2C18 /* TileRate Installation EstimatorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "TileRate Installation EstimatorTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8CAB8A512E520920005F2C18 /* TileRate Installation EstimatorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "TileRate Installation EstimatorUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8CAB8A672E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileRate_Installation_EstimatorApp.swift; sourceTree = "<group>"; };
+		8CE7D4662F425291005C2965 /* EstimatorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EstimatorModels.swift; sourceTree = "<group>"; };
+		8CE7D4682F42529E005C2965 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		8CE7D46A2F4252C8005C2965 /* Pricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pricing.swift; sourceTree = "<group>"; };
+		8CE7D46C2F4252E1005C2965 /* AdminAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthManager.swift; sourceTree = "<group>"; };
+		8CE7D46E2F425342005C2965 /* AdminViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminViews.swift; sourceTree = "<group>"; };
+		8CE7D4702F425385005C2965 /* PDFViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFViews.swift; sourceTree = "<group>"; };
+		8CE7D4722F4253A2005C2965 /* PDFGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFGenerator.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8C2A81672E615B5F00A14094 /* Views */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Views;
+			sourceTree = "<group>";
+		};
+		8CAB8A392E52091F005F2C18 /* TileRate Installation Estimator */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "TileRate Installation Estimator";
+			sourceTree = "<group>";
+		};
+		8CAB8A4A2E520920005F2C18 /* TileRate Installation EstimatorTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "TileRate Installation EstimatorTests";
+			sourceTree = "<group>";
+		};
+		8CAB8A542E520920005F2C18 /* TileRate Installation EstimatorUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "TileRate Installation EstimatorUITests";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8CAB8A342E52091E005F2C18 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8CAB8A442E520920005F2C18 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8CAB8A4E2E520920005F2C18 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8CAB8A2E2E52091E005F2C18 = {
+			isa = PBXGroup;
+			children = (
+				8CAB8A692E5209E3005F2C18 /* Sources */,
+				8CAB8A672E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift */,
+				8CAB8A392E52091F005F2C18 /* TileRate Installation Estimator */,
+				8CAB8A4A2E520920005F2C18 /* TileRate Installation EstimatorTests */,
+				8CAB8A542E520920005F2C18 /* TileRate Installation EstimatorUITests */,
+				8CAB8A382E52091F005F2C18 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8CAB8A382E52091F005F2C18 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8CAB8A372E52091F005F2C18 /* TileRate Installation Estimator.app */,
+				8CAB8A472E520920005F2C18 /* TileRate Installation EstimatorTests.xctest */,
+				8CAB8A512E520920005F2C18 /* TileRate Installation EstimatorUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8CAB8A692E5209E3005F2C18 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				8C2A81672E615B5F00A14094 /* Views */,
+				8CE7D45E2F425230005C2965 /* Models */,
+				8CE7D45F2F425233005C2965 /* Persistence */,
+				8CE7D4602F425238005C2965 /* Pricing */,
+				8CE7D4612F425239005C2965 /* PDF */,
+				8CE7D4622F42523B005C2965 /* Admin */,
+				8CE7D4642F425242005C2965 /* Services */,
+				8CE7D4652F42524A005C2965 /* State */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		8CE7D45E2F425230005C2965 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				8CE7D4662F425291005C2965 /* EstimatorModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		8CE7D45F2F425233005C2965 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				8CE7D4682F42529E005C2965 /* Store.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		8CE7D4602F425238005C2965 /* Pricing */ = {
+			isa = PBXGroup;
+			children = (
+				8CE7D46A2F4252C8005C2965 /* Pricing.swift */,
+			);
+			path = Pricing;
+			sourceTree = "<group>";
+		};
+		8CE7D4612F425239005C2965 /* PDF */ = {
+			isa = PBXGroup;
+			children = (
+				8CE7D4702F425385005C2965 /* PDFViews.swift */,
+				8CE7D4722F4253A2005C2965 /* PDFGenerator.swift */,
+			);
+			path = PDF;
+			sourceTree = "<group>";
+		};
+		8CE7D4622F42523B005C2965 /* Admin */ = {
+			isa = PBXGroup;
+			children = (
+				8CE7D46C2F4252E1005C2965 /* AdminAuthManager.swift */,
+				8CE7D46E2F425342005C2965 /* AdminViews.swift */,
+			);
+			path = Admin;
+			sourceTree = "<group>";
+		};
+		8CE7D4642F425242005C2965 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				8C2A81A42E77951100A14094 /* APIClient.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		8CE7D4652F42524A005C2965 /* State */ = {
+			isa = PBXGroup;
+			children = (
+				8C1820AB2E7E404C003D9E08 /* AppState.swift */,
+			);
+			path = State;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8CAB8A362E52091E005F2C18 /* TileRate Installation Estimator */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8CAB8A5B2E520920005F2C18 /* Build configuration list for PBXNativeTarget "TileRate Installation Estimator" */;
+			buildPhases = (
+				8CAB8A332E52091E005F2C18 /* Sources */,
+				8CAB8A342E52091E005F2C18 /* Frameworks */,
+				8CAB8A352E52091E005F2C18 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8C2A81672E615B5F00A14094 /* Views */,
+				8CAB8A392E52091F005F2C18 /* TileRate Installation Estimator */,
+			);
+			name = "TileRate Installation Estimator";
+			packageProductDependencies = (
+			);
+			productName = "Integrity Tile Estimator";
+			productReference = 8CAB8A372E52091F005F2C18 /* TileRate Installation Estimator.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8CAB8A462E520920005F2C18 /* TileRate Installation EstimatorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8CAB8A5E2E520920005F2C18 /* Build configuration list for PBXNativeTarget "TileRate Installation EstimatorTests" */;
+			buildPhases = (
+				8CAB8A432E520920005F2C18 /* Sources */,
+				8CAB8A442E520920005F2C18 /* Frameworks */,
+				8CAB8A452E520920005F2C18 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8CAB8A492E520920005F2C18 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8CAB8A4A2E520920005F2C18 /* TileRate Installation EstimatorTests */,
+			);
+			name = "TileRate Installation EstimatorTests";
+			packageProductDependencies = (
+			);
+			productName = "Integrity Tile EstimatorTests";
+			productReference = 8CAB8A472E520920005F2C18 /* TileRate Installation EstimatorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		8CAB8A502E520920005F2C18 /* TileRate Installation EstimatorUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8CAB8A612E520920005F2C18 /* Build configuration list for PBXNativeTarget "TileRate Installation EstimatorUITests" */;
+			buildPhases = (
+				8CAB8A4D2E520920005F2C18 /* Sources */,
+				8CAB8A4E2E520920005F2C18 /* Frameworks */,
+				8CAB8A4F2E520920005F2C18 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8CAB8A532E520920005F2C18 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8CAB8A542E520920005F2C18 /* TileRate Installation EstimatorUITests */,
+			);
+			name = "TileRate Installation EstimatorUITests";
+			packageProductDependencies = (
+			);
+			productName = "Integrity Tile EstimatorUITests";
+			productReference = 8CAB8A512E520920005F2C18 /* TileRate Installation EstimatorUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8CAB8A2F2E52091E005F2C18 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1640;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					8CAB8A362E52091E005F2C18 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					8CAB8A462E520920005F2C18 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 8CAB8A362E52091E005F2C18;
+					};
+					8CAB8A502E520920005F2C18 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 8CAB8A362E52091E005F2C18;
+					};
+				};
+			};
+			buildConfigurationList = 8CAB8A322E52091E005F2C18 /* Build configuration list for PBXProject "TileRate Installation Estimator" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8CAB8A2E2E52091E005F2C18;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8CAB8A382E52091F005F2C18 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8CAB8A362E52091E005F2C18 /* TileRate Installation Estimator */,
+				8CAB8A462E520920005F2C18 /* TileRate Installation EstimatorTests */,
+				8CAB8A502E520920005F2C18 /* TileRate Installation EstimatorUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8CAB8A352E52091E005F2C18 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8CAB8A452E520920005F2C18 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8CAB8A4F2E520920005F2C18 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8CAB8A332E52091E005F2C18 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C2A81A52E77952100A14094 /* APIClient.swift in Sources */,
+				8CE7D46B2F4252C8005C2965 /* Pricing.swift in Sources */,
+				8CE7D46F2F425342005C2965 /* AdminViews.swift in Sources */,
+				8C1820AC2E7E404C003D9E08 /* AppState.swift in Sources */,
+				8CE7D4692F42529E005C2965 /* Store.swift in Sources */,
+				8CE7D46D2F4252E1005C2965 /* AdminAuthManager.swift in Sources */,
+				8CE7D4672F425291005C2965 /* EstimatorModels.swift in Sources */,
+				8CE7D4732F4253A2005C2965 /* PDFGenerator.swift in Sources */,
+				8CAB8A6D2E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift in Sources */,
+				8CE7D4712F425385005C2965 /* PDFViews.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8CAB8A432E520920005F2C18 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8CAB8A4D2E520920005F2C18 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8CAB8A492E520920005F2C18 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8CAB8A362E52091E005F2C18 /* TileRate Installation Estimator */;
+			targetProxy = 8CAB8A482E520920005F2C18 /* PBXContainerItemProxy */;
+		};
+		8CAB8A532E520920005F2C18 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8CAB8A362E52091E005F2C18 /* TileRate Installation Estimator */;
+			targetProxy = 8CAB8A522E520920005F2C18 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8CAB8A592E520920005F2C18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		8CAB8A5A2E520920005F2C18 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		8CAB8A5C2E520920005F2C18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = "TileRate Installation Estimator/TileRate_Installation_Estimator.entitlements";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "";
+				INFOPLIST_KEY_CFBundleDisplayName = TileRate;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "\"We need access to your camera to capture your business card or logo.\"";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to access admin settings.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"We need permission to save exported estimates as images to your library.\"";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "\"We need access to your photo library to select your business card or logo\"";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.tilerate.estimator;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.5;
+			};
+			name = Debug;
+		};
+		8CAB8A5D2E520920005F2C18 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = "TileRate Installation Estimator/TileRate_Installation_Estimator.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "";
+				INFOPLIST_KEY_CFBundleDisplayName = TileRate;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "\"We need access to your camera to capture your business card or logo.\"";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to access admin settings.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"We need permission to save exported estimates as images to your library.\"";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "\"We need access to your photo library to select your business card or logo\"";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.tilerate.estimator;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.5;
+			};
+			name = Release;
+		};
+		8CAB8A5F2E520920005F2C18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.integritytile.estimator.Integrity-Tile-EstimatorTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Integrity Tile Estimator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Integrity Tile Estimator";
+				XROS_DEPLOYMENT_TARGET = 2.5;
+			};
+			name = Debug;
+		};
+		8CAB8A602E520920005F2C18 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.integritytile.estimator.Integrity-Tile-EstimatorTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Integrity Tile Estimator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Integrity Tile Estimator";
+				XROS_DEPLOYMENT_TARGET = 2.5;
+			};
+			name = Release;
+		};
+		8CAB8A622E520920005F2C18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.integritytile.estimator.Integrity-Tile-EstimatorUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = "Integrity Tile Estimator";
+				XROS_DEPLOYMENT_TARGET = 2.5;
+			};
+			name = Debug;
+		};
+		8CAB8A632E520920005F2C18 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6U8639A3FK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.integritytile.estimator.Integrity-Tile-EstimatorUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = "Integrity Tile Estimator";
+				XROS_DEPLOYMENT_TARGET = 2.5;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8CAB8A322E52091E005F2C18 /* Build configuration list for PBXProject "TileRate Installation Estimator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8CAB8A592E520920005F2C18 /* Debug */,
+				8CAB8A5A2E520920005F2C18 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8CAB8A5B2E520920005F2C18 /* Build configuration list for PBXNativeTarget "TileRate Installation Estimator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8CAB8A5C2E520920005F2C18 /* Debug */,
+				8CAB8A5D2E520920005F2C18 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8CAB8A5E2E520920005F2C18 /* Build configuration list for PBXNativeTarget "TileRate Installation EstimatorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8CAB8A5F2E520920005F2C18 /* Debug */,
+				8CAB8A602E520920005F2C18 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8CAB8A612E520920005F2C18 /* Build configuration list for PBXNativeTarget "TileRate Installation EstimatorUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8CAB8A622E520920005F2C18 /* Debug */,
+				8CAB8A632E520920005F2C18 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8CAB8A2F2E52091E005F2C18 /* Project object */;
+}

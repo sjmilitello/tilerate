@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23727" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="LaunchScreenVC">
+    <device id="retina6_1" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23721"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <!--Launch Screen-->
+        <scene sceneID="LaunchScreenScene">
+            <objects>
+                <viewController id="LaunchScreenVC" userLabel="Launch Screen" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="MainView">
+                        <rect key="frame" x="0.0" y="0.0" width="414" height="896"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="AppLogo" translatesAutoresizingMaskIntoConstraints="NO" id="AppLogoImage">
+                                <rect key="frame" x="97" y="338" width="220" height="220"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" secondItem="AppLogoImage" secondAttribute="height" multiplier="1:1" id="aspect"/>
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="SafeArea"/>
+                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                        <constraints>
+                            <constraint firstItem="AppLogoImage" firstAttribute="centerX" secondItem="MainView" secondAttribute="centerX" id="centerX"/>
+                            <constraint firstItem="AppLogoImage" firstAttribute="centerY" secondItem="MainView" secondAttribute="centerY" id="centerY"/>
+                            <constraint firstItem="AppLogoImage" firstAttribute="height" relation="lessThanOrEqual" constant="220" id="maxH"/>
+                            <constraint firstItem="AppLogoImage" firstAttribute="width" relation="lessThanOrEqual" constant="220" id="maxW"/>
+                            <constraint firstAttribute="bottom" relation="greaterThanOrEqual" secondItem="AppLogoImage" secondAttribute="bottom" constant="20" id="padBottom"/>
+                            <constraint firstItem="AppLogoImage" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="MainView" secondAttribute="leading" constant="20" id="padLeading"/>
+                            <constraint firstItem="AppLogoImage" firstAttribute="top" relation="greaterThanOrEqual" secondItem="MainView" secondAttribute="top" constant="20" id="padTop"/>
+                            <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="AppLogoImage" secondAttribute="trailing" constant="20" id="padTrailing"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="FirstResponder" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="125" y="-1"/>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="AppLogo" width="512" height="512"/>
+    </resources>
+</document>

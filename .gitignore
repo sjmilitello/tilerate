@@ -1,0 +1,40 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode user-specific files (keep xcshareddata)
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# CocoaPods
+Pods/
+
+# Backups and old project files
+Backups/
+*.zip
+Integrity Tile Estimator 2.xcodeproj/
+
+# Old/leftover plist files
+EstiMate-Installation-Estimator-Info.plist
+Integrity-Tile-Estimator-Info.plist
+Info.plist
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Environment and secrets
+.env
+*.xcconfig
