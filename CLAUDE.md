@@ -22,12 +22,19 @@ its data. Install over it.
 **A new field on a saved type must not wipe what is saved.** `Store` falls
 back to the defaults whenever a saved value will not decode, and the
 synthesized `Codable` refuses a value with any key missing — which is every
-saved copy, the moment a field is added. `Rates` reads each field on its own
-since 2026-09-25 (the extension beneath it in `EstimatorModels.swift`), so a
-new rate needs a line there as well as its property, or it is never loaded.
-**`EstimatorState` and `EstimateDocument` still use the synthesized decoder**:
-adding a field to either would lose the estimate in progress. Give them the
-same treatment first.
+saved copy, the moment a field is added. Worst of all is the saved estimates
+list: it holds the same rooms and sections, so one new section field made
+every saved estimate unreadable, the list came up empty, and the next save
+wrote that over the file.
+
+Since 2026-09-25 `Rates`, `EstimatorState`, `EstimateDocument` and everything
+inside them — `EstimateRoom`, `EstimateSection`, `Measurements`, `Features`,
+`AdditionItem` — read each field on its own through the `read`/`merge`
+helpers at the bottom of `EstimatorModels.swift`. **A new stored property
+needs a line in its type's `init(from:)` as well**, or it is never loaded.
+`SavedEstimate` and `PartyInfo` still use the synthesized decoder, and a
+field added to either would empty the saved estimates list. Give them the same
+treatment first.
 
 Test a change to saving against the phone's real data, not a made-up copy:
 `xcrun devicectl device copy from --domain-type appDataContainer

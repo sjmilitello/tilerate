@@ -141,44 +141,33 @@ extension Rates {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
 
-        func read<T: Decodable>(_ key: CodingKeys, into value: inout T) {
-            if let v = try? c.decodeIfPresent(T.self, forKey: key) { value = v }
-        }
-        // A saved table replaces the default entry by entry, so a case added
-        // to Area, TileType, TileSize or Layout starts at its default.
-        func merge<K, V: Decodable>(_ key: CodingKeys, into table: inout [K: V]) where K: Decodable & Hashable {
-            if let v = try? c.decodeIfPresent([K: V].self, forKey: key) {
-                table.merge(v) { _, saved in saved }
-            }
-        }
-
-        merge(.base, into: &base)
-        merge(.minimum, into: &minimum)
-        read(.ceilingBase, into: &ceilingBase)
-        read(.ceilingMinimum, into: &ceilingMinimum)
-        read(.showerFloorBase, into: &showerFloorBase)
-        read(.showerFloorMinimum, into: &showerFloorMinimum)
-        merge(.typeAdder, into: &typeAdder)
-        merge(.sizeAdder, into: &sizeAdder)
-        merge(.layoutAdder, into: &layoutAdder)
-        merge(.sizeSpecs, into: &sizeSpecs)
-        read(.rectSquareOverLengthIn, into: &rectSquareOverLengthIn)
-        read(.rectSquareOverWidthIn, into: &rectSquareOverWidthIn)
-        read(.rectSquareOverAdder, into: &rectSquareOverAdder)
-        read(.rectSquareUnderLengthIn, into: &rectSquareUnderLengthIn)
-        read(.rectSquareUnderWidthIn, into: &rectSquareUnderWidthIn)
-        read(.rectSquareUnderAdder, into: &rectSquareUnderAdder)
-        read(.typeAdderUnit, into: &typeAdderUnit)
-        read(.sizeAdderUnit, into: &sizeAdderUnit)
-        read(.layoutAdderUnit, into: &layoutAdderUnit)
-        read(.mosaicInlayRate, into: &mosaicInlayRate)
-        read(.unitShelf, into: &unitShelf)
-        read(.unitNiche, into: &unitNiche)
-        read(.unitFootrest, into: &unitFootrest)
-        read(.unitBench, into: &unitBench)
-        read(.floorEscThresholdLower, into: &floorEscThresholdLower)
-        read(.floorEscThresholdUpper, into: &floorEscThresholdUpper)
-        read(.floorEscAdjPerSqft, into: &floorEscAdjPerSqft)
+        c.merge(.base, into: &base)
+        c.merge(.minimum, into: &minimum)
+        c.read(.ceilingBase, into: &ceilingBase)
+        c.read(.ceilingMinimum, into: &ceilingMinimum)
+        c.read(.showerFloorBase, into: &showerFloorBase)
+        c.read(.showerFloorMinimum, into: &showerFloorMinimum)
+        c.merge(.typeAdder, into: &typeAdder)
+        c.merge(.sizeAdder, into: &sizeAdder)
+        c.merge(.layoutAdder, into: &layoutAdder)
+        c.merge(.sizeSpecs, into: &sizeSpecs)
+        c.read(.rectSquareOverLengthIn, into: &rectSquareOverLengthIn)
+        c.read(.rectSquareOverWidthIn, into: &rectSquareOverWidthIn)
+        c.read(.rectSquareOverAdder, into: &rectSquareOverAdder)
+        c.read(.rectSquareUnderLengthIn, into: &rectSquareUnderLengthIn)
+        c.read(.rectSquareUnderWidthIn, into: &rectSquareUnderWidthIn)
+        c.read(.rectSquareUnderAdder, into: &rectSquareUnderAdder)
+        c.read(.typeAdderUnit, into: &typeAdderUnit)
+        c.read(.sizeAdderUnit, into: &sizeAdderUnit)
+        c.read(.layoutAdderUnit, into: &layoutAdderUnit)
+        c.read(.mosaicInlayRate, into: &mosaicInlayRate)
+        c.read(.unitShelf, into: &unitShelf)
+        c.read(.unitNiche, into: &unitNiche)
+        c.read(.unitFootrest, into: &unitFootrest)
+        c.read(.unitBench, into: &unitBench)
+        c.read(.floorEscThresholdLower, into: &floorEscThresholdLower)
+        c.read(.floorEscThresholdUpper, into: &floorEscThresholdUpper)
+        c.read(.floorEscAdjPerSqft, into: &floorEscAdjPerSqft)
     }
 }
 
@@ -268,4 +257,120 @@ struct SavedEstimate: Identifiable, Codable, Equatable {
     var taxPercent: Double
     var forceSinglePage: Bool
     var document: EstimateDocument
+}
+
+// MARK: - Reading what was saved
+
+// Everything the app keeps — the rates, the estimate in progress and the saved
+// estimates list — is decoded from JSON written by an earlier version. The
+// synthesized decoder refuses a whole value when one key is missing, which is
+// every saved copy the moment a field is added: Store then falls back to the
+// defaults, and SavedEstimatesStore to an empty list that its next save writes
+// over the file. So each type below starts from its defaults and reads each
+// field on its own. A new stored property needs a line in its type's
+// init(from:) as well, or it is never loaded.
+extension KeyedDecodingContainer {
+    /// Replaces `value` with what was saved, if it is there and readable.
+    func read<T: Decodable>(_ key: Key, into value: inout T) {
+        if let v = try? decodeIfPresent(T.self, forKey: key) { value = v }
+    }
+
+    /// A saved table replaces the default entry by entry, so a case added to
+    /// an enum used as a key starts at its default.
+    func merge<TableKey: Decodable & Hashable, V: Decodable>(_ key: Key, into table: inout [TableKey: V]) {
+        if let v = try? decodeIfPresent([TableKey: V].self, forKey: key) {
+            table.merge(v) { _, saved in saved }
+        }
+    }
+}
+
+extension AdditionItem {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.activity, into: &activity)
+        c.read(.qty, into: &qty)
+        c.read(.rate, into: &rate)
+        c.read(.taxable, into: &taxable)
+    }
+}
+
+extension Measurements {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.sqft, into: &sqft)
+        c.read(.showerWallsSqft, into: &showerWallsSqft)
+        c.read(.showerFloorSqft, into: &showerFloorSqft)
+        c.read(.ceilingSqft, into: &ceilingSqft)
+        c.read(.mosaicSqft, into: &mosaicSqft)
+    }
+}
+
+extension Features {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.mosaicBand, into: &mosaicBand)
+        c.read(.shelves, into: &shelves)
+        c.read(.niches, into: &niches)
+        c.read(.footrests, into: &footrests)
+        c.read(.benches, into: &benches)
+    }
+}
+
+extension EstimatorState {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.stepIndex, into: &stepIndex)
+        c.read(.area, into: &area)
+        c.read(.tileType, into: &tileType)
+        c.read(.tileSize, into: &tileSize)
+        c.read(.layout, into: &layout)
+        c.read(.features, into: &features)
+        c.read(.measurements, into: &measurements)
+        c.read(.tileWidthIn, into: &tileWidthIn)
+        c.read(.tileLengthIn, into: &tileLengthIn)
+        c.read(.additionsLabor, into: &additionsLabor)
+        c.read(.additionsMaterials, into: &additionsMaterials)
+    }
+}
+
+extension EstimateSection {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.roomName, into: &roomName)
+        c.read(.area, into: &area)
+        c.read(.tileType, into: &tileType)
+        c.read(.tileSize, into: &tileSize)
+        c.read(.layout, into: &layout)
+        c.read(.features, into: &features)
+        c.read(.measurements, into: &measurements)
+        c.read(.additionsLabor, into: &additionsLabor)
+        c.read(.additionsMaterials, into: &additionsMaterials)
+        c.read(.tileWidthIn, into: &tileWidthIn)
+        c.read(.tileLengthIn, into: &tileLengthIn)
+    }
+}
+
+extension EstimateRoom {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.name, into: &name)
+        c.read(.sections, into: &sections)
+    }
+}
+
+extension EstimateDocument {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.rooms, into: &rooms)
+    }
 }
