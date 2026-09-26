@@ -374,3 +374,46 @@ extension EstimateDocument {
         c.read(.rooms, into: &rooms)
     }
 }
+
+// These two have fields with no default, deliberately: nothing should create a
+// saved estimate without a title or a party without a name. So the fallbacks
+// live here, used only when a saved copy lacks the field, and never in the
+// types themselves. Blank beats losing the whole saved estimates list.
+extension PartyInfo {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var name = "", address = "", address2 = "", cityStateZip = "", phone = "", email = ""
+        c.read(.name, into: &name)
+        c.read(.address, into: &address)
+        c.read(.address2, into: &address2)
+        c.read(.cityStateZip, into: &cityStateZip)
+        c.read(.phone, into: &phone)
+        c.read(.email, into: &email)
+        self.init(name: name, address: address, address2: address2,
+                  cityStateZip: cityStateZip, phone: phone, email: email)
+    }
+}
+
+extension SavedEstimate {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let blank = PartyInfo(name: "", address: "", phone: "", email: "")
+        var id = UUID(), createdAt = Date(), title = "", estimateNumber = 0
+        var biz = blank, cust = blank
+        var shipping = 0.0, taxPercent = 0.0, forceSinglePage = false
+        var document = EstimateDocument()
+        c.read(.id, into: &id)
+        c.read(.createdAt, into: &createdAt)
+        c.read(.title, into: &title)
+        c.read(.estimateNumber, into: &estimateNumber)
+        c.read(.biz, into: &biz)
+        c.read(.cust, into: &cust)
+        c.read(.shipping, into: &shipping)
+        c.read(.taxPercent, into: &taxPercent)
+        c.read(.forceSinglePage, into: &forceSinglePage)
+        c.read(.document, into: &document)
+        self.init(id: id, createdAt: createdAt, title: title, estimateNumber: estimateNumber,
+                  biz: biz, cust: cust, shipping: shipping, taxPercent: taxPercent,
+                  forceSinglePage: forceSinglePage, document: document)
+    }
+}

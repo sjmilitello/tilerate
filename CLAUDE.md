@@ -27,14 +27,18 @@ list: it holds the same rooms and sections, so one new section field made
 every saved estimate unreadable, the list came up empty, and the next save
 wrote that over the file.
 
-Since 2026-09-25 `Rates`, `EstimatorState`, `EstimateDocument` and everything
-inside them — `EstimateRoom`, `EstimateSection`, `Measurements`, `Features`,
-`AdditionItem` — read each field on its own through the `read`/`merge`
-helpers at the bottom of `EstimatorModels.swift`. **A new stored property
-needs a line in its type's `init(from:)` as well**, or it is never loaded.
-`SavedEstimate` and `PartyInfo` still use the synthesized decoder, and a
-field added to either would empty the saved estimates list. Give them the same
-treatment first.
+Since 2026-09-25 every saved type reads each field on its own through the
+`read`/`merge` helpers at the bottom of `EstimatorModels.swift`: `Rates`,
+`EstimatorState`, `EstimateDocument`, `EstimateRoom`, `EstimateSection`,
+`Measurements`, `Features`, `AdditionItem`, `SavedEstimate` and `PartyInfo`.
+**A new stored property needs a line in its type's `init(from:)` as well**, or
+it is never loaded. A new saved *type* needs its own `init(from:)` before it
+is saved anywhere.
+
+`SavedEstimate` and `PartyInfo` keep fields with no default on purpose —
+nothing should create an estimate without a title — so their fallbacks live in
+`init(from:)` only. Do not add defaults to the properties to make decoding
+easier.
 
 Test a change to saving against the phone's real data, not a made-up copy:
 `xcrun devicectl device copy from --domain-type appDataContainer
