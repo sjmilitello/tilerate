@@ -278,10 +278,14 @@ func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
                                    addersPerSq: addersC)
     }
 
-    addUnits("Shelves",   qty: state.features.shelves,   rate: rates.unitShelf)
-    addUnits("Niches",    qty: state.features.niches,    rate: rates.unitNiche)
-    addUnits("Footrests", qty: state.features.footrests, rate: rates.unitFootrest)
-    addUnits("Benches",   qty: state.features.benches,   rate: rates.unitBench)
+    // Shelves, niches, footrests and benches don't go on a floor; the Features
+    // step greys them out there, and anything left over is not charged.
+    if area != .floor {
+        addUnits("Shelves",   qty: state.features.shelves,   rate: rates.unitShelf)
+        addUnits("Niches",    qty: state.features.niches,    rate: rates.unitNiche)
+        addUnits("Footrests", qty: state.features.footrests, rate: rates.unitFootrest)
+        addUnits("Benches",   qty: state.features.benches,   rate: rates.unitBench)
+    }
 
     if state.features.mosaicBand, state.measurements.mosaicSqft > 0, rates.mosaicInlayRate != 0 {
         let m = state.measurements.mosaicSqft * rates.mosaicInlayRate

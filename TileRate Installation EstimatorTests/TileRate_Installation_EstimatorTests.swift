@@ -141,6 +141,17 @@ struct MinimumAndAdderTests {
         s.features.benches = 1
         #expect(price(s, r) == 3000 + 500 + 400)
     }
+
+    @Test func floorsNeverChargeShelvesNichesFootrestsOrBenches() {
+        var r = plainRates()
+        r.base[.floor] = 20
+        r.minimum[.floor] = 0
+        r.floorEscAdjPerSqft = 0
+        r.unitShelf = 100; r.unitNiche = 250; r.unitFootrest = 150; r.unitBench = 400
+        var s = section(.floor, sqft: 100)
+        s.features.shelves = 1; s.features.niches = 2; s.features.footrests = 1; s.features.benches = 1
+        #expect(price(s, r) == 2000)
+    }
 }
 
 // MARK: - Square and rectangle size steps

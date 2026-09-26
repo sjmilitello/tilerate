@@ -142,7 +142,7 @@ extension Array {
 }
 
 /// Checkbox + numeric field row
-private func quantityRow(_ title: String, value: Binding<Int>) -> some View {
+private func quantityRow(_ title: String, value: Binding<Int>, enabled: Bool = true) -> some View {
     let isOn = Binding<Bool>(
         get: { value.wrappedValue > 0 },
         set: { on in
@@ -162,6 +162,8 @@ private func quantityRow(_ title: String, value: Binding<Int>) -> some View {
             .disabled(!isOn.wrappedValue)
             .opacity(isOn.wrappedValue ? 1 : 0.5)
     }
+    .disabled(!enabled)
+    .opacity(enabled ? 1 : 0.4)
 }
 
 // Rounded, full‑width numeric field with a title above it
@@ -1351,23 +1353,30 @@ struct ContentView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 
+                // Shelves, niches, footrests and benches don't go on a floor
+                let unitsAllowed = sec.wrappedValue.area != .floor
                 quantityRow("Shelves",   value: Binding(
                     get: { sec.wrappedValue.features.shelves },
                     set: { sec.wrappedValue.features.shelves = $0 }
-                ))
+                ), enabled: unitsAllowed)
                 quantityRow("Niches",    value: Binding(
                     get: { sec.wrappedValue.features.niches },
                     set: { sec.wrappedValue.features.niches = $0 }
-                ))
+                ), enabled: unitsAllowed)
                 quantityRow("Footrests", value: Binding(
                     get: { sec.wrappedValue.features.footrests },
                     set: { sec.wrappedValue.features.footrests = $0 }
-                ))
+                ), enabled: unitsAllowed)
                 quantityRow("Benches",   value: Binding(
                     get: { sec.wrappedValue.features.benches },
                     set: { sec.wrappedValue.features.benches = $0 }
-                ))
-                
+                ), enabled: unitsAllowed)
+                if !unitsAllowed {
+                    Text("Shelves, niches, footrests and benches aren't available for floors.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
             }
         }
     }
@@ -1737,10 +1746,12 @@ struct ContentView: View {
 
         // Feature list (unchanged)
         var features: [String] = []
-        if section.features.shelves   > 0 { features.append(section.features.shelves   == 1 ? "Shelf"    : "\(section.features.shelves) Shelves") }
-        if section.features.niches    > 0 { features.append(section.features.niches    == 1 ? "Niche"    : "\(section.features.niches) Niches") }
-        if section.features.footrests > 0 { features.append(section.features.footrests == 1 ? "Footrest" : "\(section.features.footrests) Footrests") }
-        if section.features.benches   > 0 { features.append(section.features.benches   == 1 ? "Bench"    : "\(section.features.benches) Benches") }
+        if section.area != .floor {
+            if section.features.shelves   > 0 { features.append(section.features.shelves   == 1 ? "Shelf"    : "\(section.features.shelves) Shelves") }
+            if section.features.niches    > 0 { features.append(section.features.niches    == 1 ? "Niche"    : "\(section.features.niches) Niches") }
+            if section.features.footrests > 0 { features.append(section.features.footrests == 1 ? "Footrest" : "\(section.features.footrests) Footrests") }
+            if section.features.benches   > 0 { features.append(section.features.benches   == 1 ? "Bench"    : "\(section.features.benches) Benches") }
+        }
         if section.features.mosaicBand {
             features.append("Mosaic Inlay")
         }
