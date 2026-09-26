@@ -10,9 +10,8 @@ build installed from Xcode, not an App Store app. GitHub:
 **The bundle identifier is `app.estimateapp.estimator`, and it must stay that.**
 The copy on the owner's iPhone carries it, and everything the app has saved
 lives in that app's container: estimates in `Documents/SavedEstimates.json`,
-rates, the current estimate and business details in `UserDefaults`, the admin
-login in the Keychain. Building under any other identifier installs a second,
-empty app beside the real one. The March 2026 rename set it to
+rates, the current estimate and business details in `UserDefaults`. Building
+under any other identifier installs a second, empty app beside the real one. The March 2026 rename set it to
 `app.tilerate.estimator` and nobody noticed until the app had to be
 reinstalled; it was put back on 2026-09-25.
 
@@ -74,6 +73,32 @@ xcrun devicectl device install app --device <iPhone UDID> "<derived data>/Build/
 
 `xcrun devicectl list devices` gives the UDID.
 
+## The Admin unlock
+
+Admin opens with the phone's own Face ID, falling back to the phone passcode
+(`LAContext` with `.deviceOwnerAuthentication`, in
+`Sources/Admin/AdminAuthManager.swift`). There is no admin username or
+password, so there is nothing to forget and nothing to recover. Do not bring
+one back.
+
+Until 2026-09-25 Admin had its own username and password, kept only in the
+Keychain. A forgotten password locked the owner out of their own rates: the
+"Forgot my password" email from `tilerate.com` could not change a password
+that existed only on the phone, and the reset screen a `tilerate.com` link
+opened accepted any code without checking it. All of that is gone —
+`APIClient`, `AppState`, the reset screen, the recovery email and the
+`tilerate.com` link registration. The app no longer talks to any server. The
+old username and password are still in the phone's Keychain, unread.
+
+A phone with no passcode set is let straight in, since there is nothing to
+check against and refusing would lock the owner out. Cancelling the prompt
+leaves Admin locked with an Unlock button.
+
+On the simulator, enrol Face ID and answer the prompt with `xcrun simctl
+spawn <sim UDID> notifyutil` — `-s com.apple.BiometricKit.enrollmentChanged 1`
+then `-p com.apple.BiometricKit.enrollmentChanged` to enrol, and
+`-p com.apple.BiometricKit_Sim.pearl.match` (or `.nomatch`) at the prompt.
+
 ## Where things live
 
 | Concern | Place |
@@ -81,7 +106,7 @@ xcrun devicectl device install app --device <iPhone UDID> "<derived data>/Build/
 | Pricing — every charge on an estimate | `Sources/Pricing/Pricing.swift` |
 | Rates, measurements, estimate model | `Sources/Models/EstimatorModels.swift` |
 | Saving and loading | `Sources/Persistence/Store.swift` |
-| Admin screen (rates, minimums, escalator, business details) | `Sources/Admin/` |
+| Admin screen (rates, minimums, escalator, business details) and its Face ID unlock | `Sources/Admin/` |
 | PDF estimate | `Sources/PDF/` |
 | Everything else in the UI | `Sources/Views/ContentView.swift` |
 
