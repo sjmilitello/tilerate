@@ -183,7 +183,7 @@ func computeSummary(
 
     case .floor:
         let base = rates.base[.floor] ?? 0
-        var adders = unitAwareAddersPerSq(
+        let adders = unitAwareAddersPerSq(
             baseRate: base,
             type: type,
             size: size,
@@ -194,15 +194,48 @@ func computeSummary(
         )
 
         let sqft = state.measurements.sqft
-        if Int(sqft) >= rates.floorEscThresholdLower && Int(sqft) <= rates.floorEscThresholdUpper {
-            adders += escalatorAdjPerSqft(rates: rates)
-        }
+        if sqft > 0 {
+            let minCharge = rates.minimum[.floor] ?? 0
+            let lower = max(0, rates.floorEscThresholdLower)      // e.g. 50
+            let upper = max(lower, rates.floorEscThresholdUpper)  // e.g. 99
+            let perSqEsc = escalatorAdjPerSqft(rates: rates)
 
-        running += appendComponent(labelPrefix: "Floor",
-                                   sqft: sqft,
-                                   baseRate: base,
-                                   minCharge: rates.minimum[.floor],
-                                   addersPerSq: adders)
+            // The escalator charges only the square feet above the lower
+            // threshold, on top of the minimum, and only inside the window:
+            // 50 sf and under is the minimum, 51-99 is the minimum plus the
+            // escalator for each foot over 50, and from 100 the base rate
+            // takes over. Adding the escalator to every square foot is what
+            // the March restructure did, and it overcharged the whole window.
+            let sqftInt = Int(sqft.rounded(.down))
+            let unitsOverLower = sqftInt <= upper ? max(0, sqftInt - lower) : 0
+            let escalatorPart = Double(unitsOverLower) * perSqEsc
+
+            let baseOnlyRaw = base * sqft
+            let minPlusEsc = minCharge + escalatorPart
+
+            if baseOnlyRaw >= minPlusEsc {
+                lines.append(Line(label: "Floor @ \(currency(rates: rates, value: base))/sqft × \(Int(sqft.rounded()))",
+                                  amount: baseOnlyRaw))
+                running += baseOnlyRaw
+            } else {
+                if minCharge > 0 {
+                    lines.append(Line(label: "Floor — Minimum Applied", amount: minCharge))
+                }
+                if escalatorPart > 0 {
+                    lines.append(Line(label: "Floor escalator @ \(currency(rates: rates, value: perSqEsc))/sqft × \(unitsOverLower)",
+                                      amount: escalatorPart))
+                }
+                running += minPlusEsc
+            }
+
+            // Tile type, size and layout adders go on top of whichever base won.
+            if adders != 0 {
+                let addersRaw = adders * sqft
+                lines.append(Line(label: "Floor adders @ \(currency(rates: rates, value: adders))/sqft × \(Int(sqft.rounded()))",
+                                  amount: addersRaw))
+                running += addersRaw
+            }
+        }
 
     case .wall:
         let base = rates.base[.wall] ?? 0
