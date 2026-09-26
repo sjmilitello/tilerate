@@ -129,6 +129,59 @@ struct Rates: Codable, Equatable {
     var floorEscAdjPerSqft: Double = 0
 }
 
+// Rates are saved on the phone as JSON, and the synthesized decoder refuses the
+// whole value when any key is missing. A field added in a later version is
+// missing from every saved copy, so the decode failed and Store fell back to
+// Rates() — replacing the owner's prices, minimums and escalator with the
+// defaults above. Each field is read on its own here: anything absent or
+// unreadable keeps its default and everything else keeps what was saved.
+// A new stored property must be added here too, or it is never loaded.
+extension Rates {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        func read<T: Decodable>(_ key: CodingKeys, into value: inout T) {
+            if let v = try? c.decodeIfPresent(T.self, forKey: key) { value = v }
+        }
+        // A saved table replaces the default entry by entry, so a case added
+        // to Area, TileType, TileSize or Layout starts at its default.
+        func merge<K, V: Decodable>(_ key: CodingKeys, into table: inout [K: V]) where K: Decodable & Hashable {
+            if let v = try? c.decodeIfPresent([K: V].self, forKey: key) {
+                table.merge(v) { _, saved in saved }
+            }
+        }
+
+        merge(.base, into: &base)
+        merge(.minimum, into: &minimum)
+        read(.ceilingBase, into: &ceilingBase)
+        read(.ceilingMinimum, into: &ceilingMinimum)
+        read(.showerFloorBase, into: &showerFloorBase)
+        read(.showerFloorMinimum, into: &showerFloorMinimum)
+        merge(.typeAdder, into: &typeAdder)
+        merge(.sizeAdder, into: &sizeAdder)
+        merge(.layoutAdder, into: &layoutAdder)
+        merge(.sizeSpecs, into: &sizeSpecs)
+        read(.rectSquareOverLengthIn, into: &rectSquareOverLengthIn)
+        read(.rectSquareOverWidthIn, into: &rectSquareOverWidthIn)
+        read(.rectSquareOverAdder, into: &rectSquareOverAdder)
+        read(.rectSquareUnderLengthIn, into: &rectSquareUnderLengthIn)
+        read(.rectSquareUnderWidthIn, into: &rectSquareUnderWidthIn)
+        read(.rectSquareUnderAdder, into: &rectSquareUnderAdder)
+        read(.typeAdderUnit, into: &typeAdderUnit)
+        read(.sizeAdderUnit, into: &sizeAdderUnit)
+        read(.layoutAdderUnit, into: &layoutAdderUnit)
+        read(.mosaicInlayRate, into: &mosaicInlayRate)
+        read(.unitShelf, into: &unitShelf)
+        read(.unitNiche, into: &unitNiche)
+        read(.unitFootrest, into: &unitFootrest)
+        read(.unitBench, into: &unitBench)
+        read(.floorEscThresholdLower, into: &floorEscThresholdLower)
+        read(.floorEscThresholdUpper, into: &floorEscThresholdUpper)
+        read(.floorEscAdjPerSqft, into: &floorEscAdjPerSqft)
+    }
+}
+
 // MARK: - Measurements & Features
 
 struct Measurements: Codable, Equatable, Hashable {

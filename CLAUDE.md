@@ -19,12 +19,21 @@ reinstalled; it was put back on 2026-09-25.
 **Never delete the app from the phone to fix an install.** Deleting it deletes
 its data. Install over it.
 
-**Adding a field to `Rates`, `EstimatorState` or `EstimateDocument` wipes the
-saved value on the phone.** `Store` decodes them with the synthesized
-`Codable`, which fails on a missing key, and the failure falls back to the
-defaults — so the owner's prices, minimums and escalator would silently
-become the ones in `EstimatorModels.swift`. Give the type a custom
-`init(from:)` using `decodeIfPresent` before adding any stored property.
+**A new field on a saved type must not wipe what is saved.** `Store` falls
+back to the defaults whenever a saved value will not decode, and the
+synthesized `Codable` refuses a value with any key missing — which is every
+saved copy, the moment a field is added. `Rates` reads each field on its own
+since 2026-09-25 (the extension beneath it in `EstimatorModels.swift`), so a
+new rate needs a line there as well as its property, or it is never loaded.
+**`EstimatorState` and `EstimateDocument` still use the synthesized decoder**:
+adding a field to either would lose the estimate in progress. Give them the
+same treatment first.
+
+Test a change to saving against the phone's real data, not a made-up copy:
+`xcrun devicectl device copy from --domain-type appDataContainer
+--domain-identifier app.estimateapp.estimator --source Library/Preferences`
+fetches it read-only. Compare decoded values, never the JSON text — a
+dictionary keyed by an enum is written in no fixed order.
 
 **The defaults in `Rates` are not the owner's prices.** The real ones are
 entered in the Admin screen and saved on the phone. Never reason about what a
