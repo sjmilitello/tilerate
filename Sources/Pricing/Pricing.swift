@@ -21,60 +21,46 @@ private func perSqft(from value: Double, unit: AdderUnit, baseRate: Double) -> D
     }
 }
 
-private func sizeAdderConsideringThresholds(
-    baseRate: Double,
-    size: TileSize,
-    lengthIn: Double?,
-    widthIn: Double?,
-    rates: Rates
-) -> Double {
-    let raw = rates.sizeAdder[size] ?? 0
-    let perSqRaw = perSqft(from: raw, unit: rates.sizeAdderUnit, baseRate: baseRate)
+/// Square and rectangle tiles are priced by area: a tile of the base size pays
+/// no size adder, and each whole step its area is above or below that adds the
+/// step adder once. Part steps do not count. Other shapes have no steps.
+/// Returns nil when the tile's width or length is missing, so the size adder
+/// cannot be worked out.
+func sizeSteps(size: TileSize, lengthIn: Double?, widthIn: Double?, rates: Rates) -> Int? {
+    guard size == .square || size == .rectangle else { return 0 }
+    guard let L = lengthIn, let W = widthIn, L > 0, W > 0 else { return nil }
+    guard rates.sizeStepSqIn > 0 else { return 0 }
+    let distance = abs(L * W - rates.sizeBaseAreaSqIn)
+    // The small allowance stops 107.99999 from counting as one step short of 108.
+    return Int((distance / rates.sizeStepSqIn + 1e-9).rounded(.down))
+}
 
-    switch size {
+/// True when a square or rectangle tile has no width or length entered, so its
+/// size adder cannot be charged.
+func isMissingTileDimensions(size: TileSize?, lengthIn: Double?, widthIn: Double?) -> Bool {
+    guard let size, size == .square || size == .rectangle else { return false }
+    return (lengthIn ?? 0) <= 0 || (widthIn ?? 0) <= 0
+}
+
+private func sizeAdderPerSq(baseRate: Double, tile: TileChoice, rates: Rates) -> Double {
+    switch tile.tileSize {
     case .square, .rectangle:
-        guard let L = lengthIn, let W = widthIn, L > 0, W > 0 else { return 0 }
-        let area = L * W
-        var adders: Double = 0
-        if rates.rectSquareOverLengthIn > 0, rates.rectSquareOverWidthIn > 0,
-           area > rates.rectSquareOverLengthIn * rates.rectSquareOverWidthIn {
-            adders += perSqft(from: rates.rectSquareOverAdder, unit: rates.sizeAdderUnit, baseRate: baseRate)
-        }
-        if rates.rectSquareUnderLengthIn > 0, rates.rectSquareUnderWidthIn > 0,
-           area < rates.rectSquareUnderLengthIn * rates.rectSquareUnderWidthIn {
-            adders += perSqft(from: rates.rectSquareUnderAdder, unit: rates.sizeAdderUnit, baseRate: baseRate)
-        }
-        return adders
+        let steps = sizeSteps(size: tile.tileSize, lengthIn: tile.tileLengthIn,
+                              widthIn: tile.tileWidthIn, rates: rates) ?? 0
+        return Double(steps) * perSqft(from: rates.sizeStepAdder, unit: rates.sizeAdderUnit, baseRate: baseRate)
     default:
-        return perSqRaw
+        return perSqft(from: rates.sizeAdder[tile.tileSize] ?? 0, unit: rates.sizeAdderUnit, baseRate: baseRate)
     }
 }
 
-private func unitAwareAddersPerSq(
-    baseRate: Double,
-    type: TileType,
-    size: TileSize,
-    layout: Layout,
-    rates: Rates,
-    tileLengthIn: Double?,
-    tileWidthIn: Double?
-) -> Double {
-    let typePerSq = perSqft(from: rates.typeAdder[type] ?? 0,
+private func addersPerSq(baseRate: Double, tile: TileChoice, rates: Rates) -> Double {
+    let typePerSq = perSqft(from: rates.typeAdder[tile.tileType] ?? 0,
                             unit: rates.typeAdderUnit,
                             baseRate: baseRate)
-
-    let sizePerSq = sizeAdderConsideringThresholds(
-        baseRate: baseRate,
-        size: size,
-        lengthIn: tileLengthIn,
-        widthIn: tileWidthIn,
-        rates: rates
-    )
-
-    let layoutPerSq = perSqft(from: rates.layoutAdder[layout] ?? 0,
+    let sizePerSq = sizeAdderPerSq(baseRate: baseRate, tile: tile, rates: rates)
+    let layoutPerSq = perSqft(from: rates.layoutAdder[tile.layout] ?? 0,
                               unit: rates.layoutAdderUnit,
                               baseRate: baseRate)
-
     return typePerSq + sizePerSq + layoutPerSq
 }
 
@@ -83,12 +69,7 @@ private func escalatorAdjPerSqft(rates: Rates) -> Double {
     rates.floorEscAdjPerSqft
 }
 
-func computeSummary(
-    state: EstimatorState,
-    rates: Rates,
-    tileLengthIn: Double? = nil,
-    tileWidthIn: Double? = nil
-) -> Summary {
+func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
     var lines: [Line] = []
 
     guard let area = state.area,
@@ -98,6 +79,9 @@ func computeSummary(
     else {
         return Summary(lines: [], total: 0)
     }
+
+    let mainTile = TileChoice(tileType: type, tileSize: size, layout: layout,
+                              tileWidthIn: state.tileWidthIn, tileLengthIn: state.tileLengthIn)
 
     func currency(rates: Rates, value: Double) -> String {
         let f = NumberFormatter(); f.numberStyle = .currency
@@ -137,6 +121,44 @@ func computeSummary(
         }
     }
 
+    /// Shower or tub-surround walls. With all walls the same, one area in the
+    /// main tile. Otherwise each wall has its own tile: the base rate and the
+    /// minimum apply to all the walls together, and each wall adds its own
+    /// adders on top.
+    func appendWalls(labelPrefix: String, allSameSqft: Double,
+                     baseRate: Double, minCharge: Double?) -> Double {
+        guard !state.walls.isEmpty else {
+            return appendComponent(labelPrefix: labelPrefix,
+                                   sqft: allSameSqft,
+                                   baseRate: baseRate,
+                                   minCharge: minCharge,
+                                   addersPerSq: addersPerSq(baseRate: baseRate, tile: mainTile, rates: rates))
+        }
+
+        let walls = state.walls.filter { $0.sqft > 0 }
+        guard !walls.isEmpty else { return 0 }
+        let totalSqft = walls.reduce(0) { $0 + $1.sqft }
+        let baseOnly = baseRate * totalSqft
+        let minimum = minCharge ?? 0
+        if baseOnly < minimum {
+            lines.append(Line(label: "\(labelPrefix) — Minimum Applied", amount: minimum))
+        } else {
+            lines.append(Line(label: "\(labelPrefix) @ \(currency(rates: rates, value: baseRate))/sqft × \(Int(totalSqft.rounded()))",
+                              amount: baseOnly))
+        }
+        var amount = max(baseOnly, minimum)
+
+        for (i, wall) in state.walls.enumerated() where wall.sqft > 0 {
+            let adders = addersPerSq(baseRate: baseRate, tile: wall.tile, rates: rates)
+            guard adders != 0 else { continue }
+            let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
+            lines.append(Line(label: "\(name) adders @ \(currency(rates: rates, value: adders))/sqft × \(Int(wall.sqft.rounded()))",
+                              amount: adders * wall.sqft))
+            amount += adders * wall.sqft
+        }
+        return amount
+    }
+
     var running: Double = 0
 
     @inline(__always)
@@ -149,32 +171,15 @@ func computeSummary(
 
     switch area {
     case .shower:
-        let baseWalls = rates.base[.shower] ?? 0
-        let addersWalls = unitAwareAddersPerSq(
-            baseRate: baseWalls,
-            type: type,
-            size: size,
-            layout: layout,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
-        running += appendComponent(labelPrefix: "Shower walls",
-                                   sqft: state.measurements.showerWallsSqft,
-                                   baseRate: baseWalls,
-                                   minCharge: rates.minimum[.shower],
-                                   addersPerSq: addersWalls)
+        running += appendWalls(labelPrefix: "Shower walls",
+                               allSameSqft: state.measurements.showerWallsSqft,
+                               baseRate: rates.base[.shower] ?? 0,
+                               minCharge: rates.minimum[.shower])
 
         let baseShFloor = rates.showerFloorBase
-        let addersShFloor = unitAwareAddersPerSq(
-            baseRate: baseShFloor,
-            type: type,
-            size: size,
-            layout: layout,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
+        let addersShFloor = addersPerSq(baseRate: baseShFloor,
+                                        tile: state.showerFloorTile ?? mainTile,
+                                        rates: rates)
         running += appendComponent(labelPrefix: "Shower floor",
                                    sqft: state.measurements.showerFloorSqft,
                                    baseRate: baseShFloor,
@@ -183,15 +188,7 @@ func computeSummary(
 
     case .floor:
         let base = rates.base[.floor] ?? 0
-        let adders = unitAwareAddersPerSq(
-            baseRate: base,
-            type: type,
-            size: size,
-            layout: layout,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
+        let adders = addersPerSq(baseRate: base, tile: mainTile, rates: rates)
 
         let sqft = state.measurements.sqft
         if sqft > 0 {
@@ -239,15 +236,7 @@ func computeSummary(
 
     case .wall:
         let base = rates.base[.wall] ?? 0
-        let adders = unitAwareAddersPerSq(
-            baseRate: base,
-            type: type,
-            size: size,
-            layout: layout,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
+        let adders = addersPerSq(baseRate: base, tile: mainTile, rates: rates)
         running += appendComponent(labelPrefix: "Wall",
                                    sqft: state.measurements.sqft,
                                    baseRate: base,
@@ -255,33 +244,14 @@ func computeSummary(
                                    addersPerSq: adders)
 
     case .tub:
-        let base = rates.base[.tub] ?? 0
-        let adders = unitAwareAddersPerSq(
-            baseRate: base,
-            type: type,
-            size: size,
-            layout: layout,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
-        running += appendComponent(labelPrefix: "Tub surround",
-                                   sqft: state.measurements.sqft,
-                                   baseRate: base,
-                                   minCharge: rates.minimum[.tub],
-                                   addersPerSq: adders)
+        running += appendWalls(labelPrefix: "Tub surround",
+                               allSameSqft: state.measurements.sqft,
+                               baseRate: rates.base[.tub] ?? 0,
+                               minCharge: rates.minimum[.tub])
 
     case .backsplash:
         let base = rates.base[.backsplash] ?? 0
-        let adders = unitAwareAddersPerSq(
-            baseRate: base,
-            type: type,
-            size: size,
-            layout: layout,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
+        let adders = addersPerSq(baseRate: base, tile: mainTile, rates: rates)
         running += appendComponent(labelPrefix: "Backsplash",
                                    sqft: state.measurements.sqft,
                                    baseRate: base,
@@ -290,15 +260,7 @@ func computeSummary(
 
     case .fireplace:
         let base = rates.base[.fireplace] ?? 0
-        let adders = unitAwareAddersPerSq(
-            baseRate: base,
-            type: type,
-            size: size,
-            layout: layout,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
+        let adders = addersPerSq(baseRate: base, tile: mainTile, rates: rates)
         running += appendComponent(labelPrefix: "Fireplace",
                                    sqft: state.measurements.sqft,
                                    baseRate: base,
@@ -308,15 +270,7 @@ func computeSummary(
 
     if state.measurements.ceilingSqft > 0 {
         let baseC = rates.ceilingBase
-        let addersC = unitAwareAddersPerSq(
-            baseRate: baseC,
-            type: state.tileType!,
-            size: state.tileSize!,
-            layout: state.layout!,
-            rates: rates,
-            tileLengthIn: tileLengthIn,
-            tileWidthIn: tileWidthIn
-        )
+        let addersC = addersPerSq(baseRate: baseC, tile: state.ceilingTile ?? mainTile, rates: rates)
         running += appendComponent(labelPrefix: "Ceiling",
                                    sqft: state.measurements.ceilingSqft,
                                    baseRate: baseC,
@@ -339,4 +293,61 @@ func computeSummary(
     }
 
     return Summary(lines: lines, total: running)
+}
+
+// MARK: - Whole estimate
+
+struct SectionPrice {
+    let room: EstimateRoom
+    let section: EstimateSection
+    let core: Summary
+    let labor: Double
+    let mats: Double
+    var subtotal: Double { core.total + labor + mats }
+}
+
+/// Every number on the estimate. The Summary screen and the PDF both read
+/// this, so they cannot disagree.
+struct EstimateTotals {
+    let sections: [SectionPrice]
+    let subtotal: Double
+    /// Material lines marked taxable; tax is charged on these only.
+    let taxableBase: Double
+    let taxPercent: Double
+    /// Shipping is charged only when shipping is switched on and the estimate
+    /// has material lines to ship.
+    let shipping: Double
+
+    var tax: Double { taxableBase * (taxPercent / 100.0) }
+    var grandTotal: Double { subtotal + shipping + tax }
+}
+
+func computeTotals(document: EstimateDocument,
+                   rates: Rates,
+                   shippingEnabled: Bool,
+                   shipping: Double,
+                   taxPercent: Double) -> EstimateTotals {
+    var sections: [SectionPrice] = []
+    for room in document.rooms {
+        for sec in room.sections {
+            sections.append(SectionPrice(
+                room: room,
+                section: sec,
+                core: computeSummary(state: EstimatorState(section: sec), rates: rates),
+                labor: sec.additionsLabor.reduce(0) { $0 + $1.amount },
+                mats: sec.additionsMaterials.reduce(0) { $0 + $1.amount }
+            ))
+        }
+    }
+
+    let materials = document.rooms.flatMap { $0.sections }.flatMap { $0.additionsMaterials }
+    let taxableBase = materials.filter { $0.taxable }.reduce(0) { $0 + $1.amount }
+
+    return EstimateTotals(
+        sections: sections,
+        subtotal: sections.reduce(0) { $0 + $1.subtotal },
+        taxableBase: taxableBase,
+        taxPercent: taxPercent,
+        shipping: (shippingEnabled && !materials.isEmpty) ? shipping : 0
+    )
 }

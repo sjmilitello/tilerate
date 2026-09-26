@@ -200,13 +200,13 @@ struct AdminSheet: View {
                     sizeRow(.arabesque, "Arabesque")
                     sizeRow(.hexagon, "Hexagon")
 
-                    Text("Square/Rectangle Escalators").font(.subheadline)
-                    NumericRow(title: "Over length (in)", value: $rates.rectSquareOverLengthIn, fractionDigits: 2)
-                    NumericRow(title: "Over width (in)", value: $rates.rectSquareOverWidthIn, fractionDigits: 2)
-                    baseRow("Over adder", value: $rates.rectSquareOverAdder)
-                    NumericRow(title: "Under length (in)", value: $rates.rectSquareUnderLengthIn, fractionDigits: 2)
-                    NumericRow(title: "Under width (in)", value: $rates.rectSquareUnderWidthIn, fractionDigits: 2)
-                    baseRow("Under adder", value: $rates.rectSquareUnderAdder)
+                    Text("Square/Rectangle Size Steps").font(.subheadline)
+                    NumericRow(title: "Base tile size (sq in)", value: $rates.sizeBaseAreaSqIn, fractionDigits: 2)
+                    NumericRow(title: "Step size (sq in)", value: $rates.sizeStepSqIn, fractionDigits: 2)
+                    baseRow("Adder per step", value: $rates.sizeStepAdder)
+                    Text("A tile of the base size pays no size adder. Each whole step its area is bigger or smaller adds the adder once.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
                     Picker("Units", selection: $rates.sizeAdderUnit) {
                         ForEach(AdderUnit.allCases) { u in Text(u.rawValue).tag(u) }

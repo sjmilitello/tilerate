@@ -601,7 +601,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Integrity Tile Estimator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Integrity Tile Estimator";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TileRate Installation Estimator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TileRate Installation Estimator";
 				XROS_DEPLOYMENT_TARGET = 2.5;
 			};
 			name = Debug;
@@ -625,7 +625,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Integrity Tile Estimator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Integrity Tile Estimator";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TileRate Installation Estimator.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TileRate Installation Estimator";
 				XROS_DEPLOYMENT_TARGET = 2.5;
 			};
 			name = Release;

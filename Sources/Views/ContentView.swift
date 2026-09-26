@@ -481,22 +481,37 @@ struct ContentView: View {
         sec.additionsMaterials = []
         sec.tileWidthIn = 0
         sec.tileLengthIn = 0
+        sec.showerFloorTile = nil
+        sec.ceilingTile = nil
+        sec.walls = []
     }
     
-    // Convert a Section to a temporary EstimatorState (so existing pricing functions work)
-    private func state(from sec: EstimateSection) -> EstimatorState {
-        var s = EstimatorState()
-        s.area         = sec.area
-        s.tileType     = sec.tileType
-        s.tileSize     = sec.tileSize
-        s.layout       = sec.layout
-        s.features     = sec.features
-        s.measurements = sec.measurements
-        s.tileWidthIn  = sec.tileWidthIn
-        s.tileLengthIn = sec.tileLengthIn
-        return s
+    /// Warnings for square/rectangle tiles with no width or length: their size
+    /// adder cannot be charged until one is entered.
+    private func missingSizeWarnings(_ sec: EstimateSection) -> [String] {
+        var out: [String] = []
+        if isMissingTileDimensions(size: sec.tileSize, lengthIn: sec.tileLengthIn, widthIn: sec.tileWidthIn) {
+            out.append("Tile width and length missing: no size adder charged.")
+        }
+        if sec.area == .shower || sec.area == .tub {
+            for (i, wall) in sec.walls.enumerated() where wall.sqft > 0 &&
+                isMissingTileDimensions(size: wall.tile.tileSize, lengthIn: wall.tile.tileLengthIn,
+                                        widthIn: wall.tile.tileWidthIn) {
+                let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
+                out.append("\(name) tile width and length missing: no size adder charged.")
+            }
+        }
+        if sec.area == .shower, sec.measurements.showerFloorSqft > 0, let t = sec.showerFloorTile,
+           isMissingTileDimensions(size: t.tileSize, lengthIn: t.tileLengthIn, widthIn: t.tileWidthIn) {
+            out.append("Shower floor tile width and length missing: no size adder charged.")
+        }
+        if sec.measurements.ceilingSqft > 0, let t = sec.ceilingTile,
+           isMissingTileDimensions(size: t.tileSize, lengthIn: t.tileLengthIn, widthIn: t.tileWidthIn) {
+            out.append("Ceiling tile width and length missing: no size adder charged.")
+        }
+        return out
     }
-    
+
     // Build the required sentence for PDF/summary
     private func sentence(for room: EstimateRoom, section: EstimateSection) -> String {
         let body = buildEstimateDescription(from: section)   // use the section-aware builder
@@ -1133,9 +1148,182 @@ struct ContentView: View {
                         .frame(maxWidth: 120)
                     }
                 }
+
+                sizeStepNote(size: sec.wrappedValue.tileSize,
+                             lengthIn: sec.wrappedValue.tileLengthIn,
+                             widthIn: sec.wrappedValue.tileWidthIn)
             }
         }
     }
+
+    /// Under a square/rectangle tile's width and length: how many size steps it
+    /// is from the base size, or a warning when a dimension is missing.
+    @ViewBuilder
+    private func sizeStepNote(size: TileSize?, lengthIn: Double?, widthIn: Double?) -> some View {
+        if isMissingTileDimensions(size: size, lengthIn: lengthIn, widthIn: widthIn) {
+            Label("Enter the width and length. Without them no size adder is charged.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote)
+                .foregroundStyle(.orange)
+        } else if let size, let steps = sizeSteps(size: size, lengthIn: lengthIn, widthIn: widthIn, rates: store.rates),
+                  size == .square || size == .rectangle {
+            let area = (lengthIn ?? 0) * (widthIn ?? 0)
+            Text("\(area.formatted()) sq in: \(steps) size step\(steps == 1 ? "" : "s") from \(store.rates.sizeBaseAreaSqIn.formatted()) sq in")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Toggle for giving one surface its own tile, with pickers for it when on.
+    /// Off means the surface uses the section's main tile.
+    @ViewBuilder
+    private func separateTileEditor(_ title: String,
+                                    tile: Binding<TileChoice?>,
+                                    main sec: EstimateSection) -> some View {
+        let isOn = Binding<Bool>(
+            get: { tile.wrappedValue != nil },
+            set: { tile.wrappedValue = $0 ? mainTileChoice(sec) : nil }
+        )
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(title, isOn: isOn)
+            if let current = tile.wrappedValue {
+                tileChoiceFields(Binding(get: { tile.wrappedValue ?? current },
+                                         set: { tile.wrappedValue = $0 }))
+            }
+        }
+        .padding(10)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// The section's main tile, as the starting point for a separate one.
+    private func mainTileChoice(_ sec: EstimateSection) -> TileChoice {
+        TileChoice(tileType: sec.tileType ?? .ceramic,
+                   tileSize: sec.tileSize ?? .square,
+                   layout: sec.layout ?? .straightStacked,
+                   tileWidthIn: sec.tileWidthIn,
+                   tileLengthIn: sec.tileLengthIn)
+    }
+
+    /// Type, size, layout and dimensions of one tile choice.
+    @ViewBuilder
+    private func tileChoiceFields(_ tile: Binding<TileChoice>) -> some View {
+        LabeledContent("Tile Type") {
+            Picker("Tile Type", selection: tile.tileType) {
+                ForEach(TileType.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .fixedSize()
+        }
+        LabeledContent("Tile Size") {
+            Picker("Tile Size", selection: tile.tileSize) {
+                ForEach(TileSize.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .fixedSize()
+        }
+        LabeledContent("Layout") {
+            Picker("Layout", selection: tile.layout) {
+                ForEach(Layout.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .fixedSize()
+        }
+        numberField("Width (inches)", value: inches(tile.tileWidthIn))
+        numberField("Length (inches)", value: inches(tile.tileLengthIn))
+        sizeStepNote(size: tile.wrappedValue.tileSize,
+                     lengthIn: tile.wrappedValue.tileLengthIn,
+                     widthIn: tile.wrappedValue.tileWidthIn)
+    }
+
+    /// An optional width or length as a number field; 0 or less clears it.
+    private func inches(_ value: Binding<Double?>) -> Binding<Double> {
+        Binding(get: { value.wrappedValue ?? 0 },
+                set: { value.wrappedValue = $0 > 0 ? $0 : nil })
+    }
+
+    /// Shower or tub-surround walls: "All walls the same" with one area field,
+    /// or, when off, a named, measured card with its own tile for every wall.
+    @ViewBuilder
+    private func wallsEditor(_ sec: Binding<EstimateSection>,
+                             title: String,
+                             allSameSqft: WritableKeyPath<Measurements, Double>) -> some View {
+        let allSame = Binding<Bool>(
+            get: { sec.wrappedValue.walls.isEmpty },
+            set: { same in
+                var s = sec.wrappedValue
+                if same {
+                    // Keep the measured area as the single walls figure.
+                    let total = s.walls.reduce(0) { $0 + $1.sqft }
+                    if total > 0 { s.measurements[keyPath: allSameSqft] = total }
+                    s.walls = []
+                } else {
+                    let tile = mainTileChoice(s)
+                    s.walls = ["Back Wall", "Left Wall", "Right Wall"]
+                        .map { TiledWall(name: $0, tile: tile) }
+                }
+                sec.wrappedValue = s
+            }
+        )
+
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("All walls the same tile", isOn: allSame)
+
+            if allSame.wrappedValue {
+                measurementField(title, value: Binding(
+                    get: { sec.wrappedValue.measurements[keyPath: allSameSqft] },
+                    set: { sec.wrappedValue.measurements[keyPath: allSameSqft] = $0 }
+                ))
+            } else {
+                ForEach(sec.wrappedValue.walls) { wall in
+                    let w = wallBinding(sec, wall.id)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            TextField("Wall name", text: w.name)
+                                .font(.headline)
+                                .textFieldStyle(.roundedBorder)
+                            Button(role: .destructive) {
+                                sec.wrappedValue.walls.removeAll { $0.id == wall.id }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .disabled(sec.wrappedValue.walls.count <= 1)
+                        }
+                        numberField("Area (sqft)", value: w.sqft)
+                        tileChoiceFields(w.tile)
+                    }
+                    .padding(10)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                Button {
+                    var s = sec.wrappedValue
+                    let tile = s.walls.last?.tile ?? mainTileChoice(s)
+                    s.walls.append(TiledWall(name: "Wall \(s.walls.count + 1)", tile: tile))
+                    sec.wrappedValue = s
+                } label: {
+                    Label("Add Wall", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+
+                let total = sec.wrappedValue.walls.reduce(0) { $0 + $1.sqft }
+                Text("Walls total: \(total.formatted()) sqft")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// A binding to one shower wall, found by id so removing another wall
+    /// cannot leave it pointing at the wrong one.
+    private func wallBinding(_ sec: Binding<EstimateSection>, _ id: UUID) -> Binding<TiledWall> {
+        Binding(
+            get: { sec.wrappedValue.walls.first { $0.id == id } ?? TiledWall() },
+            set: { newValue in
+                guard let i = sec.wrappedValue.walls.firstIndex(where: { $0.id == id }) else { return }
+                sec.wrappedValue.walls[i] = newValue
+            }
+        )
+    }
+
     private var layoutStep: some View {
         let sec = currentSectionBinding()
         return VStack(alignment: .leading, spacing: 14) {
@@ -1193,33 +1381,42 @@ struct ContentView: View {
             if let sec {
                 switch sec.wrappedValue.area {
                 case .shower:
-                    measurementField("Shower Walls (sqft)", value: Binding(
-                        get: { sec.wrappedValue.measurements.showerWallsSqft },
-                        set: { sec.wrappedValue.measurements.showerWallsSqft = $0 }
-                    ))
+                    wallsEditor(sec, title: "Shower Walls (sqft)", allSameSqft: \.showerWallsSqft)
                     measurementField("Shower Floor (sqft)", value: Binding(
                         get: { sec.wrappedValue.measurements.showerFloorSqft },
                         set: { sec.wrappedValue.measurements.showerFloorSqft = $0 }
                     ))
+                    if sec.wrappedValue.measurements.showerFloorSqft > 0 {
+                        separateTileEditor("Different tile on the shower floor",
+                                           tile: sec.showerFloorTile,
+                                           main: sec.wrappedValue)
+                    }
                     ceilingBlock(title: "Tile the Ceiling?",
                                  ceilingValue: Binding(
                                     get: { sec.wrappedValue.measurements.ceilingSqft },
                                     set: { sec.wrappedValue.measurements.ceilingSqft = $0 }
                                  ),
                                  ceilingLabel: "Ceiling Area (sqft)")
-                    
+                    if sec.wrappedValue.measurements.ceilingSqft > 0 {
+                        separateTileEditor("Different tile on the ceiling",
+                                           tile: sec.ceilingTile,
+                                           main: sec.wrappedValue)
+                    }
+
                 case .tub:
-                    measurementField("Tub Surround (sqft)", value: Binding(
-                        get: { sec.wrappedValue.measurements.sqft },
-                        set: { sec.wrappedValue.measurements.sqft = $0 }
-                    ))
+                    wallsEditor(sec, title: "Tub Surround (sqft)", allSameSqft: \.sqft)
                     ceilingBlock(title: "Tile the Ceiling?",
                                  ceilingValue: Binding(
                                     get: { sec.wrappedValue.measurements.ceilingSqft },
                                     set: { sec.wrappedValue.measurements.ceilingSqft = $0 }
                                  ),
                                  ceilingLabel: "Ceiling Area (sqft)")
-                    
+                    if sec.wrappedValue.measurements.ceilingSqft > 0 {
+                        separateTileEditor("Different tile on the ceiling",
+                                           tile: sec.ceilingTile,
+                                           main: sec.wrappedValue)
+                    }
+
                 case .wall:
                     measurementField("Wall Area (sqft)", value: Binding(
                         get: { sec.wrappedValue.measurements.sqft },
@@ -1272,46 +1469,16 @@ struct ContentView: View {
             )
         }
 
-        // 1) Precompute a flat list of sections (avoid nested chains in the ViewBuilder)
-        let allSections: [EstimateSection] = store.doc.rooms.flatMap { $0.sections }
-
-        // 2) Precompute per-section numbers in a simple loop (much easier to type-check)
-        var perSection: [(room: EstimateRoom,
-                          section: EstimateSection,
-                          core: Summary,
-                          labor: Double,
-                          mats: Double,
-                          subtotal: Double)] = []
-
-        for room in store.doc.rooms {
-            for sec in room.sections {
-                let core = computeSummary(
-                    state: state(from: sec),
-                    rates: store.rates,
-                    tileLengthIn: sec.tileLengthIn,
-                    tileWidthIn:  sec.tileWidthIn
-                )
-                let labor = sec.additionsLabor.reduce(0) { $0 + $1.amount }
-                let mats  = sec.additionsMaterials.reduce(0) { $0 + $1.amount }
-                perSection.append((room, sec, core, labor, mats, core.total + labor + mats))
-            }
-        }
-
-        // 3) Footer totals (split into simple steps)
-        let preTaxSubtotal: Double = perSection.reduce(0) { $0 + $1.subtotal }
-
-        let taxableBase: Double = allSections
-            .flatMap { $0.additionsMaterials }
-            .filter { $0.taxable }
-            .reduce(0.0) { $0 + $1.amount }
-
-        let hasAnySales: Bool = allSections.contains { !$0.additionsMaterials.isEmpty }
-        let shipping: Double = (hasAnySales && additionsShippingEnabled) ? exportShipping : 0.0
-        let taxPercent: Double = exportTaxPercent
-        let taxAmount: Double = (hasAnySales && taxableBase > 0)
-            ? (taxableBase * (taxPercent / 100.0))
-            : 0.0
-        let grandTotal: Double = preTaxSubtotal + shipping + taxAmount
+        // The same totals the PDF uses
+        let totals = estimateTotals()
+        let perSection = totals.sections
+        let hasAnySales: Bool = perSection.contains { !$0.section.additionsMaterials.isEmpty }
+        let preTaxSubtotal = totals.subtotal
+        let taxableBase = totals.taxableBase
+        let shipping = totals.shipping
+        let taxPercent = totals.taxPercent
+        let taxAmount = totals.tax
+        let grandTotal = totals.grandTotal
 
         // 4) Build the view using only lightweight bindings/loops
         return AnyView(
@@ -1329,6 +1496,12 @@ struct ContentView: View {
                                 // Area description line
                                 Text(sentence(for: item.room, section: item.section))
                                     .font(.subheadline)
+
+                                ForEach(missingSizeWarnings(item.section), id: \.self) { warning in
+                                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                                        .font(.footnote)
+                                        .foregroundStyle(.orange)
+                                }
 
                                 // Base installation line (the computed core total for this area)
                                 HStack {
@@ -1464,7 +1637,7 @@ struct ContentView: View {
                            cityStateZip: bizCityStateZip, phone: bizPhone, email: bizEmail),
             cust: PartyInfo(name: custName, address: custAddress, address2: custAddress2,
                             cityStateZip: custCityStateZip, phone: custPhone, email: custEmail),
-            shipping: additionsShippingEnabled ? exportShipping : 0.0,
+            shipping: estimateTotals().shipping,
             taxPercent: exportTaxPercent,
             forceSinglePage: exportForceSinglePage,
             document: store.doc
@@ -1525,14 +1698,16 @@ struct ContentView: View {
         var surfaces: [String] = []
         switch section.area {
         case .some(.shower):
-            if section.measurements.showerWallsSqft > 0 { surfaces.append("Walls") }
+            let wallsSame = section.walls.isEmpty
+            if wallsSame, section.measurements.showerWallsSqft > 0 { surfaces.append("Walls") }
             if section.measurements.showerFloorSqft > 0 { surfaces.append("Floor") }
             if section.measurements.ceilingSqft > 0    { surfaces.append("Ceiling") }
-            if surfaces.isEmpty { surfaces = ["Walls", "Floor"] }
+            if wallsSame, surfaces.isEmpty { surfaces = ["Walls", "Floor"] }
         case .some(.tub):
-            if section.measurements.sqft > 0          { surfaces.append("Walls") }
+            let wallsSame = section.walls.isEmpty
+            if wallsSame, section.measurements.sqft > 0 { surfaces.append("Walls") }
             if section.measurements.ceilingSqft > 0   { surfaces.append("Ceiling") }
-            if surfaces.isEmpty { surfaces = ["Walls"] }
+            if wallsSame, surfaces.isEmpty { surfaces = ["Walls"] }
         case .some(.floor):
             if section.measurements.sqft > 0          { surfaces.append("Floor") }
         case .some(.wall), .some(.backsplash), .some(.fireplace):
@@ -1540,8 +1715,26 @@ struct ContentView: View {
         case .none:
             break
         }
+        // Shower walls, floor or ceiling with their own tile are described separately
+        var otherTiles: [String] = []
+        if section.area == .shower || section.area == .tub {
+            for (i, wall) in section.walls.enumerated() where wall.sqft > 0 {
+                let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
+                otherTiles.append("\(tilePhrase(wall.tile)) on \(name)")
+            }
+        }
+        if section.area == .shower, section.measurements.showerFloorSqft > 0, let t = section.showerFloorTile {
+            surfaces.removeAll { $0 == "Floor" }
+            otherTiles.append("\(tilePhrase(t)) on Floor")
+        }
+        if section.measurements.ceilingSqft > 0, let t = section.ceilingTile {
+            surfaces.removeAll { $0 == "Ceiling" }
+            otherTiles.append("\(tilePhrase(t)) on Ceiling")
+        }
+        let otherTilesText = otherTiles.map { "; " + $0 }.joined()
+
         let surfacesText = surfaces.isEmpty ? "" : " on " + surfaces.joined(separator: ", ")
-        
+
         // Feature list (unchanged)
         var features: [String] = []
         if section.features.shelves   > 0 { features.append(section.features.shelves   == 1 ? "Shelf"    : "\(section.features.shelves) Shelves") }
@@ -1553,8 +1746,20 @@ struct ContentView: View {
         }
         let featuresText = features.isEmpty ? "" : " with " + features.joined(separator: ", ")
         
+        // Every surface has its own tile: no main-tile phrase to lead with
+        if surfaces.isEmpty, !otherTiles.isEmpty {
+            return "\(roomPrefix)Tile installation consisting of \(otherTiles.joined(separator: "; "))\(featuresText)."
+        }
+
         // Final sentence: SIZE first, then type
-        return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) Tile in \(layoutText) pattern\(surfacesText)\(featuresText)."
+        return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) Tile in \(layoutText) pattern\(surfacesText)\(otherTilesText)\(featuresText)."
+    }
+
+    /// "2×2 Porcelain Tile in Straight Stacked pattern", for a separate tile.
+    private func tilePhrase(_ t: TileChoice) -> String {
+        let w = inchesDisplay(t.tileWidthIn), l = inchesDisplay(t.tileLengthIn)
+        let size = [w, l].compactMap { $0 }.joined(separator: "×")
+        return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) Tile in \(t.layout.rawValue) pattern"
     }
     private func inchesDisplay(_ v: Double?) -> String? {
         guard let v, v > 0 else { return nil }
@@ -1571,6 +1776,11 @@ struct ContentView: View {
         tmp.layout       = state.layout
         tmp.features     = state.features
         tmp.measurements = state.measurements
+        tmp.tileWidthIn  = state.tileWidthIn
+        tmp.tileLengthIn = state.tileLengthIn
+        tmp.showerFloorTile = state.showerFloorTile
+        tmp.ceilingTile  = state.ceilingTile
+        tmp.walls  = state.walls
         tmp.additionsLabor = state.additionsLabor
         tmp.additionsMaterials = state.additionsMaterials
         return buildEstimateDescription(from: tmp)
@@ -1842,41 +2052,22 @@ struct ContentView: View {
         return out
     }
     
-    private func computeTotals(_ sections: [EstimateSection]) -> (core: Double, labor: Double, mats: Double, taxableBase: Double) {
-        var coreSum: Double = 0
-        var laborSum: Double = 0
-        var matsSum: Double = 0
-        var taxableBase: Double = 0
-        for sec in sections {
-            coreSum += computeSummary(state: state(from: sec), rates: store.rates, tileLengthIn: sec.tileLengthIn, tileWidthIn: sec.tileWidthIn).total
-            laborSum += sec.additionsLabor.reduce(0) { $0 + $1.amount }
-            matsSum  += sec.additionsMaterials.reduce(0) { $0 + $1.amount }
-            taxableBase += sec.additionsMaterials.filter { $0.taxable }.reduce(0) { $0 + $1.amount }
-        }
-        return (coreSum, laborSum, matsSum, taxableBase)
+    /// The one place the estimate's totals come from, for the screen and the PDF.
+    private func estimateTotals() -> EstimateTotals {
+        computeTotals(document: store.doc,
+                      rates: store.rates,
+                      shippingEnabled: additionsShippingEnabled,
+                      shipping: exportShipping,
+                      taxPercent: exportTaxPercent)
     }
-    
-    private func buildBlocks() -> [InstallationBlock] {
-        var blocks: [InstallationBlock] = []
-        let capacity = store.doc.rooms.reduce(0) { $0 + $1.sections.count }
-        blocks.reserveCapacity(capacity)
 
-        for room in store.doc.rooms {
-            for sec in room.sections {
-                let sum = computeSummary(
-                    state: state(from: sec),
-                    rates: store.rates,
-                    tileLengthIn: sec.tileLengthIn,
-                    tileWidthIn: sec.tileWidthIn
-                )
-                let desc = sentence(for: room, section: sec)
-                blocks.append(.init(description: desc,
-                                    amount: sum.total,  // <- use the total Double
-                                    labor: sec.additionsLabor,
-                                    materials: sec.additionsMaterials))
-            }
+    private func buildBlocks(_ totals: EstimateTotals) -> [InstallationBlock] {
+        totals.sections.map { item in
+            .init(description: sentence(for: item.room, section: item.section),
+                  amount: item.core.total,
+                  labor: item.section.additionsLabor,
+                  materials: item.section.additionsMaterials)
         }
-        return blocks
     }
     private func buildDescriptionCombined(from blocks: [InstallationBlock]) -> String {
         var lines: [String] = []
@@ -1905,11 +2096,10 @@ struct ContentView: View {
     private func createPDFAndPresent() {
         // 1) Gather data
         let sections = collectSections()
-        let (coreSum, laborSum, matsSum, taxableBase) = computeTotals(sections)
-        let blocks = buildBlocks()
+        let totals = estimateTotals()
+        let blocks = buildBlocks(totals)
         let descriptionCombined = buildDescriptionCombined(from: blocks)
         let (allLabor, allMats) = flattenAdditions(sections)
-        let subtotalAll = coreSum + laborSum + matsSum
 
         // 2) Parties from AppStorage
         let biz = PartyInfo(
@@ -1937,10 +2127,10 @@ struct ContentView: View {
             descriptionLine: descriptionCombined,
             forceSinglePage: exportForceSinglePage,
             logo: dynamicLogo,
-            subtotal: subtotalAll,
-            shipping: additionsShippingEnabled ? exportShipping : 0.0,
-            taxPercent: exportTaxPercent,
-            taxBase: taxableBase,
+            subtotal: totals.subtotal,
+            shipping: totals.shipping,
+            taxPercent: totals.taxPercent,
+            taxBase: totals.taxableBase,
             additionalLabor: allLabor,
             materials: allMats,
             blocks: blocks

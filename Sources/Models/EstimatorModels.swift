@@ -106,12 +106,12 @@ struct Rates: Codable, Equatable {
         }
     }
 
-    var rectSquareOverLengthIn: Double = 0
-    var rectSquareOverWidthIn: Double = 0
-    var rectSquareOverAdder: Double = 0
-    var rectSquareUnderLengthIn: Double = 0
-    var rectSquareUnderWidthIn: Double = 0
-    var rectSquareUnderAdder: Double = 0
+    // Square and rectangle tiles: a tile of `sizeBaseAreaSqIn` (12×24) pays no
+    // size adder, and every whole `sizeStepSqIn` its area is above or below
+    // that adds `sizeStepAdder` once. Part steps do not count.
+    var sizeBaseAreaSqIn: Double = 288
+    var sizeStepSqIn: Double = 54
+    var sizeStepAdder: Double = 0
 
     var typeAdderUnit: AdderUnit = .perSqft
     var sizeAdderUnit: AdderUnit = .perSqft
@@ -151,12 +151,9 @@ extension Rates {
         c.merge(.sizeAdder, into: &sizeAdder)
         c.merge(.layoutAdder, into: &layoutAdder)
         c.merge(.sizeSpecs, into: &sizeSpecs)
-        c.read(.rectSquareOverLengthIn, into: &rectSquareOverLengthIn)
-        c.read(.rectSquareOverWidthIn, into: &rectSquareOverWidthIn)
-        c.read(.rectSquareOverAdder, into: &rectSquareOverAdder)
-        c.read(.rectSquareUnderLengthIn, into: &rectSquareUnderLengthIn)
-        c.read(.rectSquareUnderWidthIn, into: &rectSquareUnderWidthIn)
-        c.read(.rectSquareUnderAdder, into: &rectSquareUnderAdder)
+        c.read(.sizeBaseAreaSqIn, into: &sizeBaseAreaSqIn)
+        c.read(.sizeStepSqIn, into: &sizeStepSqIn)
+        c.read(.sizeStepAdder, into: &sizeStepAdder)
         c.read(.typeAdderUnit, into: &typeAdderUnit)
         c.read(.sizeAdderUnit, into: &sizeAdderUnit)
         c.read(.layoutAdderUnit, into: &layoutAdderUnit)
@@ -189,6 +186,25 @@ struct Features: Codable, Equatable, Hashable {
     var benches: Int = 0
 }
 
+/// A tile chosen for one surface when it differs from the section's main tile —
+/// a mosaic shower floor under large-format walls, say.
+struct TileChoice: Codable, Equatable, Hashable {
+    var tileType: TileType = .ceramic
+    var tileSize: TileSize = .square
+    var layout: Layout = .straightStacked
+    var tileWidthIn: Double? = nil
+    var tileLengthIn: Double? = nil
+}
+
+/// One shower or tub-surround wall with its own tile, used when the walls are
+/// not all the same.
+struct TiledWall: Identifiable, Codable, Equatable, Hashable {
+    var id = UUID()
+    var name: String = ""
+    var sqft: Double = 0
+    var tile = TileChoice()
+}
+
 struct EstimatorState: Codable {
     var stepIndex: Int = 0
     var area: Area? = nil
@@ -201,8 +217,36 @@ struct EstimatorState: Codable {
     var tileWidthIn: Double? = nil
     var tileLengthIn: Double? = nil
 
+    /// nil means the shower floor / ceiling uses the main tile.
+    var showerFloorTile: TileChoice? = nil
+    var ceilingTile: TileChoice? = nil
+    /// Shower and tub surround walls. Empty means all walls are the same: one
+    /// area (`showerWallsSqft` for a shower, `sqft` for a tub surround) in the
+    /// main tile. Otherwise each wall is priced with its own tile.
+    var walls: [TiledWall] = []
+
     var additionsLabor: [AdditionItem] = []
     var additionsMaterials: [AdditionItem] = []
+}
+
+extension EstimatorState {
+    /// The pricing input for one section of a multi-room estimate.
+    init(section sec: EstimateSection) {
+        self.init()
+        area = sec.area
+        tileType = sec.tileType
+        tileSize = sec.tileSize
+        layout = sec.layout
+        features = sec.features
+        measurements = sec.measurements
+        tileWidthIn = sec.tileWidthIn
+        tileLengthIn = sec.tileLengthIn
+        showerFloorTile = sec.showerFloorTile
+        ceilingTile = sec.ceilingTile
+        walls = sec.walls
+        additionsLabor = sec.additionsLabor
+        additionsMaterials = sec.additionsMaterials
+    }
 }
 
 extension EstimatorState {
@@ -232,6 +276,13 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var additionsMaterials: [AdditionItem] = []
     var tileWidthIn: Double? = nil
     var tileLengthIn: Double? = nil
+    /// nil means the shower floor / ceiling uses the main tile.
+    var showerFloorTile: TileChoice? = nil
+    var ceilingTile: TileChoice? = nil
+    /// Shower and tub surround walls. Empty means all walls are the same: one
+    /// area (`showerWallsSqft` for a shower, `sqft` for a tub surround) in the
+    /// main tile. Otherwise each wall is priced with its own tile.
+    var walls: [TiledWall] = []
 }
 
 struct EstimateRoom: Identifiable, Codable, Equatable, Hashable {
@@ -333,6 +384,9 @@ extension EstimatorState {
         c.read(.measurements, into: &measurements)
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
+        c.read(.showerFloorTile, into: &showerFloorTile)
+        c.read(.ceilingTile, into: &ceilingTile)
+        c.read(.walls, into: &walls)
         c.read(.additionsLabor, into: &additionsLabor)
         c.read(.additionsMaterials, into: &additionsMaterials)
     }
@@ -352,6 +406,32 @@ extension EstimateSection {
         c.read(.measurements, into: &measurements)
         c.read(.additionsLabor, into: &additionsLabor)
         c.read(.additionsMaterials, into: &additionsMaterials)
+        c.read(.tileWidthIn, into: &tileWidthIn)
+        c.read(.tileLengthIn, into: &tileLengthIn)
+        c.read(.showerFloorTile, into: &showerFloorTile)
+        c.read(.ceilingTile, into: &ceilingTile)
+        c.read(.walls, into: &walls)
+    }
+}
+
+extension TiledWall {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.name, into: &name)
+        c.read(.sqft, into: &sqft)
+        c.read(.tile, into: &tile)
+    }
+}
+
+extension TileChoice {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.tileType, into: &tileType)
+        c.read(.tileSize, into: &tileSize)
+        c.read(.layout, into: &layout)
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
     }
