@@ -16,8 +16,6 @@ struct AdminGate: View {
                 if auth.isAuthenticated {
                     AdminSheet(
                         rates: $rates,
-                        unlocked: .constant(true),
-                        password: .constant(""),
                         taxPercentDefault: $taxDefault
                     )
                     .navigationTitle("Admin Settings")
@@ -54,8 +52,6 @@ struct AdminGate: View {
 
 struct AdminSheet: View {
     @Binding var rates: Rates
-    @Binding var unlocked: Bool
-    @Binding var password: String
     @Binding var taxPercentDefault: Double
 
     @AppStorage("biz.name")         private var bizName: String = ""
@@ -79,15 +75,8 @@ struct AdminSheet: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if unlocked {
-                    contentUnlocked
-                        .navigationTitle("Admin Settings")
-                } else {
-                    contentLocked
-                        .navigationTitle("Admin")
-                }
-            }
+            contentUnlocked
+                .navigationTitle("Admin Settings")
         }
         .confirmationDialog("Add Logo From",
                              isPresented: $showLogoSourceChoice,
@@ -266,21 +255,6 @@ struct AdminSheet: View {
             .scrollDismissesKeyboard(.immediately)
         }
     }
-
-    @ViewBuilder
-    private var contentLocked: some View {
-        VStack(spacing: 16) {
-            Text("Enter Admin Password").font(.headline)
-            SecureField("Password (default: TileRate)", text: $password)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { check() }
-            Button("Unlock", action: check)
-                .buttonStyle(.borderedProminent)
-        }
-        .padding()
-    }
-
-    private func check() { unlocked = (password == "TileRate") }
 
     private func saveLogo(_ image: UIImage) {
         if let data = image.pngData() {

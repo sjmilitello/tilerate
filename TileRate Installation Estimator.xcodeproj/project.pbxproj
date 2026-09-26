@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		8C1820AC2E7E404C003D9E08 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1820AB2E7E404C003D9E08 /* AppState.swift */; };
-		8C2A81A52E77952100A14094 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2A81A42E77951100A14094 /* APIClient.swift */; };
 		8CAB8A6D2E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CAB8A672E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift */; };
 		8CE7D4672F425291005C2965 /* EstimatorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4662F425291005C2965 /* EstimatorModels.swift */; };
 		8CE7D4692F42529E005C2965 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4682F42529E005C2965 /* Store.swift */; };
@@ -37,8 +35,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8C1820AB2E7E404C003D9E08 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
-		8C2A81A42E77951100A14094 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		8CAB8A372E52091F005F2C18 /* TileRate Installation Estimator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "TileRate Installation Estimator.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8CAB8A472E520920005F2C18 /* TileRate Installation EstimatorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "TileRate Installation EstimatorTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8CAB8A512E520920005F2C18 /* TileRate Installation EstimatorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "TileRate Installation EstimatorUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -131,8 +127,6 @@
 				8CE7D4602F425238005C2965 /* Pricing */,
 				8CE7D4612F425239005C2965 /* PDF */,
 				8CE7D4622F42523B005C2965 /* Admin */,
-				8CE7D4642F425242005C2965 /* Services */,
-				8CE7D4652F42524A005C2965 /* State */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -177,22 +171,6 @@
 				8CE7D46E2F425342005C2965 /* AdminViews.swift */,
 			);
 			path = Admin;
-			sourceTree = "<group>";
-		};
-		8CE7D4642F425242005C2965 /* Services */ = {
-			isa = PBXGroup;
-			children = (
-				8C2A81A42E77951100A14094 /* APIClient.swift */,
-			);
-			path = Services;
-			sourceTree = "<group>";
-		};
-		8CE7D4652F42524A005C2965 /* State */ = {
-			isa = PBXGroup;
-			children = (
-				8C1820AB2E7E404C003D9E08 /* AppState.swift */,
-			);
-			path = State;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -340,10 +318,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8C2A81A52E77952100A14094 /* APIClient.swift in Sources */,
 				8CE7D46B2F4252C8005C2965 /* Pricing.swift in Sources */,
 				8CE7D46F2F425342005C2965 /* AdminViews.swift in Sources */,
-				8C1820AC2E7E404C003D9E08 /* AppState.swift in Sources */,
 				8CE7D4692F42529E005C2965 /* Store.swift in Sources */,
 				8CE7D46D2F4252E1005C2965 /* AdminAuthManager.swift in Sources */,
 				8CE7D4672F425291005C2965 /* EstimatorModels.swift in Sources */,
