@@ -29,7 +29,8 @@ wrote that over the file.
 Since 2026-09-25 every saved type reads each field on its own through the
 `read`/`merge` helpers at the bottom of `EstimatorModels.swift`: `Rates`,
 `EstimatorState`, `EstimateDocument`, `EstimateRoom`, `EstimateSection`,
-`Measurements`, `Features`, `AdditionItem`, `SavedEstimate` and `PartyInfo`.
+`Measurements`, `Features`, `AdditionItem`, `TileChoice`, `TiledWall`,
+`SavedEstimate` and `PartyInfo`.
 **A new stored property needs a line in its type's `init(from:)` as well**, or
 it is never loaded. A new saved *type* needs its own `init(from:)` before it
 is saved anywhere.
@@ -131,4 +132,46 @@ square foot and starting it at exactly 50: a 60 sq ft floor came to $2,340
 instead of $1,640, and 99 sq ft cost more than 100. It was restored on
 2026-09-25 from the August 2025 version. When pricing changes, check a few
 floor sizes either side of each threshold — the price should never fall as
-the floor gets bigger.
+the floor gets bigger. `FloorEscalatorTests` does this.
+
+## Tile size steps (square and rectangle)
+
+Owner's rule, from 2026-09-26: a tile of 288 sq in (12×24) pays no size
+adder. Every whole 54 sq in its area is above *or* below 288 adds the size
+adder once, per square foot installed. Part steps do not count (12×12 = 144 sq
+in is 2.67 steps → 2; 24×48 = 1,152 is 16). Base size, step size and the adder
+per step are Admin settings; the adder takes the same $/sqft or % unit as the
+other size adders. Hexagon, arabesque, star/cross and mosaic keep their own
+flat adders.
+
+It replaced the Over/Under length × width escalators. A square or rectangle
+with no width or length gets no size adder, and the app warns on the Size step
+and the Summary. Code: `sizeSteps` in `Pricing.swift`.
+
+## Separate tiles within one section
+
+- **Shower floor and ceiling** (and a tub-surround ceiling) can each have their
+  own tile (`showerFloorTile`, `ceilingTile`); nil means the main tile.
+- **Shower and tub-surround walls**: "All walls the same tile" (the default,
+  `walls` empty) prices one area in the main tile. Switched off, every wall is
+  a `TiledWall` with a name, square feet and its own tile. The base rate and
+  the area's minimum apply to all the walls together — splitting walls never
+  adds minimums — and each wall adds its own adders. Walls with identical
+  tiles must cost exactly what "all the same" costs; a test checks it.
+
+A section still needs its main tile type, size and layout before it is priced.
+
+## Tests
+
+`TileRate Installation EstimatorTests` (Swift Testing) covers the escalator,
+minimums, adders, size steps, separate tiles and walls, the estimate totals,
+and loading data saved by earlier versions. Every test sets its own rates.
+The Summary screen and the PDF both take their numbers from `computeTotals`,
+so the totals tests cover both.
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project "TileRate Installation Estimator.xcodeproj" -scheme "TileRate Installation Estimator" -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5" -only-testing:"TileRate Installation EstimatorTests"
+```
+
+The test target could not run from the March rename until 2026-09-26: its
+`TEST_HOST` still named `Integrity Tile Estimator.app`.
