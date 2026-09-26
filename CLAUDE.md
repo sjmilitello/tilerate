@@ -161,6 +161,14 @@ and the Summary. Code: `sizeSteps` in `Pricing.swift`.
 
 A section still needs its main tile type, size and layout before it is priced.
 
+## Features on floors
+
+Owner's rule, from 2026-09-26: shelves, niches, footrests and benches don't go
+on a floor. On a Floor section the Features step greys them out, the price
+never charges them — even if a number was left in one — and the estimate
+description leaves them out. The decorative mosaic band stays available on
+floors. `floorsNeverChargeShelvesNichesFootrestsOrBenches` checks the price.
+
 ## Tests
 
 `TileRate Installation EstimatorTests` (Swift Testing) covers the escalator,
