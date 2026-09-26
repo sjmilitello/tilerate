@@ -231,8 +231,6 @@ private func numberField(_ title: String, value: Binding<Double>) -> some View {
 struct ContentView: View {
     @Binding var rates: Rates
     @Binding var taxDefault: Double
-    @EnvironmentObject var adminAuth: AdminAuthManager
-    @EnvironmentObject var appState: AppState
     @StateObject private var store = Store()
     @State private var showAdmin = false
     @State private var showShare = false
@@ -615,14 +613,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(
-                isPresented: Binding(
-                    get: { showAdmin && appState.pendingResetToken == nil },
-                    set: { newVal in
-                        if !newVal { showAdmin = false }
-                    }
-                )
-            ) {
+            .sheet(isPresented: $showAdmin) {
                 AdminGate(rates: $store.rates, taxDefault: $exportTaxPercent)
                     .presentationDetents([.medium, .large])
             }
@@ -846,7 +837,6 @@ struct ContentView: View {
             // Top row: Admin + Reset
             HStack(spacing: 8) {
                 Button("Admin") { showAdmin = true }
-                    .disabled(appState.pendingResetToken != nil)
                     .buttonStyle(.bordered)
                     .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
@@ -2136,8 +2126,6 @@ private struct ExportFormView: View {
         rates: .constant(Rates()),
         taxDefault: .constant(0.0)
     )
-    .environmentObject(AdminAuthManager())
-    .environmentObject(AppState())
     .environment(\.locale, .init(identifier: "en_US"))
 }
 

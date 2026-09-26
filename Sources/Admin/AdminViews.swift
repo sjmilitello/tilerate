@@ -10,20 +10,6 @@ struct AdminGate: View {
 
     @StateObject private var auth = AdminAuthManager()
 
-    @State private var newUser = ""
-    @State private var newPass = ""
-    @State private var newRecoveryEmail = ""
-
-    @State private var loginPass = ""
-
-    @State private var showCredsEditor = false
-    @State private var updUser = ""
-    @State private var updPass = ""
-    @State private var updRecoveryEmail = ""
-
-    @State private var showRecoverySheet = false
-    @State private var tempRecoveryEmail = ""
-
     var body: some View {
         NavigationStack {
             Group {
@@ -36,257 +22,31 @@ struct AdminGate: View {
                     )
                     .navigationTitle("Admin Settings")
                     .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Account") {
-                                updUser = auth.username
-                                updPass = ""
-                                updRecoveryEmail = auth.recoveryEmail ?? ""
-                                showCredsEditor = true
-                            }
-                        }
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Sign Out") { auth.signOut() }
+                            Button("Lock") { auth.lock() }
                         }
                     }
-                    .sheet(isPresented: $showCredsEditor) {
-                        AccountEditorView(
-                            updUser: $updUser,
-                            updPass: $updPass,
-                            updRecoveryEmail: $updRecoveryEmail,
-                            onSave: { user, pass, recovery in
-                                auth.createOrUpdate(
-                                    username: user,
-                                    password: pass.isEmpty ? auth.passwordFallback() : pass,
-                                    recoveryEmail: recovery
-                                )
-                                if auth.error == nil { showCredsEditor = false }
-                            },
-                            onCancel: { showCredsEditor = false },
-                            errorText: auth.error
-                        ).applyGlobalTapToDismiss()
-                    }
-                    .environmentObject(auth)
-                } else if !auth.hasCreds {
-                    Form {
-                        Section("Create Admin Account") {
-                            TextField("Username", text: $newUser)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                            SecureField("Password", text: $newPass)
-                            TextField("Recovery Email", text: $newRecoveryEmail)
-                                .keyboardType(.emailAddress)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                        }
-
-                        if let e = auth.error {
-                            Text(e).foregroundStyle(.red)
-                        }
-
-                        Section {
-                            Button("Save") {
-                                auth.createOrUpdate(
-                                    username: newUser,
-                                    password: newPass,
-                                    recoveryEmail: newRecoveryEmail
-                                )
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .navigationTitle("Admin Setup")
                 } else {
-                    Form {
-                        Section(auth.username.isEmpty ? "Welcome" : "Welcome \(auth.username)") {
-                            if auth.biometricsAllowed {
-                                Button { auth.loginWithBiometrics() } label: {
-                                    Label("Use Face ID / Touch ID", systemImage: "faceid")
-                                }
-                            }
-
-                            SecureField("Password", text: $loginPass)
-
-                            Button("Sign In") {
-                                auth.loginWithPassword(password: loginPass)
-                            }
+                    VStack(spacing: 16) {
+                        Image(systemName: "lock.fill")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        Text("Admin settings are locked.")
+                            .font(.headline)
+                        Button("Unlock") { auth.unlock() }
                             .buttonStyle(.borderedProminent)
-
-                            Button("Forgot my Username") {
-                                Task {
-                                    guard let to = auth.recoveryEmail, !to.isEmpty else {
-                                        auth.error = "No recovery email on file."
-                                        return
-                                    }
-                                    do {
-                                        try await APIClient.sendUsername(to: to, username: auth.username)
-                                        auth.error = "Username email sent."
-                                    } catch {
-                                        auth.error = error.localizedDescription
-                                    }
-                                }
-                            }
-
-                            Button("Forgot my Password") {
-                                Task {
-                                    guard let to = auth.recoveryEmail, !to.isEmpty else {
-                                        auth.error = "No recovery email on file."
-                                        return
-                                    }
-                                    do {
-                                        _ = try await APIClient.sendReset(to: to)
-                                        auth.error = "Password reset email sent."
-                                    } catch {
-                                        auth.error = error.localizedDescription
-                                    }
-                                }
-                            }
-
-                            if let e = auth.error {
-                                Text(e).foregroundStyle(.red)
-                            }
-                        }
-
-                        if auth.supportsBiometrics {
-                            Toggle(
-                                "Allow Face ID / Touch ID",
-                                isOn: Binding(
-                                    get: { auth.biometricsAllowed },
-                                    set: { auth.setBiometricsEnabled($0) }
-                                )
-                            )
+                        if let e = auth.error {
+                            Text(e)
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
                         }
                     }
-                    .navigationTitle("Admin Login")
+                    .padding()
+                    .navigationTitle("Admin")
                 }
             }
         }
-        .task {
-            if auth.hasCreds, (auth.recoveryEmail?.isEmpty ?? true) {
-                tempRecoveryEmail = ""
-                showRecoverySheet = true
-            }
-        }
-        .sheet(isPresented: $showRecoverySheet) {
-            NavigationStack {
-                Form {
-                    Section("Add Recovery Email") {
-                        TextField("you@example.com", text: $tempRecoveryEmail)
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    }
-                    if let e = auth.error {
-                        Text(e).foregroundStyle(.red)
-                    }
-                }
-                .navigationTitle("Required")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showRecoverySheet = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
-                            auth.setRecoveryEmail(tempRecoveryEmail)
-                            if auth.error == nil {
-                                showRecoverySheet = false
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-            }.applyGlobalTapToDismiss()
-        }
-    }
-}
-
-private struct AccountEditorView: View {
-    @Binding var updUser: String
-    @Binding var updPass: String
-    @Binding var updRecoveryEmail: String
-
-    let onSave: (_ user: String, _ pass: String, _ recovery: String) -> Void
-    let onCancel: () -> Void
-    var errorText: String?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Change Credentials") {
-                    TextField("Username", text: $updUser)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField("New Password", text: $updPass)
-                    TextField("Recovery Email", text: $updRecoveryEmail)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-                if let e = errorText {
-                    Text(e).foregroundStyle(.red)
-                }
-            }
-            .navigationTitle("Account")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { onSave(updUser, updPass, updRecoveryEmail) }
-                        .buttonStyle(.borderedProminent)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Reset Password
-
-struct ResetPasswordSheet: View {
-    let token: String
-    var onDone: () -> Void
-    @EnvironmentObject private var auth: AdminAuthManager
-    @State private var newPassword = ""
-    @State private var confirm = ""
-    @State private var isBusy = false
-    @State private var error: String?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Reset Password") {
-                    SecureField("New password", text: $newPassword)
-                    SecureField("Confirm password", text: $confirm)
-                }
-                if let error { Text(error).foregroundColor(.red) }
-                Button("Reset") {
-                    Task { await submit() }
-                }
-                .disabled(isBusy || newPassword.isEmpty || newPassword != confirm)
-            }
-            .navigationTitle("Reset Password")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") { onDone() }
-                }
-            }
-        }
-    }
-
-    private func submit() async {
-        guard !token.isEmpty else { return }
-        guard !newPassword.isEmpty, newPassword == confirm else { return }
-
-        isBusy = true
-        error = nil
-
-        auth.resetLocalPassword(to: newPassword)
-
-        isBusy = false
-        if auth.error == nil {
-            onDone()
-        } else {
-            error = auth.error
-        }
+        .task { auth.unlock() }
     }
 }
 
@@ -297,8 +57,6 @@ struct AdminSheet: View {
     @Binding var unlocked: Bool
     @Binding var password: String
     @Binding var taxPercentDefault: Double
-
-    @EnvironmentObject private var auth: AdminAuthManager
 
     @AppStorage("biz.name")         private var bizName: String = ""
     @AppStorage("biz.address")      private var bizAddress: String = ""
@@ -313,10 +71,6 @@ struct AdminSheet: View {
     @State private var showLogoSourceChoice = false
     @State private var pendingImage: CroppableImage? = nil
     @State private var logoViewRefresh = UUID()
-    @State private var updUser: String = ""
-    @State private var updPass: String = ""
-    @State private var updRecoveryEmail: String = ""
-    @State private var saveOK: Bool = false
 
     private struct CroppableImage: Identifiable {
         let id = UUID()
@@ -376,70 +130,6 @@ struct AdminSheet: View {
                 },
                 onCancel: { pendingImage = nil }
             ).applyGlobalTapToDismiss()
-        }
-    }
-
-    private var changeCredentialsSection_UsingLocalState: some View {
-        Section("Change Credentials") {
-            TextField("New Username", text: $updUser)
-                .textInputAutocapitalization(.never)
-
-            SecureField("New Password", text: $updPass)
-
-            TextField("Recovery Email (required)", text: $updRecoveryEmail)
-                .keyboardType(.emailAddress)
-                .textInputAutocapitalization(.never)
-
-            Button("Update") {
-                let recovery = updRecoveryEmail.isEmpty
-                    ? (auth.recoveryEmail ?? "")
-                    : updRecoveryEmail
-
-                let ok: Bool
-                if #available(iOS 9999, *) {
-                    ok = auth.createOrUpdate(
-                        username: updUser.trimmingCharacters(in: .whitespacesAndNewlines),
-                        password: updPass,
-                        recoveryEmail: recovery
-                    )
-                } else {
-                    auth.createOrUpdate(
-                        username: updUser.trimmingCharacters(in: .whitespacesAndNewlines),
-                        password: updPass,
-                        recoveryEmail: recovery
-                    )
-                    ok = (auth.error == nil)
-                }
-
-                if ok {
-                    saveOK = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                        saveOK = false
-                    }
-
-                    updPass = ""
-                    if updRecoveryEmail.isEmpty {
-                        updRecoveryEmail = recovery
-                    }
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-            }
-            .buttonStyle(.borderedProminent)
-
-            HStack(spacing: 8) {
-                if saveOK {
-                    Label("Saved", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.footnote)
-                }
-                if let e = auth.error {
-                    Text(e)
-                        .foregroundStyle(.red)
-                        .font(.footnote)
-                }
-            }
-            .animation(.default, value: saveOK)
-            .animation(.default, value: auth.error)
         }
     }
 
@@ -572,8 +262,6 @@ struct AdminSheet: View {
                 Section("Tax Defaults") {
                     NumericRow(title: "Default Tax %", value: $taxPercentDefault, fractionDigits: 2)
                 }
-
-                changeCredentialsSection_UsingLocalState
             }
             .scrollDismissesKeyboard(.immediately)
         }

@@ -2,9 +2,6 @@
 import SwiftUI
 
 struct RootView: View {
-    // You can still use AppState for deep links / reset sheet, but it does NOT hold rates/tax.
-    @EnvironmentObject private var appState: AppState
-
     // Persist your editable rates in memory for this run.
     @State private var rates = Rates()
 
@@ -22,8 +19,4 @@ struct RootView: View {
 
 #Preview("RootView") {
     RootView()
-        .environmentObject(AppState())
-        // If your preview’d ContentView expects AdminAuthManager somewhere,
-        // keep providing it in previews:
-        .environmentObject(AdminAuthManager())
 }
