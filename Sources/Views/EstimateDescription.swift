@@ -121,8 +121,8 @@ func describeSection(_ section: EstimateSection) -> String {
         if section.features.footrests > 0 { features.append(section.features.footrests == 1 ? "Footrest" : "\(section.features.footrests) Footrests") }
         if section.features.benches   > 0 { features.append(section.features.benches   == 1 ? "Bench"    : "\(section.features.benches) Benches") }
     }
-    if section.features.mosaicBand {
-        features.append("Mosaic Inlay")
+    for item in section.decoratives where item.quantity > 0 {
+        features.append(decorativePhrase(item, in: section))
     }
     let featuresText = features.isEmpty ? "" : " with " + features.joined(separator: ", ")
     
@@ -182,4 +182,78 @@ func sizeAdderNote(size: TileSize?, lengthIn: Double?, widthIn: Double?, rates: 
         adds = "adds \(trim(doublings * rates.sizeAdderPerDoubling))% of the base rate"
     }
     return "\(trim(area)) sq in · \(comparison) · \(adds)"
+}
+
+/// "Band of Glass Penny Round Mosaic on Back Wall & Left Wall", or with its
+/// name, "Band “Chair rail” of 3×12 Marble Tile". The quantity is left out.
+func decorativePhrase(_ item: DecorativeItem, in section: EstimateSection) -> String {
+    let named = item.name.isEmpty ? "" : " “\(item.name)”"
+    let w = describeInches(item.tile.tileWidthIn), l = describeInches(item.tile.tileLengthIn)
+    let size = [w, l].compactMap { $0 }.joined(separator: "×")
+    let tile = "\(size.isEmpty ? "" : size + " ")\(item.tile.tileType.rawValue) \(tileWord(size: item.tile.tileSize, style: item.tile.mosaicStyle))"
+    let places = decorativeLocationLabels(item, in: section)
+    // "&" rather than commas, so the places don't run into the features list.
+    let whereText = places.isEmpty ? "" : " on " + places.joined(separator: " & ")
+    return "\(item.kind.rawValue)\(named) of \(tile)\(whereText)"
+}
+
+/// Where a band, border or inlay can go in a shower or tub surround: its
+/// walls (Back, Left and Right when all walls are the same, otherwise each
+/// wall by name), the ceiling when tiled, and a shower's floor when measured.
+/// Keys are what `DecorativeItem.locations` stores; labels are shown.
+func decorativeLocationOptions(_ sec: EstimateSection) -> [(key: String, label: String)] {
+    guard sec.area == .shower || sec.area == .tub else { return [] }
+    var out: [(String, String)] = []
+    if sec.walls.isEmpty {
+        out += ["Back Wall", "Left Wall", "Right Wall"].map { ($0, $0) }
+    } else {
+        out += sec.walls.enumerated().map { i, w in
+            ("wall:\(w.id.uuidString)", w.name.isEmpty ? "Wall \(i + 1)" : w.name)
+        }
+    }
+    if sec.area == .shower, sec.measurements.showerFloorSqft > 0 { out.append(("Shower Floor", "Shower Floor")) }
+    if sec.measurements.ceilingSqft > 0 { out.append(("Ceiling", "Ceiling")) }
+    return out
+}
+
+/// The labels of an item's chosen locations that still exist in the area, in
+/// the area's order. A location chosen before the walls were split matches a
+/// wall of the same name.
+func decorativeLocationLabels(_ item: DecorativeItem, in sec: EstimateSection) -> [String] {
+    decorativeLocationOptions(sec).filter { item.isAt($0) }.map(\.label)
+}
+
+/// The tile a new band, border or inlay starts with: in a shower, the shower
+/// floor's mosaic when it has one; otherwise the area's main tile.
+func defaultDecorativeTile(for sec: EstimateSection) -> TileChoice {
+    if sec.area == .shower, let floor = sec.showerFloorTile, floor.tileSize == .mosaic {
+        return floor
+    }
+    return mainTile(of: sec) ?? TileChoice()
+}
+
+/// The section's main tile, when its type and shape are chosen.
+private func mainTile(of sec: EstimateSection) -> TileChoice? {
+    guard let tileType = sec.tileType, let tileSize = sec.tileSize else { return nil }
+    return TileChoice(tileType: tileType, tileSize: tileSize, layout: sec.layout ?? .straightStacked,
+                      tileWidthIn: sec.tileWidthIn, tileLengthIn: sec.tileLengthIn, mosaicStyle: sec.mosaicStyle)
+}
+
+extension DecorativeItem {
+    func isAt(_ option: (key: String, label: String)) -> Bool {
+        locations.contains(option.key)
+            || locations.contains { $0.caseInsensitiveCompare(option.label) == .orderedSame }
+    }
+
+    /// Selects or clears a location. Bands and borders can span several; an
+    /// inlay sits in one place, so choosing another replaces it.
+    mutating func toggleLocation(_ option: (key: String, label: String)) {
+        if isAt(option) {
+            locations.removeAll { $0 == option.key || $0.caseInsensitiveCompare(option.label) == .orderedSame }
+        } else if kind == .inlay {
+            locations = [option.key]
+        } else {
+            locations.append(option.key)
+        }
+    }
 }

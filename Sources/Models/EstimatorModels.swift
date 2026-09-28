@@ -150,7 +150,12 @@ struct Rates: Codable, Equatable {
     var sizeAdderUnit: AdderUnit = .perSqft
     var layoutAdderUnit: AdderUnit = .perSqft
 
+    /// Inlays, per square foot. (Kept under its old name so the price saved
+    /// for the old mosaic band/inlay carries over.)
     var mosaicInlayRate: Double = 0
+    /// Bands and borders, per linear foot.
+    var bandRatePerLinFt: Double = 0
+    var borderRatePerLinFt: Double = 0
 
     var unitShelf: Double = 600
     var unitNiche: Double = 600
@@ -191,6 +196,8 @@ extension Rates {
         c.read(.sizeAdderUnit, into: &sizeAdderUnit)
         c.read(.layoutAdderUnit, into: &layoutAdderUnit)
         c.read(.mosaicInlayRate, into: &mosaicInlayRate)
+        c.read(.bandRatePerLinFt, into: &bandRatePerLinFt)
+        c.read(.borderRatePerLinFt, into: &borderRatePerLinFt)
         c.read(.unitShelf, into: &unitShelf)
         c.read(.unitNiche, into: &unitNiche)
         c.read(.unitFootrest, into: &unitFootrest)
@@ -208,15 +215,43 @@ struct Measurements: Codable, Equatable, Hashable {
     var showerWallsSqft: Double = 0
     var showerFloorSqft: Double = 0
     var ceilingSqft: Double = 0
+    /// The old single mosaic band/inlay area. Read only to convert old
+    /// estimates into a `DecorativeItem`.
     var mosaicSqft: Double = 0
 }
 
 struct Features: Codable, Equatable, Hashable {
+    /// The old single mosaic band/inlay switch. Read only to convert old
+    /// estimates into a `DecorativeItem`.
     var mosaicBand: Bool = false
     var shelves: Int = 0
     var niches: Int = 0
     var footrests: Int = 0
     var benches: Int = 0
+}
+
+/// A decorative band, border or inlay. Bands and borders are measured and
+/// priced by the linear foot, inlays by the square foot.
+enum DecorativeKind: String, CaseIterable, Codable, Identifiable {
+    case band = "Band"
+    case border = "Border"
+    case inlay = "Inlay"
+    var id: String { rawValue }
+    var unit: String { self == .inlay ? "sq ft" : "lin ft" }
+}
+
+/// One band, border or inlay in an area, with its own tile.
+struct DecorativeItem: Identifiable, Codable, Equatable, Hashable {
+    var id = UUID()
+    var kind: DecorativeKind = .band
+    var name: String = ""
+    /// Linear feet for a band or border, square feet for an inlay.
+    var quantity: Double = 0
+    var tile = TileChoice()
+    /// Where it goes in a shower or tub surround: keys from
+    /// `decorativeLocationOptions`. Bands and borders can take several,
+    /// an inlay one. Empty means not specified.
+    var locations: [String] = []
 }
 
 /// A tile chosen for one surface when it differs from the section's main tile —
@@ -261,6 +296,8 @@ struct EstimatorState: Codable {
     /// area (`showerWallsSqft` for a shower, `sqft` for a tub surround) in the
     /// main tile. Otherwise each wall is priced with its own tile.
     var walls: [TiledWall] = []
+    /// Bands, borders and inlays, in any number and mix.
+    var decoratives: [DecorativeItem] = []
 
     var additionsLabor: [AdditionItem] = []
     var additionsMaterials: [AdditionItem] = []
@@ -282,6 +319,7 @@ extension EstimatorState {
         showerFloorTile = sec.showerFloorTile
         ceilingTile = sec.ceilingTile
         walls = sec.walls
+        decoratives = sec.decoratives
         additionsLabor = sec.additionsLabor
         additionsMaterials = sec.additionsMaterials
     }
@@ -323,6 +361,8 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     /// area (`showerWallsSqft` for a shower, `sqft` for a tub surround) in the
     /// main tile. Otherwise each wall is priced with its own tile.
     var walls: [TiledWall] = []
+    /// Bands, borders and inlays, in any number and mix.
+    var decoratives: [DecorativeItem] = []
 }
 
 struct EstimateRoom: Identifiable, Codable, Equatable, Hashable {
@@ -428,6 +468,8 @@ extension EstimatorState {
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
+        c.read(.decoratives, into: &decoratives)
+        convertOldMosaicBand(features: &features, measurements: &measurements, into: &decoratives)
         c.read(.additionsLabor, into: &additionsLabor)
         c.read(.additionsMaterials, into: &additionsMaterials)
     }
@@ -453,6 +495,36 @@ extension EstimateSection {
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
+        c.read(.decoratives, into: &decoratives)
+        convertOldMosaicBand(features: &features, measurements: &measurements, into: &decoratives)
+    }
+}
+
+/// Estimates saved before bands, borders and inlays had a switch for one
+/// "mosaic band, border or inlay" and its square feet, priced at the inlay
+/// rate. That becomes one inlay, so the price is unchanged.
+private func convertOldMosaicBand(features: inout Features, measurements: inout Measurements,
+                                  into decoratives: inout [DecorativeItem]) {
+    guard features.mosaicBand else { return }
+    if measurements.mosaicSqft > 0 {
+        decoratives.append(DecorativeItem(kind: .inlay, name: "Mosaic band, border or inlay",
+                                          quantity: measurements.mosaicSqft,
+                                          tile: TileChoice(tileSize: .mosaic)))
+    }
+    features.mosaicBand = false
+    measurements.mosaicSqft = 0
+}
+
+extension DecorativeItem {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.kind, into: &kind)
+        c.read(.name, into: &name)
+        c.read(.quantity, into: &quantity)
+        c.read(.tile, into: &tile)
+        c.read(.locations, into: &locations)
     }
 }
 

@@ -360,6 +360,197 @@ struct MosaicStyleTests {
     }
 }
 
+// MARK: - Bands, borders and inlays
+
+struct DecorativeTests {
+    private func rates() -> Rates {
+        var r = plainRates()
+        r.base[.wall] = 20
+        r.minimum[.wall] = 0
+        r.bandRatePerLinFt = 15
+        r.borderRatePerLinFt = 12
+        r.mosaicInlayRate = 40
+        return r
+    }
+
+    @Test func eachKindUsesItsOwnRateAndUnit() {
+        var s = section(.wall, sqft: 100)
+        s.decoratives = [
+            DecorativeItem(kind: .band, quantity: 10),     // 10 lin ft × $15
+            DecorativeItem(kind: .border, quantity: 8),    // 8 lin ft × $12
+            DecorativeItem(kind: .inlay, quantity: 4),     // 4 sq ft × $40
+        ]
+        #expect(price(s, rates()) == 2000 + 150 + 96 + 160)
+    }
+
+    @Test func anyNumberInAnyMix() {
+        var s = section(.wall, sqft: 100)
+        s.decoratives = [
+            DecorativeItem(kind: .band, quantity: 10), DecorativeItem(kind: .band, quantity: 6),
+            DecorativeItem(kind: .inlay, quantity: 2), DecorativeItem(kind: .inlay, quantity: 3),
+        ]
+        #expect(price(s, rates()) == 2000 + 16 * 15 + 5 * 40)
+    }
+
+    @Test func theTileDescribesButDoesNotChangeThePrice() {
+        var r = rates()
+        r.typeAdder[.marble] = 9
+        var s = section(.wall, sqft: 100)
+        s.decoratives = [DecorativeItem(kind: .band, quantity: 10, tile: TileChoice(tileType: .marble))]
+        #expect(price(s, r) == 2000 + 150)
+    }
+
+    @Test func unmeasuredItemsAddNothing() {
+        var s = section(.wall, sqft: 100)
+        s.decoratives = [DecorativeItem(kind: .border, quantity: 0)]
+        #expect(price(s, rates()) == 2000)
+    }
+
+    @Test func worksOnFloors() {
+        var r = rates()
+        r.base[.floor] = 20
+        r.minimum[.floor] = 0
+        r.floorEscAdjPerSqft = 0
+        var s = section(.floor, sqft: 100)
+        s.decoratives = [DecorativeItem(kind: .border, quantity: 40)]
+        #expect(price(s, r) == 2000 + 480)
+    }
+
+    @Test func aShowerDefaultsToTheFloorsMosaic() {
+        var s = section(.shower, type: .porcelain, size: .rectangle, widthIn: 12, lengthIn: 24)
+        let floor = TileChoice(tileType: .glass, tileSize: .mosaic, mosaicStyle: .pennyRound)
+        s.showerFloorTile = floor
+        #expect(defaultDecorativeTile(for: s) == floor)
+
+        // A floor tile that isn't a mosaic: fall back to the main tile.
+        s.showerFloorTile = TileChoice(tileType: .marble, tileSize: .hexagon)
+        #expect(defaultDecorativeTile(for: s).tileType == .porcelain)
+        #expect(defaultDecorativeTile(for: s).tileSize == .rectangle)
+
+        // Other areas: the main tile.
+        var w = section(.wall, type: .slate, size: .square, widthIn: 12, lengthIn: 12)
+        w.showerFloorTile = floor
+        #expect(defaultDecorativeTile(for: w).tileType == .slate)
+    }
+
+    @Test func theEstimateListsThem() {
+        var s = section(.wall, sqft: 100, type: .porcelain, size: .rectangle, widthIn: 12, lengthIn: 24)
+        s.decoratives = [
+            DecorativeItem(kind: .band, name: "Chair rail", quantity: 12,
+                           tile: TileChoice(tileType: .glass, tileSize: .mosaic, mosaicStyle: .pennyRound)),
+            DecorativeItem(kind: .inlay, quantity: 4, tile: TileChoice(tileType: .marble, tileSize: .square,
+                                                                       tileWidthIn: 6, tileLengthIn: 6)),
+        ]
+        let d = describeSection(s)
+        #expect(d.contains("Band “Chair rail” of Glass Penny Round Mosaic"))
+        #expect(d.contains("Inlay of 6×6 Marble Tile"))
+        #expect(!d.contains("lin ft") && !d.contains("sq ft"))
+    }
+
+    @Test func locationOptionsFollowTheArea() {
+        var tub = section(.tub, sqft: 50)
+        #expect(decorativeLocationOptions(tub).map(\.label) == ["Back Wall", "Left Wall", "Right Wall"])
+        tub.measurements.ceilingSqft = 10
+        #expect(decorativeLocationOptions(tub).map(\.label) == ["Back Wall", "Left Wall", "Right Wall", "Ceiling"])
+
+        var shower = section(.shower)
+        shower.walls = [TiledWall(name: "Back wall", sqft: 40), TiledWall(name: "Left wall", sqft: 30),
+                        TiledWall(name: "Right wall", sqft: 30), TiledWall(name: "Knee wall", sqft: 8)]
+        shower.measurements.showerFloorSqft = 12
+        #expect(decorativeLocationOptions(shower).map(\.label)
+                == ["Back wall", "Left wall", "Right wall", "Knee wall", "Shower Floor"])
+
+        #expect(decorativeLocationOptions(section(.wall, sqft: 50)).isEmpty)
+        #expect(decorativeLocationOptions(section(.floor, sqft: 50)).isEmpty)
+    }
+
+    @Test func bandsTakeSeveralLocationsInlaysOne() {
+        let tub = section(.tub, sqft: 50)
+        let opts = decorativeLocationOptions(tub)
+        var band = DecorativeItem(kind: .band)
+        band.toggleLocation(opts[0]); band.toggleLocation(opts[1])
+        #expect(decorativeLocationLabels(band, in: tub) == ["Back Wall", "Left Wall"])
+        band.toggleLocation(opts[0])
+        #expect(decorativeLocationLabels(band, in: tub) == ["Left Wall"])
+
+        var inlay = DecorativeItem(kind: .inlay)
+        inlay.toggleLocation(opts[0]); inlay.toggleLocation(opts[2])
+        #expect(decorativeLocationLabels(inlay, in: tub) == ["Right Wall"])
+    }
+
+    @Test func locationsFollowWallsByIdAndSurviveSplittingWalls() {
+        var shower = section(.shower)
+        let knee = TiledWall(name: "Knee wall", sqft: 8)
+        shower.walls = [TiledWall(name: "Back Wall", sqft: 40), knee]
+        var band = DecorativeItem(kind: .border, quantity: 6)
+        band.toggleLocation(decorativeLocationOptions(shower)[1])
+        shower.walls[1].name = "Half wall"                     // renamed: still linked
+        #expect(decorativeLocationLabels(band, in: shower) == ["Half wall"])
+        shower.walls.remove(at: 1)                              // removed: dropped
+        #expect(decorativeLocationLabels(band, in: shower).isEmpty)
+
+        // Chosen while all walls were the same, then the walls were split.
+        var tub = section(.tub, sqft: 50)
+        var b2 = DecorativeItem(kind: .band)
+        b2.toggleLocation(decorativeLocationOptions(tub)[0])  // "Back Wall"
+        tub.walls = [TiledWall(name: "Back wall", sqft: 30), TiledWall(name: "Left wall", sqft: 20)]
+        #expect(decorativeLocationLabels(b2, in: tub) == ["Back wall"])
+    }
+
+    @Test func theEstimateSaysWhereButThePriceIgnoresIt() {
+        var tub = section(.tub, sqft: 50, type: .porcelain, size: .rectangle, widthIn: 12, lengthIn: 24)
+        var band = DecorativeItem(kind: .band, quantity: 10,
+                                  tile: TileChoice(tileType: .glass, tileSize: .mosaic, mosaicStyle: .pennyRound))
+        let opts = decorativeLocationOptions(tub)
+        band.toggleLocation(opts[0]); band.toggleLocation(opts[1])
+        tub.decoratives = [band]
+        #expect(describeSection(tub).contains("Band of Glass Penny Round Mosaic on Back Wall & Left Wall"))
+
+        var r = rates()
+        r.base[.tub] = 26
+        r.minimum[.tub] = 0
+        var noPlace = tub
+        noPlace.decoratives[0].locations = []
+        #expect(price(tub, r) == price(noPlace, r))
+    }
+
+    @Test func anOldMosaicBandBecomesAnInlayAtTheSamePrice() throws {
+        // Saved before bands, borders and inlays: one switch and its square feet.
+        let json = """
+        {"id":"4E1D1C4A-0000-4000-8000-000000000002","area":"Wall","tileType":"Ceramic",
+         "tileSize":"Hexagon","layout":"Straight Stacked",
+         "features":{"mosaicBand":true},"measurements":{"sqft":100,"mosaicSqft":6}}
+        """
+        let s = try JSONDecoder().decode(EstimateSection.self, from: Data(json.utf8))
+        #expect(s.decoratives.count == 1)
+        #expect(s.decoratives[0].kind == .inlay)
+        #expect(s.decoratives[0].quantity == 6)
+        #expect(!s.features.mosaicBand)
+        #expect(price(s, rates()) == 2000 + 6 * 40)     // same as the old inlay price
+    }
+
+    @Test func savedDataWithoutThemStillLoads() throws {
+        let json = #"{"area":"Wall","measurements":{"sqft":100}}"#
+        let s = try JSONDecoder().decode(EstimateSection.self, from: Data(json.utf8))
+        #expect(s.decoratives.isEmpty)
+        let r = try JSONDecoder().decode(Rates.self, from: Data(#"{"mosaicInlayRate":35}"#.utf8))
+        #expect(r.mosaicInlayRate == 35)
+        #expect(r.bandRatePerLinFt == 0 && r.borderRatePerLinFt == 0)
+
+        let item = try JSONDecoder().decode(DecorativeItem.self, from: Data(#"{"kind":"Border","quantity":9}"#.utf8))
+        #expect(item.kind == .border && item.quantity == 9 && item.locations.isEmpty)
+
+        var saved = section(.shower)
+        saved.decoratives = [DecorativeItem(kind: .band, name: "Accent", quantity: 7.5,
+                                            tile: TileChoice(tileType: .glass, tileSize: .mosaic, mosaicStyle: .picket),
+                                            locations: ["Back Wall", "Ceiling"])]
+        let back = try JSONDecoder().decode(EstimateSection.self, from: JSONEncoder().encode(saved))
+        #expect(back == saved)
+        let state = try JSONDecoder().decode(EstimatorState.self, from: JSONEncoder().encode(EstimatorState(section: saved)))
+        #expect(state.decoratives == saved.decoratives)
+    }
+}
+
 // MARK: - Separate shower floor and ceiling tiles
 
 struct SeparateTileTests {

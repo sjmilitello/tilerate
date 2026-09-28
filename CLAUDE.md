@@ -171,6 +171,29 @@ the piece size and show on the estimate; the doubling size adder does not
 apply to mosaics. New enum cases are safe for saved data: rates tables merge,
 so a new case starts at its default.
 
+## Bands, borders and inlays
+
+From 2026-09-28 an area can have any number of bands, borders and inlays
+(`DecorativeItem`), each with an optional name, its own tile and its own rate
+in Admin: bands and borders per linear foot (`bandRatePerLinFt`,
+`borderRatePerLinFt`), inlays per square foot (`mosaicInlayRate`, the old
+mosaic inlay rate kept under its name so the saved price carries over). The
+tile describes the item on the estimate; it doesn't change its price. A new
+item in a shower starts with the shower floor's tile when that is a mosaic,
+otherwise with the area's main tile.
+
+In a shower or tub surround each item can also have locations
+(`decorativeLocationOptions`): the walls (Back, Left and Right when all walls
+are the same, otherwise each wall, stored by id so renaming keeps the link),
+the ceiling when tiled and a shower's floor when measured. Bands and borders
+take several, an inlay one. Locations appear in the estimate wording
+("… on Back Wall & Left Wall"), never in the price. The estimate wording
+leaves out linear and square feet.
+
+They replaced one "mosaic band, border or inlay" switch with a square-foot
+figure. An estimate saved with that switch on converts, when read, into one
+inlay of the same square feet, so its price is unchanged.
+
 ## Separate tiles within one section
 
 - **Shower floor and ceiling** (and a tub-surround ceiling) can each have their

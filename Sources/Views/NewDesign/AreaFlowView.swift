@@ -17,10 +17,11 @@ struct AreaFlowView: View {
 
     /// Which separate tile the tile sheet is editing.
     private enum TileTarget: Identifiable {
-        case wall(UUID), floor, ceiling
+        case wall(UUID), floor, ceiling, decorative(UUID)
         var id: String {
             switch self {
             case .wall(let id): "wall-\(id)"
+            case .decorative(let id): "decorative-\(id)"
             case .floor: "floor"
             case .ceiling: "ceiling"
             }
@@ -191,6 +192,7 @@ struct AreaFlowView: View {
             s.measurements = Measurements()
             s.additionsLabor = []
             s.additionsMaterials = []
+            s.decoratives = []
             s.showerFloorTile = nil
             s.ceilingTile = nil
             s.walls = []
@@ -420,6 +422,9 @@ struct AreaFlowView: View {
                         tile: Binding(get: { section.showerFloorTile ?? TileChoice() },
                                       set: { sec.wrappedValue.showerFloorTile = $0 }),
                         rates: store.rates)
+        case .decorative(let id):
+            let item = decorativeBinding(id)
+            NDTileSheet(title: "\(item.wrappedValue.kind.rawValue) tile", tile: item.tile, rates: store.rates)
         case .ceiling:
             NDTileSheet(title: "Ceiling tile",
                         tile: Binding(get: { section.ceilingTile ?? TileChoice() },
@@ -451,17 +456,23 @@ struct AreaFlowView: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Decorative").font(.ndTitle(22))
-                NDCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle("Mosaic band, border or inlay", isOn: sec.features.mosaicBand)
-                            .font(.system(size: 16, weight: .medium))
-                        if section.features.mosaicBand {
-                            sqftField(sec.measurements.mosaicSqft, label: "Mosaic square feet")
+                Text("Bands, borders & inlays").font(.ndTitle(22))
+                if !section.decoratives.isEmpty {
+                    NDCard {
+                        ForEach(Array(section.decoratives.enumerated()), id: \.element.id) { i, item in
+                            if i > 0 { Divider().overlay(ND.border) }
+                            decorativeRow(item)
                         }
                     }
-                    .padding(14)
                 }
+                HStack(spacing: 8) {
+                    ForEach(DecorativeKind.allCases) { kind in
+                        Button { addDecorative(kind) } label: { Label(kind.rawValue, systemImage: "plus") }
+                            .buttonStyle(NDSecondaryButtonStyle())
+                    }
+                }
+                Text("Bands and borders are priced per linear foot, inlays per square foot.")
+                    .font(.system(size: 13)).foregroundStyle(ND.muted)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -488,6 +499,77 @@ struct AreaFlowView: View {
                     .font(.system(size: 13)).foregroundStyle(ND.muted)
             }
         }
+    }
+
+    private func decorativeRow(_ item: DecorativeItem) -> some View {
+        let d = decorativeBinding(item.id)
+        let options = decorativeLocationOptions(section)
+        return VStack(alignment: .leading, spacing: 8) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.kind.rawValue.uppercased())
+                    .font(.system(size: 11, weight: .semibold)).tracking(1)
+                    .foregroundStyle(ND.muted)
+                TextField("Name (optional)", text: d.name)
+                    .font(.system(size: 16, weight: .semibold))
+                Button { editing = .decorative(item.id) } label: {
+                    Text(item.tile.ndSummary).font(.system(size: 13)).multilineTextAlignment(.leading)
+                }
+                .foregroundStyle(ND.link)
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 6) {
+                    NDNumberField(placeholder: "0", value: d.quantity, alignment: .trailing)
+                        .frame(width: 76)
+                    Text(item.kind.unit).font(.system(size: 13)).foregroundStyle(ND.muted)
+                }
+                let rate = decorativeRate(item.kind, rates: store.rates)
+                Text(rate == 0 ? "No rate set in Admin" : ND.money(item.quantity * rate))
+                    .font(.system(size: 13).monospacedDigit())
+                    .foregroundStyle(rate == 0 ? ND.warning : ND.secondary)
+            }
+            Menu {
+                Button { editing = .decorative(item.id) } label: { Label("Change tile", systemImage: "square.grid.2x2") }
+                Button(role: .destructive) {
+                    sec.wrappedValue.decoratives.removeAll { $0.id == item.id }
+                } label: { Label("Remove", systemImage: "trash") }
+            } label: {
+                Image(systemName: "ellipsis").frame(width: 32, height: 44)
+            }
+            .foregroundStyle(ND.muted)
+            .accessibilityLabel("\(item.kind.rawValue) options")
+        }
+            if !options.isEmpty {
+                Text(item.kind == .inlay ? "LOCATION" : "LOCATIONS — CHOOSE ANY")
+                    .font(.system(size: 11, weight: .semibold)).tracking(1)
+                    .foregroundStyle(ND.muted)
+                NDFlow(spacing: 6) {
+                    ForEach(options, id: \.key) { opt in
+                        NDChip(title: opt.label, selected: item.isAt(opt)) {
+                            d.wrappedValue.toggleLocation(opt)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func addDecorative(_ kind: DecorativeKind) {
+        sec.wrappedValue.decoratives.append(
+            DecorativeItem(kind: kind, tile: defaultDecorativeTile(for: section)))
+    }
+
+    private func decorativeBinding(_ id: UUID) -> Binding<DecorativeItem> {
+        Binding(
+            get: { section.decoratives.first { $0.id == id } ?? DecorativeItem() },
+            set: { newValue in
+                guard let i = section.decoratives.firstIndex(where: { $0.id == id }) else { return }
+                sec.wrappedValue.decoratives[i] = newValue
+            }
+        )
     }
 
     private func lineRow(_ item: AdditionItem, materials: Bool) -> some View {

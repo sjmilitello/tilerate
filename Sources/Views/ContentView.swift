@@ -476,6 +476,7 @@ struct ContentView: View {
         sec.showerFloorTile = nil
         sec.ceilingTile = nil
         sec.walls = []
+        sec.decoratives = []
     }
     
     private func missingSizeWarnings(_ sec: EstimateSection) -> [String] {
@@ -1304,6 +1305,73 @@ struct ContentView: View {
         }
     }
 
+    /// Bands, borders and inlays: any number of each, each with its own tile.
+    @ViewBuilder
+    private func decorativesEditor(_ sec: Binding<EstimateSection>) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Bands, Borders & Inlays").font(.headline)
+            ForEach(sec.wrappedValue.decoratives) { item in
+                let d = decorativeBinding(sec, item.id)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(item.kind.rawValue).font(.subheadline.weight(.semibold))
+                        TextField("Name (optional)", text: d.name)
+                            .textFieldStyle(.roundedBorder)
+                        Button(role: .destructive) {
+                            sec.wrappedValue.decoratives.removeAll { $0.id == item.id }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                    }
+                    numberField(item.kind == .inlay ? "Square feet" : "Linear feet", value: d.quantity)
+                    let options = decorativeLocationOptions(sec.wrappedValue)
+                    if !options.isEmpty {
+                        Text(item.kind == .inlay ? "Location" : "Locations").font(.subheadline)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack {
+                                ForEach(options, id: \.key) { opt in
+                                    let on = item.isAt(opt)
+                                    Button(opt.label) { d.wrappedValue.toggleLocation(opt) }
+                                        .buttonStyle(.bordered)
+                                        .tint(on ? .blue : .gray)
+                                        .fontWeight(on ? .semibold : .regular)
+                                }
+                            }
+                        }
+                    }
+                    tileChoiceFields(d.tile)
+                }
+                .padding(10)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            HStack {
+                ForEach(DecorativeKind.allCases) { kind in
+                    Button {
+                        let s = sec.wrappedValue
+                        sec.wrappedValue.decoratives.append(DecorativeItem(kind: kind, tile: defaultDecorativeTile(for: s)))
+                    } label: {
+                        Label(kind.rawValue, systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            Text("Bands and borders are priced per linear foot, inlays per square foot.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func decorativeBinding(_ sec: Binding<EstimateSection>, _ id: UUID) -> Binding<DecorativeItem> {
+        Binding(
+            get: { sec.wrappedValue.decoratives.first { $0.id == id } ?? DecorativeItem() },
+            set: { newValue in
+                guard let i = sec.wrappedValue.decoratives.firstIndex(where: { $0.id == id }) else { return }
+                sec.wrappedValue.decoratives[i] = newValue
+            }
+        )
+    }
+
     /// A binding to one shower wall, found by id so removing another wall
     /// cannot leave it pointing at the wrong one.
     private func wallBinding(_ sec: Binding<EstimateSection>, _ id: UUID) -> Binding<TiledWall> {
@@ -1339,13 +1407,7 @@ struct ContentView: View {
         let sec = currentSectionBinding()
         return VStack(alignment: .leading, spacing: 14) {
             if let sec {
-                Toggle("Decorative Mosaic Band, Border, or Inlay?", isOn: Binding(
-                    get: { sec.wrappedValue.features.mosaicBand },
-                    set: { sec.wrappedValue.features.mosaicBand = $0 }
-                ))
-                Text("If Checked, Enter Total Mosaic sqft in Measurements")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                decorativesEditor(sec)
                 
                 // Shelves, niches, footrests and benches don't go on a floor
                 let unitsAllowed = sec.wrappedValue.area != .floor
@@ -1449,12 +1511,6 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 
-                if sec.wrappedValue.features.mosaicBand {
-                    numberField("Mosaic Inlay (sqft)", value: Binding(
-                        get: { sec.wrappedValue.measurements.mosaicSqft },
-                        set: { sec.wrappedValue.measurements.mosaicSqft = $0 }
-                    ))
-                }
                 
             }
         }

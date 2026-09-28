@@ -292,16 +292,34 @@ func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
         addUnits("Benches",   qty: state.features.benches,   rate: rates.unitBench)
     }
 
-    if state.features.mosaicBand, state.measurements.mosaicSqft > 0, rates.mosaicInlayRate != 0 {
-        let m = state.measurements.mosaicSqft * rates.mosaicInlayRate
-        let f = NumberFormatter(); f.numberStyle = .currency
-        f.currencyCode = Locale.current.currency?.identifier ?? "USD"
-        let rateStr = f.string(from: NSNumber(value: rates.mosaicInlayRate)) ?? "$\(rates.mosaicInlayRate)"
-        lines.append(Line(label: "Mosaic inlay @ \(rateStr)/sqft × \(Int(state.measurements.mosaicSqft.rounded()))", amount: m))
-        running += m
+    // Bands and borders by the linear foot, inlays by the square foot, each
+    // at its own rate. The tile chosen for each describes it; it doesn't
+    // change the price.
+    for item in state.decoratives where item.quantity > 0 {
+        let rate = decorativeRate(item.kind, rates: rates)
+        guard rate != 0 else { continue }
+        let name = item.name.isEmpty ? item.kind.rawValue : "\(item.kind.rawValue): \(item.name)"
+        let amount = item.quantity * rate
+        lines.append(Line(label: "\(name) @ \(currency(rates: rates, value: rate))/\(item.kind.unit) × \(trimmedNumber(item.quantity))",
+                          amount: amount))
+        running += amount
     }
 
     return Summary(lines: lines, total: running)
+}
+
+/// The rate for a band or border (per linear foot) or an inlay (per sq ft).
+func decorativeRate(_ kind: DecorativeKind, rates: Rates) -> Double {
+    switch kind {
+    case .band: rates.bandRatePerLinFt
+    case .border: rates.borderRatePerLinFt
+    case .inlay: rates.mosaicInlayRate
+    }
+}
+
+/// 12 → "12", 7.5 → "7.5"
+private func trimmedNumber(_ v: Double) -> String {
+    v.formatted(.number.precision(.fractionLength(0...2)))
 }
 
 // MARK: - Whole estimate

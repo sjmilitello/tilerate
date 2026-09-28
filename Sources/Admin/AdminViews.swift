@@ -239,8 +239,13 @@ struct AdminSheet: View {
                     .pickerStyle(.segmented)
                 }
 
-                Section("Mosaic + Features") {
-                    baseRow("Mosaic inlay ($/sqft)", value: $rates.mosaicInlayRate)
+                Section("Bands, Borders & Inlays") {
+                    baseRow("Band ($/lin ft)", value: $rates.bandRatePerLinFt)
+                    baseRow("Border ($/lin ft)", value: $rates.borderRatePerLinFt)
+                    baseRow("Inlay ($/sq ft)", value: $rates.mosaicInlayRate)
+                }
+
+                Section("Features") {
                     baseRow("Shelf (each)", value: $rates.unitShelf)
                     baseRow("Niche (each)", value: $rates.unitNiche)
                     baseRow("Footrest (each)", value: $rates.unitFootrest)
