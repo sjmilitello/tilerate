@@ -1081,6 +1081,19 @@ struct ContentView: View {
                     get: { sec.wrappedValue.tileSize },
                     set: { sec.wrappedValue.tileSize = $0 }
                 ))
+
+                if sec.wrappedValue.tileSize == .mosaic {
+                    Text("Mosaic Style").font(.headline)
+                    gridOptions(MosaicStyle.allCases, selection: Binding(
+                        get: { sec.wrappedValue.mosaicStyle },
+                        set: { sec.wrappedValue.mosaicStyle = $0 }
+                    ))
+                    if sec.wrappedValue.mosaicStyle == .square || sec.wrappedValue.mosaicStyle == .rectangular {
+                        Text("Enter the piece size below. It shows on the estimate.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 
                 // --- Width / Length inline editors (write to optionals) ---
                 VStack(spacing: 8) {
@@ -1169,7 +1182,8 @@ struct ContentView: View {
                    tileSize: sec.tileSize ?? .square,
                    layout: sec.layout ?? .straightStacked,
                    tileWidthIn: sec.tileWidthIn,
-                   tileLengthIn: sec.tileLengthIn)
+                   tileLengthIn: sec.tileLengthIn,
+                   mosaicStyle: sec.mosaicStyle)
     }
 
     /// Type, size, layout and dimensions of one tile choice.
@@ -1186,6 +1200,15 @@ struct ContentView: View {
                 ForEach(TileSize.allCases) { Text($0.rawValue).tag($0) }
             }
             .fixedSize()
+        }
+        if tile.wrappedValue.tileSize == .mosaic {
+            LabeledContent("Mosaic Style") {
+                Picker("Mosaic Style", selection: tile.mosaicStyle) {
+                    Text("Choose").tag(MosaicStyle?.none)
+                    ForEach(MosaicStyle.allCases) { Text($0.rawValue).tag(MosaicStyle?.some($0)) }
+                }
+                .fixedSize()
+            }
         }
         LabeledContent("Layout") {
             Picker("Layout", selection: tile.layout) {
@@ -1656,6 +1679,7 @@ struct ContentView: View {
         tmp.measurements = state.measurements
         tmp.tileWidthIn  = state.tileWidthIn
         tmp.tileLengthIn = state.tileLengthIn
+        tmp.mosaicStyle  = state.mosaicStyle
         tmp.showerFloorTile = state.showerFloorTile
         tmp.ceilingTile  = state.ceilingTile
         tmp.walls  = state.walls

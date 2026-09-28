@@ -28,6 +28,11 @@ enum TileType: String, CaseIterable, Codable, Identifiable {
     case marble = "Marble"
     case limestone = "Limestone/Travertine"
     case slate = "Slate"
+    case granite = "Granite"
+    case quartzite = "Quartzite"
+    case cement = "Cement"
+    case terracotta = "Terracotta"
+    case zellige = "Zellige"
     var id: String { rawValue }
 }
 
@@ -48,6 +53,29 @@ enum Layout: String, CaseIterable, Codable, Identifiable {
     case diagonal = "Diagonal"
     case herringbone = "Herringbone"
     case multiTile = "Multi-Tile"
+    var id: String { rawValue }
+}
+
+/// The style of a mosaic, chosen when the tile's shape is Mosaic. For Square
+/// and Rectangular the width and length entered give the piece size.
+enum MosaicStyle: String, CaseIterable, Codable, Identifiable {
+    case square = "Square"
+    case hexagon = "Hexagon"
+    case octagonDot = "Octagon and Dot"
+    case diamond = "Diamond"
+    case rectangular = "Rectangular"
+    case miniBrick = "Mini Brick"
+    case picket = "Picket"
+    case herringbone = "Herringbone"
+    case chevron = "Chevron"
+    case basketweave = "Basketweave"
+    case pinwheel = "Pinwheel"
+    case pennyRound = "Penny Round"
+    case fishscale = "Fishscale"
+    case arabesque = "Arabesque"
+    case pebble = "Pebble"
+    case randomStrip = "Random Strip"
+    case waterjet = "Waterjet"
     var id: String { rawValue }
 }
 
@@ -85,7 +113,8 @@ struct Rates: Codable, Equatable {
     var showerFloorMinimum: Double = 600
 
     var typeAdder: [TileType: Double] = [
-        .ceramic: 0, .porcelain: 0, .glass: 0, .marble: 0, .limestone: 0, .slate: 0
+        .ceramic: 0, .porcelain: 0, .glass: 0, .marble: 0, .limestone: 0, .slate: 0,
+        .granite: 0, .quartzite: 0, .cement: 0, .terracotta: 0, .zellige: 0
     ]
     var sizeAdder: [TileSize: Double] = [
         .mosaic: 0, .starCross: 0, .arabesque: 0, .hexagon: 0, .rectangle: 0, .square: 0
@@ -93,6 +122,9 @@ struct Rates: Codable, Equatable {
     var layoutAdder: [Layout: Double] = [
         .straightStacked: 0, .runningBond: 0, .diagonal: 0, .herringbone: 0, .multiTile: 0
     ]
+    /// Added on top of the Mosaic size adder for a mosaic of that style.
+    var mosaicStyleAdder: [MosaicStyle: Double] =
+        Dictionary(uniqueKeysWithValues: MosaicStyle.allCases.map { ($0, 0) })
 
     struct SizeSpec: Codable, Equatable {
         var lengthIn: Double = 0
@@ -150,6 +182,7 @@ extension Rates {
         c.read(.showerFloorMinimum, into: &showerFloorMinimum)
         c.merge(.typeAdder, into: &typeAdder)
         c.merge(.sizeAdder, into: &sizeAdder)
+        c.merge(.mosaicStyleAdder, into: &mosaicStyleAdder)
         c.merge(.layoutAdder, into: &layoutAdder)
         c.merge(.sizeSpecs, into: &sizeSpecs)
         c.read(.sizeBaseAreaSqIn, into: &sizeBaseAreaSqIn)
@@ -194,6 +227,8 @@ struct TileChoice: Codable, Equatable, Hashable {
     var layout: Layout = .straightStacked
     var tileWidthIn: Double? = nil
     var tileLengthIn: Double? = nil
+    /// Only used when `tileSize` is Mosaic.
+    var mosaicStyle: MosaicStyle? = nil
 }
 
 /// One shower or tub-surround wall with its own tile, used when the walls are
@@ -216,6 +251,8 @@ struct EstimatorState: Codable {
 
     var tileWidthIn: Double? = nil
     var tileLengthIn: Double? = nil
+    /// The main tile's mosaic style, used when its shape is Mosaic.
+    var mosaicStyle: MosaicStyle? = nil
 
     /// nil means the shower floor / ceiling uses the main tile.
     var showerFloorTile: TileChoice? = nil
@@ -241,6 +278,7 @@ extension EstimatorState {
         measurements = sec.measurements
         tileWidthIn = sec.tileWidthIn
         tileLengthIn = sec.tileLengthIn
+        mosaicStyle = sec.mosaicStyle
         showerFloorTile = sec.showerFloorTile
         ceilingTile = sec.ceilingTile
         walls = sec.walls
@@ -276,6 +314,8 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var additionsMaterials: [AdditionItem] = []
     var tileWidthIn: Double? = nil
     var tileLengthIn: Double? = nil
+    /// The main tile's mosaic style, used when its shape is Mosaic.
+    var mosaicStyle: MosaicStyle? = nil
     /// nil means the shower floor / ceiling uses the main tile.
     var showerFloorTile: TileChoice? = nil
     var ceilingTile: TileChoice? = nil
@@ -384,6 +424,7 @@ extension EstimatorState {
         c.read(.measurements, into: &measurements)
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
+        c.read(.mosaicStyle, into: &mosaicStyle)
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
@@ -408,6 +449,7 @@ extension EstimateSection {
         c.read(.additionsMaterials, into: &additionsMaterials)
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
+        c.read(.mosaicStyle, into: &mosaicStyle)
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
@@ -434,6 +476,7 @@ extension TileChoice {
         c.read(.layout, into: &layout)
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
+        c.read(.mosaicStyle, into: &mosaicStyle)
     }
 }
 

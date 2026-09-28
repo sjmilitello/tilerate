@@ -189,6 +189,11 @@ struct AdminSheet: View {
                     typeRow(.marble, "Marble")
                     typeRow(.limestone, "Limestone/Travertine")
                     typeRow(.slate, "Slate")
+                    typeRow(.granite, "Granite")
+                    typeRow(.quartzite, "Quartzite")
+                    typeRow(.cement, "Cement")
+                    typeRow(.terracotta, "Terracotta")
+                    typeRow(.zellige, "Zellige")
                     Picker("Units", selection: $rates.typeAdderUnit) {
                         ForEach(AdderUnit.allCases) { u in Text(u.rawValue).tag(u) }
                     }
@@ -197,6 +202,14 @@ struct AdminSheet: View {
 
                 Section("Tile Size Adders ($/sqft)") {
                     sizeRow(.mosaic, "Mosaic")
+                    DisclosureGroup("Mosaic style adders (on top of Mosaic)") {
+                        ForEach(MosaicStyle.allCases) { m in
+                            baseRow(m.rawValue, value: Binding(
+                                get: { rates.mosaicStyleAdder[m] ?? 0 },
+                                set: { rates.mosaicStyleAdder[m] = $0 }
+                            ))
+                        }
+                    }
                     sizeRow(.starCross, "Star/Cross")
                     sizeRow(.arabesque, "Arabesque")
                     sizeRow(.hexagon, "Hexagon")

@@ -64,6 +64,7 @@ func describeSection(_ section: EstimateSection) -> String {
     
     // Tile type
     let typeText = section.tileType?.rawValue ?? "Tile"
+    let tileNoun = tileWord(size: section.tileSize, style: section.mosaicStyle)
     
     // Layout
     let layoutText = section.layout?.rawValue ?? "Layout"
@@ -128,14 +129,20 @@ func describeSection(_ section: EstimateSection) -> String {
     }
 
     // Final sentence: SIZE first, then type
-    return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) Tile in \(layoutText) pattern\(surfacesText)\(otherTilesText)\(featuresText)."
+    return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) \(tileNoun) in \(layoutText) pattern\(surfacesText)\(otherTilesText)\(featuresText)."
 }
 
 /// "2×2 Porcelain Tile in Straight Stacked pattern", for a separate tile.
 private func tilePhrase(_ t: TileChoice) -> String {
     let w = describeInches(t.tileWidthIn), l = describeInches(t.tileLengthIn)
     let size = [w, l].compactMap { $0 }.joined(separator: "×")
-    return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) Tile in \(t.layout.rawValue) pattern"
+    return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) \(tileWord(size: t.tileSize, style: t.mosaicStyle)) in \(t.layout.rawValue) pattern"
+}
+
+/// "Tile", or "Penny Round Mosaic" for a mosaic with a style chosen.
+private func tileWord(size: TileSize?, style: MosaicStyle?) -> String {
+    guard size == .mosaic, let style else { return "Tile" }
+    return "\(style.rawValue) Mosaic"
 }
 private func describeInches(_ v: Double?) -> String? {
     guard let v, v > 0 else { return nil }

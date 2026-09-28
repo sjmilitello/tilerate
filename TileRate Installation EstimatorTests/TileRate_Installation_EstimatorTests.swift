@@ -254,6 +254,86 @@ struct SizeDoublingTests {
     }
 }
 
+// MARK: - Mosaic styles
+
+struct MosaicStyleTests {
+    private func rates() -> Rates {
+        var r = plainRates()
+        r.base[.wall] = 20
+        r.minimum[.wall] = 0
+        r.sizeAdder[.mosaic] = 4
+        r.mosaicStyleAdder[.pennyRound] = 3
+        r.mosaicStyleAdder[.waterjet] = 10
+        return r
+    }
+
+    private func mosaic(_ style: MosaicStyle?) -> EstimateSection {
+        var s = section(.wall, sqft: 10, size: .mosaic)
+        s.mosaicStyle = style
+        return s
+    }
+
+    @Test func theStyleAdderGoesOnTopOfTheMosaicAdder() {
+        #expect(price(mosaic(.pennyRound), rates()) == 10 * (20 + 4 + 3))
+        #expect(price(mosaic(.waterjet), rates()) == 10 * (20 + 4 + 10))
+        #expect(price(mosaic(.hexagon), rates()) == 10 * (20 + 4))    // no style adder set
+        #expect(price(mosaic(nil), rates()) == 10 * (20 + 4))         // no style chosen
+    }
+
+    @Test func aStyleLeftOverFromAnotherShapeIsIgnored() {
+        var s = mosaic(.waterjet)
+        s.tileSize = .hexagon
+        #expect(price(s, rates()) == 10 * 20)
+    }
+
+    @Test func aSeparateMosaicTileUsesItsStyle() {
+        var r = rates()
+        r.base[.shower] = 30
+        r.minimum[.shower] = 0
+        r.showerFloorBase = 25
+        r.showerFloorMinimum = 0
+        var s = section(.shower, size: .rectangle, widthIn: 12, lengthIn: 24)
+        s.measurements.showerWallsSqft = 100
+        s.measurements.showerFloorSqft = 10
+        s.showerFloorTile = TileChoice(tileType: .glass, tileSize: .mosaic, layout: .straightStacked,
+                                       mosaicStyle: .pennyRound)
+        #expect(price(s, r) == 3000 + 10 * (25 + 4 + 3))
+    }
+
+    @Test func theEstimateNamesTheStyle() {
+        var s = mosaic(.pennyRound)
+        s.tileType = .porcelain
+        s.measurements.sqft = 10
+        #expect(describeSection(s).contains("Porcelain Penny Round Mosaic in Straight Stacked pattern"))
+
+        var sq = mosaic(.square)
+        sq.tileType = .glass
+        sq.tileWidthIn = 1
+        sq.tileLengthIn = 1
+        #expect(describeSection(sq).contains("1×1 Glass Square Mosaic"))
+
+        var plain = mosaic(nil)
+        plain.tileType = .porcelain
+        #expect(describeSection(plain).contains("Porcelain Tile in"))
+    }
+
+    @Test func savedDataWithoutStylesStillLoads() throws {
+        let tile = try JSONDecoder().decode(TileChoice.self, from: Data(#"{"tileSize":"Mosaic"}"#.utf8))
+        #expect(tile.mosaicStyle == nil)
+        let r = try JSONDecoder().decode(Rates.self, from: Data(#"{"sizeAdder":["Mosaic",4]}"#.utf8))
+        #expect(r.sizeAdder[.mosaic] == 4)
+        #expect(MosaicStyle.allCases.allSatisfy { r.mosaicStyleAdder[$0] == 0 })
+
+        var s = mosaic(.fishscale)
+        s.showerFloorTile = TileChoice(tileSize: .mosaic, mosaicStyle: .pebble)
+        let back = try JSONDecoder().decode(EstimateSection.self, from: JSONEncoder().encode(s))
+        #expect(back == s)
+        let state = try JSONDecoder().decode(EstimatorState.self,
+                                             from: JSONEncoder().encode(EstimatorState(section: s)))
+        #expect(state.mosaicStyle == .fishscale)
+    }
+}
+
 // MARK: - Separate shower floor and ceiling tiles
 
 struct SeparateTileTests {
@@ -514,6 +594,25 @@ struct SavedDataTests {
         #expect(r.floorEscAdjPerSqft == 14)
         #expect(r.sizeBaseAreaSqIn == 288)
         #expect(r.sizeAdderPerDoubling == 2.5)
+    }
+
+    @Test func ratesSavedBeforeTheNewMaterialsGetThemAtZero() throws {
+        let json = #"{"typeAdder":["Ceramic",0,"Marble",4,"Slate",2]}"#
+        let r = try JSONDecoder().decode(Rates.self, from: Data(json.utf8))
+        #expect(r.typeAdder[.marble] == 4)
+        #expect(r.typeAdder[.slate] == 2)
+        for t in [TileType.granite, .quartzite, .cement, .terracotta, .zellige] {
+            #expect(r.typeAdder[t] == 0)
+        }
+    }
+
+    @Test func aNewMaterialIsPricedWithItsAdder() {
+        var r = plainRates()
+        r.base[.floor] = 20
+        r.minimum[.floor] = 0
+        r.floorEscAdjPerSqft = 0
+        r.typeAdder[.zellige] = 6
+        #expect(price(section(.floor, sqft: 100, type: .zellige), r) == 2600)
     }
 
     @Test func ratesSavedWithTheStepSettingsStillLoad() throws {

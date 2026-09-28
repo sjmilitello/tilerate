@@ -160,6 +160,17 @@ designs warn about it.
 History: Over/Under length × width escalators until 2026-09-26, then whole
 54 sq in steps from 288 for a day, then doublings.
 
+## Materials and mosaic styles
+
+Materials added 2026-09-27: Granite, Quartzite, Cement, Terracotta, Zellige,
+each with its own adder (starting at $0). When the shape is Mosaic, a mosaic
+style can be chosen (17 styles, `MosaicStyle`); its adder in Admin goes on top
+of the Mosaic adder, and the estimate names it ("Porcelain Penny Round Mosaic
+in …"). For Square and Rectangular mosaics the width and length entered are
+the piece size and show on the estimate; the doubling size adder does not
+apply to mosaics. New enum cases are safe for saved data: rates tables merge,
+so a new case starts at its default.
+
 ## Separate tiles within one section
 
 - **Shower floor and ceiling** (and a tub-surround ceiling) can each have their

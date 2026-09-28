@@ -288,23 +288,14 @@ extension Area {
         case .fireplace: "fireplace"
         }
     }
-    var ndHint: String {
-        switch self {
-        case .floor: "Rooms, halls, entries"
-        case .wall: "Feature or accent wall"
-        case .tub: "Walls and ceiling"
-        case .shower: "Walls, floor, ceiling"
-        case .backsplash: "Kitchen or vanity"
-        case .fireplace: "Surround and hearth"
-        }
-    }
 }
 
 extension TileChoice {
     /// "Porcelain 12×24 · Running Bond"
     var ndSummary: String {
         let size = [tileWidthIn, tileLengthIn].compactMap { $0 }.map { ND.number($0) }.joined(separator: "×")
-        let shape = tileSize == .square || tileSize == .rectangle ? size : [tileSize.rawValue, size].filter { !$0.isEmpty }.joined(separator: " ")
+        let shapeName = tileSize == .mosaic ? [mosaicStyle?.rawValue, "Mosaic"].compactMap { $0 }.joined(separator: " ") : tileSize.rawValue
+        let shape = tileSize == .square || tileSize == .rectangle ? size : [size, shapeName].filter { !$0.isEmpty }.joined(separator: " ")
         return [tileType.rawValue + (shape.isEmpty ? "" : " " + shape), layout.rawValue].joined(separator: " · ")
     }
 }
@@ -314,7 +305,7 @@ extension EstimateSection {
     var ndMainTile: TileChoice? {
         guard let tileType, let tileSize, let layout else { return nil }
         return TileChoice(tileType: tileType, tileSize: tileSize, layout: layout,
-                          tileWidthIn: tileWidthIn, tileLengthIn: tileLengthIn)
+                          tileWidthIn: tileWidthIn, tileLengthIn: tileLengthIn, mosaicStyle: mosaicStyle)
     }
 }
 

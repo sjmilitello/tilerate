@@ -46,6 +46,10 @@ private func sizeAdderPerSq(baseRate: Double, tile: TileChoice, rates: Rates) ->
         let doublings = sizeDoublings(size: tile.tileSize, lengthIn: tile.tileLengthIn,
                                       widthIn: tile.tileWidthIn, rates: rates) ?? 0
         return doublings * perSqft(from: rates.sizeAdderPerDoubling, unit: rates.sizeAdderUnit, baseRate: baseRate)
+    case .mosaic:
+        // The Mosaic adder, plus the adder for its style when one is chosen.
+        let style = tile.mosaicStyle.map { rates.mosaicStyleAdder[$0] ?? 0 } ?? 0
+        return perSqft(from: (rates.sizeAdder[.mosaic] ?? 0) + style, unit: rates.sizeAdderUnit, baseRate: baseRate)
     default:
         return perSqft(from: rates.sizeAdder[tile.tileSize] ?? 0, unit: rates.sizeAdderUnit, baseRate: baseRate)
     }
@@ -79,7 +83,8 @@ func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
     }
 
     let mainTile = TileChoice(tileType: type, tileSize: size, layout: layout,
-                              tileWidthIn: state.tileWidthIn, tileLengthIn: state.tileLengthIn)
+                              tileWidthIn: state.tileWidthIn, tileLengthIn: state.tileLengthIn,
+                              mosaicStyle: state.mosaicStyle)
 
     func currency(rates: Rates, value: Double) -> String {
         let f = NumberFormatter(); f.numberStyle = .currency

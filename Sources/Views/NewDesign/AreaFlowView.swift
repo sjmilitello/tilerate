@@ -162,10 +162,9 @@ struct AreaFlowView: View {
                             }
                             Spacer()
                             Text(area.rawValue).font(.system(size: 17, weight: .semibold))
-                            Text(area.ndHint).font(.system(size: 13)).foregroundStyle(selected ? ND.secondary : ND.muted)
                         }
                         .padding(14)
-                        .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
                         .background(selected ? ND.selectedBg : ND.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -212,6 +211,7 @@ struct AreaFlowView: View {
                 layout: sec.layout,
                 width: sec.tileWidthIn,
                 length: sec.tileLengthIn,
+                mosaicStyle: sec.mosaicStyle,
                 rates: store.rates
             )
             if section.area == .shower || section.area == .tub {
@@ -607,6 +607,7 @@ struct NDTileFields: View {
     @Binding var layout: Layout?
     @Binding var width: Double?
     @Binding var length: Double?
+    @Binding var mosaicStyle: MosaicStyle?
     let rates: Rates
 
     var body: some View {
@@ -624,6 +625,20 @@ struct NDTileFields: View {
                 NDFlow {
                     ForEach(TileSize.allCases) { s in
                         NDChip(title: s.rawValue, selected: size == s) { size = s }
+                    }
+                }
+            }
+            if size == .mosaic {
+                VStack(alignment: .leading, spacing: 10) {
+                    NDLabel("Mosaic style")
+                    NDFlow {
+                        ForEach(MosaicStyle.allCases) { m in
+                            NDChip(title: m.rawValue, selected: mosaicStyle == m) { mosaicStyle = m }
+                        }
+                    }
+                    if mosaicStyle == .square || mosaicStyle == .rectangular {
+                        Text("Enter the piece size below. It shows on the estimate.")
+                            .font(.system(size: 13)).foregroundStyle(ND.muted)
                     }
                 }
             }
@@ -762,6 +777,7 @@ struct NDTileSheet: View {
                     layout: Binding(get: { tile.layout }, set: { if let v = $0 { tile.layout = v } }),
                     width: $tile.tileWidthIn,
                     length: $tile.tileLengthIn,
+                    mosaicStyle: $tile.mosaicStyle,
                     rates: rates
                 )
                 .padding(20)
