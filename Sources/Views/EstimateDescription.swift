@@ -142,3 +142,34 @@ private func describeInches(_ v: Double?) -> String? {
     if v.rounded(.towardZero) == v { return String(format: "%.0f", v) }
     return String(format: "%.1f", v)
 }
+
+/// Under a square or rectangle tile's size: how it compares with the standard
+/// tile and what that adds, e.g. "1,152 sq in · 4× the standard tile · adds
+/// $5.00 per sq ft". nil for other shapes or when a dimension is missing.
+func sizeAdderNote(size: TileSize?, lengthIn: Double?, widthIn: Double?, rates: Rates) -> String? {
+    guard let size, let doublings = sizeDoublings(size: size, lengthIn: lengthIn, widthIn: widthIn, rates: rates),
+          size == .square || size == .rectangle,
+          let L = lengthIn, let W = widthIn, rates.sizeBaseAreaSqIn > 0 else { return nil }
+    let area = L * W
+    let ratio = area / rates.sizeBaseAreaSqIn
+    func trim(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...2))) }
+
+    let comparison: String
+    if abs(ratio - 1) < 0.005 {
+        return "\(trim(area)) sq in · the standard tile · no size adder"
+    } else if ratio >= 0.5 {
+        comparison = "\(trim(ratio))× the standard tile"
+    } else {
+        comparison = "1/\(trim(1 / ratio)) of the standard tile"
+    }
+
+    let adds: String
+    switch rates.sizeAdderUnit {
+    case .perSqft:
+        let amount = doublings * rates.sizeAdderPerDoubling
+        adds = "adds \(amount.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD"))) per sq ft"
+    case .percent:
+        adds = "adds \(trim(doublings * rates.sizeAdderPerDoubling))% of the base rate"
+    }
+    return "\(trim(area)) sq in · \(comparison) · \(adds)"
+}

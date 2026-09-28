@@ -1124,8 +1124,9 @@ struct ContentView: View {
         }
     }
 
-    /// Under a square/rectangle tile's width and length: how many size steps it
-    /// is from the base size, or a warning when a dimension is missing.
+    /// Under a square/rectangle tile's width and length: how it compares with
+    /// the standard tile and what that adds, or a warning when a dimension is
+    /// missing.
     @ViewBuilder
     private func sizeStepNote(size: TileSize?, lengthIn: Double?, widthIn: Double?) -> some View {
         if isMissingTileDimensions(size: size, lengthIn: lengthIn, widthIn: widthIn) {
@@ -1133,10 +1134,8 @@ struct ContentView: View {
                   systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundStyle(.orange)
-        } else if let size, let steps = sizeSteps(size: size, lengthIn: lengthIn, widthIn: widthIn, rates: store.rates),
-                  size == .square || size == .rectangle {
-            let area = (lengthIn ?? 0) * (widthIn ?? 0)
-            Text("\(area.formatted()) sq in: \(steps) size step\(steps == 1 ? "" : "s") from \(store.rates.sizeBaseAreaSqIn.formatted()) sq in")
+        } else if let note = sizeAdderNote(size: size, lengthIn: lengthIn, widthIn: widthIn, rates: store.rates) {
+            Text(note)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

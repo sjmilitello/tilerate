@@ -107,11 +107,12 @@ struct Rates: Codable, Equatable {
     }
 
     // Square and rectangle tiles: a tile of `sizeBaseAreaSqIn` (12×24) pays no
-    // size adder, and every whole `sizeStepSqIn` its area is above or below
-    // that adds `sizeStepAdder` once. Part steps do not count.
+    // size adder. Every time the tile's area doubles, or halves, from there
+    // adds `sizeAdderPerDoubling` — part doublings count in proportion. The
+    // owner's figure (2026-09-27) is $2.50, so 24×48 (two doublings) adds $5
+    // and 3×12 (three halvings) adds $7.50.
     var sizeBaseAreaSqIn: Double = 288
-    var sizeStepSqIn: Double = 54
-    var sizeStepAdder: Double = 0
+    var sizeAdderPerDoubling: Double = 2.5
 
     var typeAdderUnit: AdderUnit = .perSqft
     var sizeAdderUnit: AdderUnit = .perSqft
@@ -152,8 +153,7 @@ extension Rates {
         c.merge(.layoutAdder, into: &layoutAdder)
         c.merge(.sizeSpecs, into: &sizeSpecs)
         c.read(.sizeBaseAreaSqIn, into: &sizeBaseAreaSqIn)
-        c.read(.sizeStepSqIn, into: &sizeStepSqIn)
-        c.read(.sizeStepAdder, into: &sizeStepAdder)
+        c.read(.sizeAdderPerDoubling, into: &sizeAdderPerDoubling)
         c.read(.typeAdderUnit, into: &typeAdderUnit)
         c.read(.sizeAdderUnit, into: &sizeAdderUnit)
         c.read(.layoutAdderUnit, into: &layoutAdderUnit)

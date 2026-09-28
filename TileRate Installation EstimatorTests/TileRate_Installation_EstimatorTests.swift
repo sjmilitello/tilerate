@@ -22,8 +22,7 @@ private func plainRates() -> Rates {
     r.sizeAdderUnit = .perSqft
     r.layoutAdderUnit = .perSqft
     r.sizeBaseAreaSqIn = 288
-    r.sizeStepSqIn = 54
-    r.sizeStepAdder = 0
+    r.sizeAdderPerDoubling = 0
     r.mosaicInlayRate = 0
     return r
 }
@@ -154,65 +153,95 @@ struct MinimumAndAdderTests {
     }
 }
 
-// MARK: - Square and rectangle size steps
+// MARK: - Square and rectangle size: doublings from the standard tile
 
-struct SizeStepTests {
-    private func steps(_ w: Double?, _ l: Double?, _ size: TileSize = .rectangle) -> Int? {
-        sizeSteps(size: size, lengthIn: l, widthIn: w, rates: plainRates())
+struct SizeDoublingTests {
+    private func doublings(_ w: Double?, _ l: Double?, _ size: TileSize = .rectangle) -> Double? {
+        sizeDoublings(size: size, lengthIn: l, widthIn: w, rates: plainRates())
     }
 
-    @Test func baseSizeHasNoSteps() {
-        #expect(steps(12, 24) == 0)     // 288 sq in
+    @Test func theStandardTileHasNone() {
+        #expect(doublings(12, 24) == 0)     // 288 sq in
+        #expect(doublings(6, 48) == 0)      // also 288 sq in
     }
 
     @Test(arguments: [
-        (12.0, 12.0, 2),   // 144: 144 away = 2.67 steps → 2
-        (24, 24, 5),       // 576: 288 away = 5.33 → 5
-        (8, 48, 1),        // 384: 96 away = 1.78 → 1
-        (6, 6, 4),         // 36: 252 away = 4.67 → 4
-        (18, 22, 2),       // 396: exactly 108 away = 2
-        (13, 24, 0),       // 312: 24 away, under one step
-        (24, 48, 16),      // 1152: 864 away = 16
+        (24.0, 48.0, 2.0),              // 4× the area
+        (3, 12, 3),                     // 1/8
+        (24, 24, 1),                    // 2×
+        (12, 12, 1),                    // 1/2
+        (6, 6, 3),                      // 1/8
+        (48, 48, 3),                    // 8×
+        (48, 96, 4),                    // 16×
+        (2, 2, 6.169925001442312),      // 1/72
+        (6, 36, 0.41503749927884376),   // 3/4
     ])
-    func partStepsRoundDown(w: Double, l: Double, expected: Int) {
-        #expect(steps(w, l, .square) == expected)
-        #expect(steps(w, l, .rectangle) == expected)
+    func biggerAndSmallerCountTheSameWay(w: Double, l: Double, expected: Double) {
+        #expect(abs(doublings(w, l, .square)! - expected) < 1e-9)
+        #expect(abs(doublings(w, l, .rectangle)! - expected) < 1e-9)
     }
 
     @Test func missingDimensionsAreReported() {
-        #expect(steps(nil, 24) == nil)
-        #expect(steps(12, 0) == nil)
+        #expect(doublings(nil, 24) == nil)
+        #expect(doublings(12, 0) == nil)
         #expect(isMissingTileDimensions(size: .rectangle, lengthIn: 24, widthIn: nil))
         #expect(!isMissingTileDimensions(size: .rectangle, lengthIn: 24, widthIn: 12))
         #expect(!isMissingTileDimensions(size: .hexagon, lengthIn: nil, widthIn: nil))
     }
 
-    @Test func otherShapesHaveNoSteps() {
-        #expect(steps(2, 2, .hexagon) == 0)
-        #expect(steps(1, 1, .mosaic) == 0)
+    @Test func otherShapesHaveNone() {
+        #expect(doublings(2, 2, .hexagon) == 0)
+        #expect(doublings(1, 1, .mosaic) == 0)
     }
 
-    @Test func eachStepAddsTheAdderPerSquareFoot() {
+    /// The owner's figures: $2.50 per doubling or halving from 12×24.
+    @Test func theOwnersReferenceTiles() {
         var r = plainRates()
         r.base[.wall] = 20
         r.minimum[.wall] = 0
-        r.sizeStepAdder = 1.5
-        // 24×24 is 5 steps: $20 + 5 × $1.50 = $27.50 × 100.
-        #expect(price(section(.wall, sqft: 100, size: .square, widthIn: 24, lengthIn: 24), r) == 2750)
-        // 12×24 is the base size: no adder.
-        #expect(price(section(.wall, sqft: 100, size: .rectangle, widthIn: 12, lengthIn: 24), r) == 2000)
-        // Missing width: no adder, which the app warns about.
+        r.sizeAdderPerDoubling = 2.5
+        func perSqft(_ w: Double, _ l: Double) -> Double {
+            price(section(.wall, sqft: 100, size: .rectangle, widthIn: w, lengthIn: l), r) / 100 - 20
+        }
+        #expect(abs(perSqft(12, 24) - 0) < 1e-9)
+        #expect(abs(perSqft(24, 48) - 5) < 1e-9)
+        #expect(abs(perSqft(3, 12) - 7.5) < 1e-9)
+        #expect(abs(perSqft(24, 24) - 2.5) < 1e-9)
+        #expect(abs(perSqft(48, 48) - 7.5) < 1e-9)
+    }
+
+    @Test func theAdderGrowsTheFurtherFromTheStandardInEitherDirection() {
+        var r = plainRates()
+        r.sizeAdderPerDoubling = 2.5
+        var last = 0.0
+        for side in stride(from: 17.0, through: 96, by: 1) {       // 17×17 ≈ 288 and up
+            let d = sizeDoublings(size: .square, lengthIn: side, widthIn: side, rates: r)!
+            #expect(d >= last); last = d
+        }
+        last = 0
+        for side in stride(from: 16.0, through: 1, by: -1) {        // down to 1×1
+            let d = sizeDoublings(size: .square, lengthIn: side, widthIn: side, rates: r)!
+            #expect(d >= last); last = d
+        }
+    }
+
+    @Test func missingWidthChargesNoSizeAdder() {
+        var r = plainRates()
+        r.base[.wall] = 20
+        r.minimum[.wall] = 0
+        r.sizeAdderPerDoubling = 2.5
+        // The app warns about this on the Size step and the Summary.
         #expect(price(section(.wall, sqft: 100, size: .square, lengthIn: 24), r) == 2000)
     }
 
-    @Test func percentStepAdderIsPercentOfTheBaseRate() {
+    @Test func percentAdderIsPercentOfTheBaseRate() {
         var r = plainRates()
         r.base[.wall] = 20
         r.minimum[.wall] = 0
-        r.sizeStepAdder = 5
+        r.sizeAdderPerDoubling = 10
         r.sizeAdderUnit = .percent
-        // 12×12 is 2 steps: 2 × 5% of $20 = $2 → $22 × 10.
-        #expect(abs(price(section(.wall, sqft: 10, size: .square, widthIn: 12, lengthIn: 12), r) - 220) < 0.005)
+        // 24×24 is 1 doubling: 10% of $20 = $2 → $22 × 10.
+        #expect(abs(price(section(.wall, sqft: 10, size: .square, widthIn: 24, lengthIn: 24), r) - 220) < 0.005)
     }
 
     @Test func otherShapesKeepTheirFlatAdder() {
@@ -220,7 +249,7 @@ struct SizeStepTests {
         r.base[.wall] = 20
         r.minimum[.wall] = 0
         r.sizeAdder[.hexagon] = 3
-        r.sizeStepAdder = 100   // must not apply to a hexagon
+        r.sizeAdderPerDoubling = 100   // must not apply to a hexagon
         #expect(price(section(.wall, sqft: 10, size: .hexagon, widthIn: 2, lengthIn: 2), r) == 230)
     }
 }
@@ -270,14 +299,14 @@ struct SeparateTileTests {
         #expect(price(s, rates()) == 3250 + 500)
     }
 
-    @Test func aSeparateTileUsesItsOwnSizeSteps() {
+    @Test func aSeparateTileUsesItsOwnSize() {
         var r = rates()
-        r.sizeStepAdder = 1
+        r.sizeAdderPerDoubling = 1
         var s = shower()
         s.showerFloorTile = TileChoice(tileType: .ceramic, tileSize: .square, layout: .straightStacked,
                                        tileWidthIn: 6, tileLengthIn: 6)
-        // 6×6 floor is 4 steps: 10 × ($25 + $4). Walls stay at 12×24.
-        #expect(price(s, r) == 3000 + 290)
+        // 6×6 floor is 3 halvings: 10 × ($25 + $3). Walls stay at 12×24.
+        #expect(abs(price(s, r) - (3000 + 280)) < 1e-9)
     }
 
     @Test func tubCeilingCanHaveItsOwnTile() {
@@ -302,7 +331,7 @@ struct WallTests {
         r.showerFloorMinimum = 0
         r.typeAdder[.marble] = 8
         r.layoutAdder[.herringbone] = 5
-        r.sizeStepAdder = 1
+        r.sizeAdderPerDoubling = 1
         return r
     }
 
@@ -323,10 +352,10 @@ struct WallTests {
         let s = shower([
             wall("Back Wall", 40, .marble, .herringbone),   // $8 + $5 = $13
             wall("Left Wall", 30),                          // 12×24: no adders
-            wall("Right Wall", 30, w: 24, l: 24),           // 5 size steps: $5
+            wall("Right Wall", 30, w: 24, l: 24),           // 1 doubling: $1
         ])
         // Base: 100 × $30 = $3,000, above the $1,200 minimum.
-        #expect(price(s, rates()) == 3000 + 40 * 13 + 30 * 5)
+        #expect(abs(price(s, rates()) - Double(3000 + 40 * 13 + 30 * 1)) < 1e-9)
     }
 
     @Test func theMinimumAppliesToAllTheWallsTogether() {
@@ -366,8 +395,8 @@ struct WallTests {
         var s = section(.tub, size: .rectangle, widthIn: 12, lengthIn: 24)
         s.measurements.sqft = 999     // ignored once the walls are separate
         s.walls = [wall("Back Wall", 30, .marble), wall("Left Wall", 10), wall("Right Wall", 10, w: 24, l: 24)]
-        // Base 50 × $26 = $1,300 over the $900 minimum; marble $8 × 30; 24×24 5 steps × 10.
-        #expect(price(s, r) == 1300 + 240 + 50)
+        // Base 50 × $26 = $1,300 over the $900 minimum; marble $8 × 30; 24×24 1 doubling × 10.
+        #expect(abs(price(s, r) - (1300 + 240 + 10)) < 1e-9)
     }
 
     @Test func tubSurroundMinimumAppliesToAllTheWallsTogether() {
@@ -473,7 +502,7 @@ struct EstimateTotalsTests {
 
 struct SavedDataTests {
     @Test func ratesSavedWithTheOldSizeSettingsStillLoad() throws {
-        // Saved before the step rule: the old Over/Under keys, no step keys.
+        // Saved before the doubling rule: the old Over/Under keys, no size keys.
         let json = """
         {"base":["Floor",21,"Wall",27],"floorEscAdjPerSqft":14,
          "rectSquareOverLengthIn":24,"rectSquareOverWidthIn":13,"rectSquareOverAdder":5,
@@ -484,8 +513,16 @@ struct SavedDataTests {
         #expect(r.base[.wall] == 27)
         #expect(r.floorEscAdjPerSqft == 14)
         #expect(r.sizeBaseAreaSqIn == 288)
-        #expect(r.sizeStepSqIn == 54)
-        #expect(r.sizeStepAdder == 0)
+        #expect(r.sizeAdderPerDoubling == 2.5)
+    }
+
+    @Test func ratesSavedWithTheStepSettingsStillLoad() throws {
+        // Saved between 2026-09-26 and 2026-09-27, under the step rule.
+        let json = #"{"base":["Floor",21],"sizeBaseAreaSqIn":288,"sizeStepSqIn":54,"sizeStepAdder":1.25}"#
+        let r = try JSONDecoder().decode(Rates.self, from: Data(json.utf8))
+        #expect(r.base[.floor] == 21)
+        #expect(r.sizeBaseAreaSqIn == 288)
+        #expect(r.sizeAdderPerDoubling == 2.5)
     }
 
     @Test func sectionsSavedWithoutSeparateTilesStillLoad() throws {

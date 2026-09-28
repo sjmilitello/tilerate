@@ -640,7 +640,7 @@ struct NDTileFields: View {
                         NDNumberField(placeholder: "0", value: $length.orZero, font: .system(size: 20, weight: .semibold))
                     }
                 }
-                stepReadout
+                sizeReadout
             }
             VStack(alignment: .leading, spacing: 10) {
                 NDLabel("Layout")
@@ -675,21 +675,22 @@ struct NDTileFields: View {
     }
 
     @ViewBuilder
-    private var stepReadout: some View {
+    private var sizeReadout: some View {
         if let size, size == .square || size == .rectangle {
             if isMissingTileDimensions(size: size, lengthIn: length, widthIn: width) {
                 NDWarning(title: "Tile size needed",
                           message: "Enter the width and length. Without them no size adder is charged.")
-            } else if let steps = sizeSteps(size: size, lengthIn: length, widthIn: width, rates: rates) {
-                let area = (width ?? 0) * (length ?? 0)
-                HStack(spacing: 10) {
-                    Text("\(steps)")
+            } else if let doublings = sizeDoublings(size: size, lengthIn: length, widthIn: width, rates: rates),
+                      let note = sizeAdderNote(size: size, lengthIn: length, widthIn: width, rates: rates) {
+                let amount = doublings * rates.sizeAdderPerDoubling
+                HStack(spacing: 12) {
+                    Text(rates.sizeAdderUnit == .percent ? "+\(ND.number(amount))%" : "+\(amount.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")))")
                         .font(.system(size: 22, weight: .bold).monospacedDigit())
                         .foregroundStyle(ND.done)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("size step\(steps == 1 ? "" : "s") from \(ND.number(rates.sizeBaseAreaSqIn)) sq in")
+                        Text(rates.sizeAdderUnit == .percent ? "of the base rate, for size" : "per sq ft, for size")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("\(ND.number(area)) sq in tile")
+                        Text(note.components(separatedBy: " · ").dropLast().joined(separator: " · "))
                             .font(.system(size: 13)).foregroundStyle(ND.secondary)
                     }
                     Spacer()

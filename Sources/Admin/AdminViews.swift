@@ -201,11 +201,10 @@ struct AdminSheet: View {
                     sizeRow(.arabesque, "Arabesque")
                     sizeRow(.hexagon, "Hexagon")
 
-                    Text("Square/Rectangle Size Steps").font(.subheadline)
-                    NumericRow(title: "Base tile size (sq in)", value: $rates.sizeBaseAreaSqIn, fractionDigits: 2)
-                    NumericRow(title: "Step size (sq in)", value: $rates.sizeStepSqIn, fractionDigits: 2)
-                    baseRow("Adder per step", value: $rates.sizeStepAdder)
-                    Text("A tile of the base size pays no size adder. Each whole step its area is bigger or smaller adds the adder once.")
+                    Text("Square/Rectangle Size").font(.subheadline)
+                    NumericRow(title: "Standard tile size (sq in)", value: $rates.sizeBaseAreaSqIn, fractionDigits: 2)
+                    baseRow("Adder per doubling or halving", value: $rates.sizeAdderPerDoubling)
+                    Text("The standard tile (12×24 = 288 sq in) pays no size adder. Each time a tile's area doubles or halves from it adds this amount, part doublings in proportion: 24×48 is 2 doublings, 3×12 is 3 halvings.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 

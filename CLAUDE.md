@@ -134,19 +134,31 @@ instead of $1,640, and 99 sq ft cost more than 100. It was restored on
 floor sizes either side of each threshold — the price should never fall as
 the floor gets bigger. `FloorEscalatorTests` does this.
 
-## Tile size steps (square and rectangle)
+## Tile size adder (square and rectangle)
 
-Owner's rule, from 2026-09-26: a tile of 288 sq in (12×24) pays no size
-adder. Every whole 54 sq in its area is above *or* below 288 adds the size
-adder once, per square foot installed. Part steps do not count (12×12 = 144 sq
-in is 2.67 steps → 2; 24×48 = 1,152 is 16). Base size, step size and the adder
-per step are Admin settings; the adder takes the same $/sqft or % unit as the
-other size adders. Hexagon, arabesque, star/cross and mosaic keep their own
-flat adders.
+Owner's rule, from 2026-09-27: the price per square foot is based on the
+standard 12×24 tile (288 sq in), which pays no size adder. The further a
+tile's size is from it, in either direction, the more it adds: **$2.50 per sq
+ft for every doubling or halving of the tile's area**, part doublings in
+proportion. So 24×48 (4× the area, 2 doublings) adds $5.00, 24×24 adds $2.50,
+48×48 adds $7.50, 12×12 adds $2.50 and 3×12 (1/8 the area, 3 halvings) adds
+$7.50. In code: `|log2(area / standard area)| × adder per doubling`
+(`sizeDoublings` in `Pricing.swift`).
 
-It replaced the Over/Under length × width escalators. A square or rectangle
-with no width or length gets no size adder, and the app warns on the Size step
-and the Summary. Code: `sizeSteps` in `Pricing.swift`.
+Why doublings rather than square inches: tile sizes grow by multiplying
+(6×6, 12×12, 24×24, 48×48), and each jump makes the job about as much harder
+as the last. Counting square inches made large slabs cost far too much and
+tiny tiles too little. The owner's usual figures were $5 for both 24×48 and
+3×12, which no single linear rule can give; they chose one constant of $2.50.
+
+The standard tile size and the adder per doubling are Admin settings (default
+$2.50); the adder takes the same $/sqft or % unit as the other size adders.
+Hexagon, arabesque, star/cross and mosaic keep their own flat adders. A
+square or rectangle with no width or length gets no size adder, and both
+designs warn about it.
+
+History: Over/Under length × width escalators until 2026-09-26, then whole
+54 sq in steps from 288 for a day, then doublings.
 
 ## Separate tiles within one section
 
@@ -172,7 +184,7 @@ floors. `floorsNeverChargeShelvesNichesFootrestsOrBenches` checks the price.
 ## Tests
 
 `TileRate Installation EstimatorTests` (Swift Testing) covers the escalator,
-minimums, adders, size steps, separate tiles and walls, the estimate totals,
+minimums, adders, the size adder, separate tiles and walls, the estimate totals,
 and loading data saved by earlier versions. Every test sets its own rates.
 The Summary screen and the PDF both take their numbers from `computeTotals`,
 so the totals tests cover both.

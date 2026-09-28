@@ -21,18 +21,16 @@ private func perSqft(from value: Double, unit: AdderUnit, baseRate: Double) -> D
     }
 }
 
-/// Square and rectangle tiles are priced by area: a tile of the base size pays
-/// no size adder, and each whole step its area is above or below that adds the
-/// step adder once. Part steps do not count. Other shapes have no steps.
-/// Returns nil when the tile's width or length is missing, so the size adder
-/// cannot be worked out.
-func sizeSteps(size: TileSize, lengthIn: Double?, widthIn: Double?, rates: Rates) -> Int? {
+/// How far a square or rectangle tile's size is from the standard tile, counted
+/// in doublings (bigger) or halvings (smaller) of its area, part doublings in
+/// proportion: 24×48 from 12×24 is 2, 3×12 is 3, 6×36 is about 0.42. Each one
+/// adds `sizeAdderPerDoubling`. Other shapes have none. Returns nil when the
+/// tile's width or length is missing, so the size adder can't be worked out.
+func sizeDoublings(size: TileSize, lengthIn: Double?, widthIn: Double?, rates: Rates) -> Double? {
     guard size == .square || size == .rectangle else { return 0 }
     guard let L = lengthIn, let W = widthIn, L > 0, W > 0 else { return nil }
-    guard rates.sizeStepSqIn > 0 else { return 0 }
-    let distance = abs(L * W - rates.sizeBaseAreaSqIn)
-    // The small allowance stops 107.99999 from counting as one step short of 108.
-    return Int((distance / rates.sizeStepSqIn + 1e-9).rounded(.down))
+    guard rates.sizeBaseAreaSqIn > 0 else { return 0 }
+    return abs(log2(L * W / rates.sizeBaseAreaSqIn))
 }
 
 /// True when a square or rectangle tile has no width or length entered, so its
@@ -45,9 +43,9 @@ func isMissingTileDimensions(size: TileSize?, lengthIn: Double?, widthIn: Double
 private func sizeAdderPerSq(baseRate: Double, tile: TileChoice, rates: Rates) -> Double {
     switch tile.tileSize {
     case .square, .rectangle:
-        let steps = sizeSteps(size: tile.tileSize, lengthIn: tile.tileLengthIn,
-                              widthIn: tile.tileWidthIn, rates: rates) ?? 0
-        return Double(steps) * perSqft(from: rates.sizeStepAdder, unit: rates.sizeAdderUnit, baseRate: baseRate)
+        let doublings = sizeDoublings(size: tile.tileSize, lengthIn: tile.tileLengthIn,
+                                      widthIn: tile.tileWidthIn, rates: rates) ?? 0
+        return doublings * perSqft(from: rates.sizeAdderPerDoubling, unit: rates.sizeAdderUnit, baseRate: baseRate)
     default:
         return perSqft(from: rates.sizeAdder[tile.tileSize] ?? 0, unit: rates.sizeAdderUnit, baseRate: baseRate)
     }
