@@ -61,6 +61,7 @@ struct AdminSheet: View {
     @AppStorage("biz.phone")        private var bizPhone: String = ""
     @AppStorage("biz.email")        private var bizEmail: String = ""
     @AppStorage("biz.logoBase64")   private var bizLogoBase64: String = ""
+    @AppStorage(DesignPreference.key) private var useNewDesign = false
 
     @State private var showPhotoPicker = false
     @State private var showFilePicker  = false
@@ -250,6 +251,14 @@ struct AdminSheet: View {
 
                 Section("Tax Defaults") {
                     NumericRow(title: "Default Tax %", value: $taxPercentDefault, fractionDigits: 2)
+                }
+
+                Section {
+                    Toggle("Use the new design (preview)", isOn: $useNewDesign)
+                } header: {
+                    Text("Design")
+                } footer: {
+                    Text("Both designs work on the same estimate, rates and saved estimates, so you can switch back and forth at any time.")
                 }
             }
             .scrollDismissesKeyboard(.immediately)

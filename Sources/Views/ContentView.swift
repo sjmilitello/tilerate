@@ -83,7 +83,7 @@ private func presentSystemShareSheet(for url: URL, pdfData: Data? = nil) {
     }
 }
 @MainActor
-private func presentPDFShareSheet(url: URL) {
+func presentPDFShareSheet(url: URL) {
     guard
         let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -106,16 +106,6 @@ private func presentPDFShareSheet(url: URL) {
 }
 
 // MARK: - File-scope helpers
-// Nicely format inches: 12 → "12", 12.5 → "12.5"
-private func inchesDisplay(_ v: Double?) -> String? {
-    guard let v = v, v > 0 else { return nil }
-    let rounded = (v * 100).rounded() / 100
-    if abs(rounded.rounded() - rounded) < 0.001 {
-        return String(Int(rounded))
-    } else {
-        return String(format: "%.2f", rounded)
-    }
-}
 private func intFormatter() -> NumberFormatter {
     let f = NumberFormatter()
     f.numberStyle = .none
@@ -488,37 +478,13 @@ struct ContentView: View {
         sec.walls = []
     }
     
-    /// Warnings for square/rectangle tiles with no width or length: their size
-    /// adder cannot be charged until one is entered.
     private func missingSizeWarnings(_ sec: EstimateSection) -> [String] {
-        var out: [String] = []
-        if isMissingTileDimensions(size: sec.tileSize, lengthIn: sec.tileLengthIn, widthIn: sec.tileWidthIn) {
-            out.append("Tile width and length missing: no size adder charged.")
-        }
-        if sec.area == .shower || sec.area == .tub {
-            for (i, wall) in sec.walls.enumerated() where wall.sqft > 0 &&
-                isMissingTileDimensions(size: wall.tile.tileSize, lengthIn: wall.tile.tileLengthIn,
-                                        widthIn: wall.tile.tileWidthIn) {
-                let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
-                out.append("\(name) tile width and length missing: no size adder charged.")
-            }
-        }
-        if sec.area == .shower, sec.measurements.showerFloorSqft > 0, let t = sec.showerFloorTile,
-           isMissingTileDimensions(size: t.tileSize, lengthIn: t.tileLengthIn, widthIn: t.tileWidthIn) {
-            out.append("Shower floor tile width and length missing: no size adder charged.")
-        }
-        if sec.measurements.ceilingSqft > 0, let t = sec.ceilingTile,
-           isMissingTileDimensions(size: t.tileSize, lengthIn: t.tileLengthIn, widthIn: t.tileWidthIn) {
-            out.append("Ceiling tile width and length missing: no size adder charged.")
-        }
-        return out
+        TileRate_Installation_Estimator.missingSizeWarnings(sec)
     }
 
     // Build the required sentence for PDF/summary
     private func sentence(for room: EstimateRoom, section: EstimateSection) -> String {
-        let body = buildEstimateDescription(from: section)   // use the section-aware builder
-        let areaText = section.area?.rawValue ?? "Area"
-        return "\(room.name) - \(areaText) \(body)"
+        estimateSentence(room: room, section: section)
     }
     private func saveImageToPhotos(_ image: UIImage) {
         // iOS 14+: request add-only access if possible (falls back below)
@@ -1676,106 +1642,8 @@ struct ContentView: View {
         store.state.stepIndex = 0
     }
     
-    // DROP-IN: replace your existing function with this
     private func buildEstimateDescription(from section: EstimateSection) -> String {
-        // Room + Area (room name may already be shown elsewhere; keeping as-is)
-        let roomPrefix = section.roomName.isEmpty ? "" : "\(section.roomName) – "
-        
-        // --- Size FIRST (Width × Length), no "in"
-        // If your properties are optional, change to: let W = section.tileWidthIn ?? 0, etc.
-        let W = section.tileWidthIn
-        let L = section.tileLengthIn
-        
-        func sizePart() -> String {
-            let wStr = inchesDisplay(W) ?? ""
-            let lStr = inchesDisplay(L) ?? ""
-            switch (wStr.isEmpty, lStr.isEmpty) {
-            case (false, false): return "\(wStr)×\(lStr) "   // note trailing space
-            case (false, true):  return "\(wStr) "           // width only
-            case (true, false):  return "\(lStr) "           // length only
-            default:             return ""                   // no size shown
-            }
-        }
-        
-        // Tile type
-        let typeText = section.tileType?.rawValue ?? "Tile"
-        
-        // Layout
-        let layoutText = section.layout?.rawValue ?? "Layout"
-        
-        // Surfaces based on entered measurements (unchanged)
-        var surfaces: [String] = []
-        switch section.area {
-        case .some(.shower):
-            let wallsSame = section.walls.isEmpty
-            if wallsSame, section.measurements.showerWallsSqft > 0 { surfaces.append("Walls") }
-            if section.measurements.showerFloorSqft > 0 { surfaces.append("Floor") }
-            if section.measurements.ceilingSqft > 0    { surfaces.append("Ceiling") }
-            if wallsSame, surfaces.isEmpty { surfaces = ["Walls", "Floor"] }
-        case .some(.tub):
-            let wallsSame = section.walls.isEmpty
-            if wallsSame, section.measurements.sqft > 0 { surfaces.append("Walls") }
-            if section.measurements.ceilingSqft > 0   { surfaces.append("Ceiling") }
-            if wallsSame, surfaces.isEmpty { surfaces = ["Walls"] }
-        case .some(.floor):
-            if section.measurements.sqft > 0          { surfaces.append("Floor") }
-        case .some(.wall), .some(.backsplash), .some(.fireplace):
-            if section.measurements.sqft > 0          { surfaces.append("Walls") }
-        case .none:
-            break
-        }
-        // Shower walls, floor or ceiling with their own tile are described separately
-        var otherTiles: [String] = []
-        if section.area == .shower || section.area == .tub {
-            for (i, wall) in section.walls.enumerated() where wall.sqft > 0 {
-                let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
-                otherTiles.append("\(tilePhrase(wall.tile)) on \(name)")
-            }
-        }
-        if section.area == .shower, section.measurements.showerFloorSqft > 0, let t = section.showerFloorTile {
-            surfaces.removeAll { $0 == "Floor" }
-            otherTiles.append("\(tilePhrase(t)) on Floor")
-        }
-        if section.measurements.ceilingSqft > 0, let t = section.ceilingTile {
-            surfaces.removeAll { $0 == "Ceiling" }
-            otherTiles.append("\(tilePhrase(t)) on Ceiling")
-        }
-        let otherTilesText = otherTiles.map { "; " + $0 }.joined()
-
-        let surfacesText = surfaces.isEmpty ? "" : " on " + surfaces.joined(separator: ", ")
-
-        // Feature list (unchanged)
-        var features: [String] = []
-        if section.area != .floor {
-            if section.features.shelves   > 0 { features.append(section.features.shelves   == 1 ? "Shelf"    : "\(section.features.shelves) Shelves") }
-            if section.features.niches    > 0 { features.append(section.features.niches    == 1 ? "Niche"    : "\(section.features.niches) Niches") }
-            if section.features.footrests > 0 { features.append(section.features.footrests == 1 ? "Footrest" : "\(section.features.footrests) Footrests") }
-            if section.features.benches   > 0 { features.append(section.features.benches   == 1 ? "Bench"    : "\(section.features.benches) Benches") }
-        }
-        if section.features.mosaicBand {
-            features.append("Mosaic Inlay")
-        }
-        let featuresText = features.isEmpty ? "" : " with " + features.joined(separator: ", ")
-        
-        // Every surface has its own tile: no main-tile phrase to lead with
-        if surfaces.isEmpty, !otherTiles.isEmpty {
-            return "\(roomPrefix)Tile installation consisting of \(otherTiles.joined(separator: "; "))\(featuresText)."
-        }
-
-        // Final sentence: SIZE first, then type
-        return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) Tile in \(layoutText) pattern\(surfacesText)\(otherTilesText)\(featuresText)."
-    }
-
-    /// "2×2 Porcelain Tile in Straight Stacked pattern", for a separate tile.
-    private func tilePhrase(_ t: TileChoice) -> String {
-        let w = inchesDisplay(t.tileWidthIn), l = inchesDisplay(t.tileLengthIn)
-        let size = [w, l].compactMap { $0 }.joined(separator: "×")
-        return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) Tile in \(t.layout.rawValue) pattern"
-    }
-    private func inchesDisplay(_ v: Double?) -> String? {
-        guard let v, v > 0 else { return nil }
-        if v.rounded(.towardZero) == v { return String(format: "%.0f", v) }
-        return String(format: "%.1f", v)
+        describeSection(section)
     }
     // MARK: - Adapter for legacy calls that still pass EstimatorState
     @inline(__always)
@@ -2053,16 +1921,8 @@ struct ContentView: View {
         f.currencyCode = Locale.current.currency?.identifier ?? "USD"
         return f.string(from: NSNumber(value: v)) ?? "$\(v)"
     }
-    // MARK: - PDF helpers (extracted from onCreatePDF)
-    
-    private func collectSections() -> [EstimateSection] {
-        guard !store.doc.rooms.isEmpty else { return [] }
-        var out: [EstimateSection] = []
-        out.reserveCapacity(store.doc.rooms.reduce(0) { $0 + $1.sections.count })
-        for room in store.doc.rooms { out.append(contentsOf: room.sections) }
-        return out
-    }
-    
+    // MARK: - PDF helpers (the PDF itself is built by EstimatePDF)
+
     /// The one place the estimate's totals come from, for the screen and the PDF.
     private func estimateTotals() -> EstimateTotals {
         computeTotals(document: store.doc,
@@ -2072,45 +1932,9 @@ struct ContentView: View {
                       taxPercent: exportTaxPercent)
     }
 
-    private func buildBlocks(_ totals: EstimateTotals) -> [InstallationBlock] {
-        totals.sections.map { item in
-            .init(description: sentence(for: item.room, section: item.section),
-                  amount: item.core.total,
-                  labor: item.section.additionsLabor,
-                  materials: item.section.additionsMaterials)
-        }
-    }
-    private func buildDescriptionCombined(from blocks: [InstallationBlock]) -> String {
-        var lines: [String] = []
-        lines.reserveCapacity(blocks.count)
-        for room in store.doc.rooms {
-            for sec in room.sections {
-                lines.append(sentence(for: room, section: sec))
-            }
-        }
-        if lines.isEmpty { return buildDescription(fromState: store.state) }
-        return lines.joined(separator: "  •  ")
-    }
-
-    private func flattenAdditions(_ sections: [EstimateSection]) -> (labor: [AdditionItem], mats: [AdditionItem]) {
-        var allLabor: [AdditionItem] = []
-        var allMats:  [AdditionItem] = []
-        allLabor.reserveCapacity(sections.reduce(0) { $0 + $1.additionsLabor.count })
-        allMats.reserveCapacity(sections.reduce(0) { $0 + $1.additionsMaterials.count })
-        for sec in sections {
-            allLabor.append(contentsOf: sec.additionsLabor)
-            allMats.append(contentsOf: sec.additionsMaterials)
-        }
-        return (allLabor, allMats)
-    }
-
     private func createPDFAndPresent() {
         // 1) Gather data
-        let sections = collectSections()
         let totals = estimateTotals()
-        let blocks = buildBlocks(totals)
-        let descriptionCombined = buildDescriptionCombined(from: blocks)
-        let (allLabor, allMats) = flattenAdditions(sections)
 
         // 2) Parties from AppStorage
         let biz = PartyInfo(
@@ -2129,37 +1953,17 @@ struct ContentView: View {
         let nextNumber = estimateCounter + 1
         estimateCounter = nextNumber
 
-        // 5) Build PDF view
-        let pdfRoot = ExportedFormPDFView(
-            biz: biz,
-            cust: cust,
-            estimateNumber: nextNumber,
-            date: Date(),
-            descriptionLine: descriptionCombined,
-            forceSinglePage: exportForceSinglePage,
-            logo: dynamicLogo,
-            subtotal: totals.subtotal,
-            shipping: totals.shipping,
-            taxPercent: totals.taxPercent,
-            taxBase: totals.taxableBase,
-            additionalLabor: allLabor,
-            materials: allMats,
-            blocks: blocks
-            
-        )
-
-        // 6) Render + present
+        // 5) Build and render the PDF
         do {
-            let data = try PDFGenerator.render(
-                view: pdfRoot,
-                pageSize: CGSize(width: 612, height: 792),
-                forceSinglePage: exportForceSinglePage
-            )
-
-            let suffix = exportForceSinglePage ? "Single" : "Multi"
-            let url  = try PDFGenerator.writeToTempFile(
-                data,
-                suggestedName: "TileRate_Installation_Estimate_\(nextNumber)_\(suffix).pdf"
+            let (data, url) = try EstimatePDF.make(
+                document: store.doc,
+                totals: totals,
+                biz: biz,
+                cust: cust,
+                logo: dynamicLogo,
+                estimateNumber: nextNumber,
+                forceSinglePage: exportForceSinglePage,
+                fallbackDescription: buildDescription(fromState: store.state)
             )
 
             self.showExportForm = false
