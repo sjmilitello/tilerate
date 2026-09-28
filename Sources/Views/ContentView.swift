@@ -1210,11 +1210,13 @@ struct ContentView: View {
                 .fixedSize()
             }
         }
-        LabeledContent("Layout") {
-            Picker("Layout", selection: tile.layout) {
-                ForEach(Layout.allCases) { Text($0.rawValue).tag($0) }
+        if tile.wrappedValue.tileSize != .mosaic {
+            LabeledContent("Layout") {
+                Picker("Layout", selection: tile.layout) {
+                    ForEach(Layout.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .fixedSize()
             }
-            .fixedSize()
         }
         numberField("Width (inches)", value: inches(tile.tileWidthIn))
         numberField("Length (inches)", value: inches(tile.tileLengthIn))
@@ -1320,11 +1322,15 @@ struct ContentView: View {
             Text("Select a Layout").font(StepTextStyle.font)
                 .foregroundColor(StepTextStyle.color)
             if let sec {
-                gridOptions(Layout.allCases, selection: Binding(
-                    get: { sec.wrappedValue.layout },
-                    set: { sec.wrappedValue.layout = $0 }
-                ))
-                
+                if sec.wrappedValue.tileSize == .mosaic {
+                    Text("Not needed for mosaics. They come on sheets, so no layout is chosen or charged.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    gridOptions(Layout.allCases, selection: Binding(
+                        get: { sec.wrappedValue.layout },
+                        set: { sec.wrappedValue.layout = $0 }
+                    ))
+                }
             }
         }
     }

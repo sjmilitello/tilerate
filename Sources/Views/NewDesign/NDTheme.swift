@@ -296,15 +296,16 @@ extension TileChoice {
         let size = [tileWidthIn, tileLengthIn].compactMap { $0 }.map { ND.number($0) }.joined(separator: "×")
         let shapeName = tileSize == .mosaic ? [mosaicStyle?.rawValue, "Mosaic"].compactMap { $0 }.joined(separator: " ") : tileSize.rawValue
         let shape = tileSize == .square || tileSize == .rectangle ? size : [size, shapeName].filter { !$0.isEmpty }.joined(separator: " ")
-        return [tileType.rawValue + (shape.isEmpty ? "" : " " + shape), layout.rawValue].joined(separator: " · ")
+        let name = tileType.rawValue + (shape.isEmpty ? "" : " " + shape)
+        return tileSize == .mosaic ? name : [name, layout.rawValue].joined(separator: " · ")
     }
 }
 
 extension EstimateSection {
     /// The section's main tile, when it has been chosen.
     var ndMainTile: TileChoice? {
-        guard let tileType, let tileSize, let layout else { return nil }
-        return TileChoice(tileType: tileType, tileSize: tileSize, layout: layout,
+        guard let tileType, let tileSize, tileSize == .mosaic || layout != nil else { return nil }
+        return TileChoice(tileType: tileType, tileSize: tileSize, layout: layout ?? .straightStacked,
                           tileWidthIn: tileWidthIn, tileLengthIn: tileLengthIn, mosaicStyle: mosaicStyle)
     }
 }

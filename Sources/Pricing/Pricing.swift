@@ -60,9 +60,10 @@ private func addersPerSq(baseRate: Double, tile: TileChoice, rates: Rates) -> Do
                             unit: rates.typeAdderUnit,
                             baseRate: baseRate)
     let sizePerSq = sizeAdderPerSq(baseRate: baseRate, tile: tile, rates: rates)
-    let layoutPerSq = perSqft(from: rates.layoutAdder[tile.layout] ?? 0,
-                              unit: rates.layoutAdderUnit,
-                              baseRate: baseRate)
+    // Mosaics come on sheets and have no layout of their own.
+    let layoutPerSq = tile.tileSize == .mosaic ? 0 : perSqft(from: rates.layoutAdder[tile.layout] ?? 0,
+                                                             unit: rates.layoutAdderUnit,
+                                                             baseRate: baseRate)
     return typePerSq + sizePerSq + layoutPerSq
 }
 
@@ -74,15 +75,16 @@ private func escalatorAdjPerSqft(rates: Rates) -> Double {
 func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
     var lines: [Line] = []
 
+    // A mosaic needs no layout; anything else does.
     guard let area = state.area,
           let type = state.tileType,
           let size = state.tileSize,
-          let layout = state.layout
+          size == .mosaic || state.layout != nil
     else {
         return Summary(lines: [], total: 0)
     }
 
-    let mainTile = TileChoice(tileType: type, tileSize: size, layout: layout,
+    let mainTile = TileChoice(tileType: type, tileSize: size, layout: state.layout ?? .straightStacked,
                               tileWidthIn: state.tileWidthIn, tileLengthIn: state.tileLengthIn,
                               mosaicStyle: state.mosaicStyle)
 

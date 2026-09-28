@@ -36,9 +36,10 @@ func missingSizeWarnings(_ sec: EstimateSection) -> [String] {
 }
 
 /// A section is priced only once it has an area and a main tile type, size
-/// and layout; until then it comes to $0.
+/// and layout (a mosaic needs no layout); until then it comes to $0.
 func isSectionReady(_ sec: EstimateSection) -> Bool {
-    sec.area != nil && sec.tileType != nil && sec.tileSize != nil && sec.layout != nil
+    sec.area != nil && sec.tileType != nil && sec.tileSize != nil
+        && (sec.tileSize == .mosaic || sec.layout != nil)
 }
 
 /// The sentence describing one section on the Summary and the PDF.
@@ -68,6 +69,8 @@ func describeSection(_ section: EstimateSection) -> String {
     
     // Layout
     let layoutText = section.layout?.rawValue ?? "Layout"
+    // Mosaics have no layout, so no "in … pattern".
+    let patternText = section.tileSize == .mosaic ? "" : " in \(layoutText) pattern"
     
     // Surfaces based on entered measurements (unchanged)
     var surfaces: [String] = []
@@ -129,14 +132,14 @@ func describeSection(_ section: EstimateSection) -> String {
     }
 
     // Final sentence: SIZE first, then type
-    return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) \(tileNoun) in \(layoutText) pattern\(surfacesText)\(otherTilesText)\(featuresText)."
+    return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) \(tileNoun)\(patternText)\(surfacesText)\(otherTilesText)\(featuresText)."
 }
 
 /// "2×2 Porcelain Tile in Straight Stacked pattern", for a separate tile.
 private func tilePhrase(_ t: TileChoice) -> String {
     let w = describeInches(t.tileWidthIn), l = describeInches(t.tileLengthIn)
     let size = [w, l].compactMap { $0 }.joined(separator: "×")
-    return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) \(tileWord(size: t.tileSize, style: t.mosaicStyle)) in \(t.layout.rawValue) pattern"
+    return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) \(tileWord(size: t.tileSize, style: t.mosaicStyle))\(t.tileSize == .mosaic ? "" : " in \(t.layout.rawValue) pattern")"
 }
 
 /// "Tile", or "Penny Round Mosaic" for a mosaic with a style chosen.

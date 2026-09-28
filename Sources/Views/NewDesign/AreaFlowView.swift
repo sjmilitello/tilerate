@@ -657,32 +657,35 @@ struct NDTileFields: View {
                 }
                 sizeReadout
             }
-            VStack(alignment: .leading, spacing: 10) {
-                NDLabel("Layout")
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                    ForEach(Layout.allCases) { l in
-                        let selected = layout == l
-                        Button { layout = l } label: {
-                            VStack(spacing: 6) {
-                                NDLayoutPattern(layout: l)
-                                    .stroke(selected ? ND.link : ND.muted, lineWidth: 1.4)
-                                    .frame(width: 52, height: 34)
-                                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                                Text(l.rawValue)
-                                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(2)
-                                    .minimumScaleFactor(0.85)
+            // Mosaics come on sheets: no layout to choose.
+            if size != .mosaic {
+                VStack(alignment: .leading, spacing: 10) {
+                    NDLabel("Layout")
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                        ForEach(Layout.allCases) { l in
+                            let selected = layout == l
+                            Button { layout = l } label: {
+                                VStack(spacing: 6) {
+                                    NDLayoutPattern(layout: l)
+                                        .stroke(selected ? ND.link : ND.muted, lineWidth: 1.4)
+                                        .frame(width: 52, height: 34)
+                                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                                    Text(l.rawValue)
+                                        .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                        .minimumScaleFactor(0.85)
+                                }
+                                .foregroundStyle(selected ? Color.white : ND.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 88)
+                                .background(selected ? ND.selectedBg : ND.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(selected ? ND.link : ND.border, lineWidth: selected ? 2 : 1))
                             }
-                            .foregroundStyle(selected ? Color.white : ND.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 88)
-                            .background(selected ? ND.selectedBg : ND.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(selected ? ND.link : ND.border, lineWidth: selected ? 2 : 1))
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(selected ? .isSelected : [])
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selected ? .isSelected : [])
                     }
                 }
             }

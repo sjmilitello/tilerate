@@ -304,7 +304,7 @@ struct MosaicStyleTests {
         var s = mosaic(.pennyRound)
         s.tileType = .porcelain
         s.measurements.sqft = 10
-        #expect(describeSection(s).contains("Porcelain Penny Round Mosaic in Straight Stacked pattern"))
+        #expect(describeSection(s).contains("Porcelain Penny Round Mosaic on Walls"))
 
         var sq = mosaic(.square)
         sq.tileType = .glass
@@ -314,7 +314,33 @@ struct MosaicStyleTests {
 
         var plain = mosaic(nil)
         plain.tileType = .porcelain
-        #expect(describeSection(plain).contains("Porcelain Tile in"))
+        #expect(describeSection(plain).contains("Porcelain Tile"))
+        #expect(!describeSection(plain).contains("pattern"))
+    }
+
+    @Test func mosaicsNeedNoLayoutAndPayNoLayoutAdder() {
+        var r = rates()
+        r.layoutAdder[.herringbone] = 7
+        var s = mosaic(.pennyRound)
+        s.layout = .herringbone
+        #expect(price(s, r) == 10 * (20 + 4 + 3))          // no $7 herringbone adder
+        s.layout = nil
+        #expect(isSectionReady(s))
+        #expect(price(s, r) == 10 * (20 + 4 + 3))          // still priced without a layout
+
+        var tile = section(.wall, sqft: 10, size: .hexagon)
+        tile.layout = nil
+        #expect(!isSectionReady(tile))                      // other shapes still need one
+        #expect(price(tile, r) == 0)
+    }
+
+    @Test func mosaicWordingHasNoPattern() {
+        var s = mosaic(.pennyRound)
+        s.tileType = .porcelain
+        s.layout = .herringbone
+        s.measurements.sqft = 10
+        #expect(describeSection(s).contains("Porcelain Penny Round Mosaic on Walls"))
+        #expect(!describeSection(s).contains("pattern"))
     }
 
     @Test func savedDataWithoutStylesStillLoads() throws {
