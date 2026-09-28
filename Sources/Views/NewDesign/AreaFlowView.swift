@@ -150,9 +150,9 @@ struct AreaFlowView: View {
                     Button { choose(area) } label: {
                         VStack(alignment: .leading) {
                             HStack(alignment: .top) {
-                                Image(systemName: area.ndIcon)
-                                    .font(.system(size: 24))
+                                NDAreaIcon(area: area, size: 24)
                                     .foregroundStyle(selected ? Color.white : ND.link)
+                                    .frame(height: 28)
                                 Spacer()
                                 if selected {
                                     Image(systemName: "checkmark.circle.fill")

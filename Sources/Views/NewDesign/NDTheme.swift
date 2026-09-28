@@ -278,6 +278,8 @@ struct NDWarning: View {
 }
 
 extension Area {
+    /// The system symbol for areas drawn with one; Floor, Wall and
+    /// Backsplash are drawn as tile patterns by `NDAreaIcon`.
     var ndIcon: String {
         switch self {
         case .floor: "square.grid.3x3"
@@ -287,6 +289,88 @@ extension Area {
         case .backsplash: "rectangle.split.3x1"
         case .fireplace: "fireplace"
         }
+    }
+}
+
+/// An area's icon: tile patterns for Floor (Versailles), Wall (subway in
+/// running bond) and Backsplash (random-length linear mosaic), and system
+/// symbols for the rest.
+struct NDAreaIcon: View {
+    let area: Area?
+    var size: CGFloat = 24
+
+    var body: some View {
+        switch area {
+        case .floor:
+            NDTilePattern(kind: .versailles)
+                .stroke(style: StrokeStyle(lineWidth: size * 0.07, lineJoin: .round))
+                .frame(width: size, height: size)
+        case .wall:
+            NDTilePattern(kind: .subwayRunningBond)
+                .stroke(style: StrokeStyle(lineWidth: size * 0.07, lineJoin: .round))
+                .frame(width: size * 1.15, height: size * 0.95)
+        case .backsplash:
+            NDTilePattern(kind: .randomLinear)
+                .stroke(style: StrokeStyle(lineWidth: size * 0.055, lineJoin: .round))
+                .frame(width: size * 1.35, height: size * 0.8)
+        case .some(let a):
+            Image(systemName: a.ndIcon).font(.system(size: size))
+        case .none:
+            Image(systemName: "questionmark.square.dashed").font(.system(size: size))
+        }
+    }
+}
+
+/// Tile patterns drawn as outlines, used for area icons.
+struct NDTilePattern: Shape {
+    enum Kind { case versailles, subwayRunningBond, randomLinear }
+    let kind: Kind
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, units: CGFloat) {
+            let u = CGSize(width: r.width / units, height: r.height / units)
+            p.addRect(CGRect(x: r.minX + x * u.width, y: r.minY + y * u.height,
+                             width: w * u.width, height: h * u.height))
+        }
+        func line(_ x1: CGFloat, _ y1: CGFloat, _ x2: CGFloat, _ y2: CGFloat) {
+            p.move(to: CGPoint(x: r.minX + x1 * r.width, y: r.minY + y1 * r.height))
+            p.addLine(to: CGPoint(x: r.minX + x2 * r.width, y: r.minY + y2 * r.height))
+        }
+
+        switch kind {
+        case .versailles:
+            // Large and small squares and rectangles fitted together on a 4×4 grid.
+            rect(0, 0, 2, 2, units: 4)   // large square
+            rect(2, 0, 2, 1, units: 4)   // rectangle
+            rect(2, 1, 1, 1, units: 4)   // small square
+            rect(3, 1, 1, 2, units: 4)   // rectangle
+            rect(0, 2, 1, 2, units: 4)   // rectangle
+            rect(1, 2, 2, 2, units: 4)   // large square
+            rect(3, 3, 1, 1, units: 4)   // small square
+
+        case .subwayRunningBond:
+            // Four rows of 2:1 bricks, each row offset by half a brick.
+            p.addRect(r)
+            for i in 1..<4 { line(0, CGFloat(i) / 4, 1, CGFloat(i) / 4) }
+            for row in 0..<4 {
+                let y0 = CGFloat(row) / 4, y1 = CGFloat(row + 1) / 4
+                let joints: [CGFloat] = row.isMultiple(of: 2) ? [1.0 / 3, 2.0 / 3] : [1.0 / 6, 0.5, 5.0 / 6]
+                for x in joints { line(x, y0, x, y1) }
+            }
+
+        case .randomLinear:
+            // Thin strips of different lengths, joints staggered at random.
+            p.addRect(r)
+            let rows: [[CGFloat]] = [[0.22, 0.61], [0.09, 0.37, 0.83], [0.48], [0.18, 0.29, 0.7],
+                                     [0.56, 0.93], [0.12, 0.44, 0.64]]
+            let n = CGFloat(rows.count)
+            for i in 1..<rows.count { line(0, CGFloat(i) / n, 1, CGFloat(i) / n) }
+            for (i, joints) in rows.enumerated() {
+                for x in joints { line(x, CGFloat(i) / n, x, CGFloat(i + 1) / n) }
+            }
+        }
+        return p
     }
 }
 

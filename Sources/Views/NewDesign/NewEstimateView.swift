@@ -273,8 +273,7 @@ struct NewEstimateView: View {
         let warnings = NDAreaText.warnings(sec)
         return NavigationLink(value: NDRoute.area(room: room.id, section: sec.id, step: isSectionReady(sec) ? 2 : 0)) {
             HStack(spacing: 12) {
-                Image(systemName: sec.area?.ndIcon ?? "questionmark.square.dashed")
-                    .font(.system(size: 18))
+                NDAreaIcon(area: sec.area, size: 18)
                     .foregroundStyle(ND.link)
                     .frame(width: 40, height: 40)
                     .background(ND.selectedBg)
