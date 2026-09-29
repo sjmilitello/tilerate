@@ -63,7 +63,8 @@ struct AreaFlowView: View {
 
     private var tileReady: Bool {
         isSectionReady(section)
-            && !isMissingTileDimensions(size: section.tileSize, lengthIn: section.tileLengthIn, widthIn: section.tileWidthIn)
+            && (section.layout == .multiTile
+                || !isMissingTileDimensions(size: section.tileSize, lengthIn: section.tileLengthIn, widthIn: section.tileWidthIn))
     }
 
     private var measuredSqft: Double {
@@ -116,7 +117,6 @@ struct AreaFlowView: View {
         .navigationTitle("\(roomName) · \(section.area?.rawValue ?? "New area")")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(ND.ground, for: .navigationBar)
-        .ndKeyboardDone()
         .onAppear {
             guard !didStart else { return }
             didStart = true
@@ -214,6 +214,7 @@ struct AreaFlowView: View {
                 width: sec.tileWidthIn,
                 length: sec.tileLengthIn,
                 mosaicStyle: sec.mosaicStyle,
+                pieces: sec.multiTilePieces,
                 rates: store.rates
             )
             if section.area == .shower || section.area == .tub {
@@ -682,7 +683,8 @@ struct AreaFlowView: View {
 
 // MARK: - Tile fields (main tile and separate tiles)
 
-/// Material, shape, size and layout, with the size-step readout.
+/// Material, then layout (Mosaic is a layout choice here), then shape and
+/// size: several shapes and sizes for Multi-Tile, a style and size for Mosaic.
 struct NDTileFields: View {
     @Binding var type: TileType?
     @Binding var size: TileSize?
@@ -690,7 +692,11 @@ struct NDTileFields: View {
     @Binding var width: Double?
     @Binding var length: Double?
     @Binding var mosaicStyle: MosaicStyle?
+    @Binding var pieces: [TilePiece]
     let rates: Rates
+
+    private var isMosaic: Bool { size == .mosaic }
+    private var isMultiTile: Bool { !isMosaic && layout == .multiTile }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -702,15 +708,10 @@ struct NDTileFields: View {
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 10) {
-                NDLabel("Shape")
-                NDFlow {
-                    ForEach(TileSize.allCases) { s in
-                        NDChip(title: s.rawValue, selected: size == s) { size = s }
-                    }
-                }
-            }
-            if size == .mosaic {
+
+            layoutGrid
+
+            if isMosaic {
                 VStack(alignment: .leading, spacing: 10) {
                     NDLabel("Mosaic style")
                     NDFlow {
@@ -723,55 +724,167 @@ struct NDTileFields: View {
                             .font(.system(size: 13)).foregroundStyle(ND.muted)
                     }
                 }
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                NDLabel("Tile size (inches)")
-                HStack(alignment: .bottom, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Width").font(.system(size: 13)).foregroundStyle(ND.secondary)
-                        NDNumberField(placeholder: "0", value: $width.orZero, font: .system(size: 20, weight: .semibold))
-                    }
-                    Text("×").font(.system(size: 20)).foregroundStyle(ND.muted).frame(height: 48)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Length").font(.system(size: 13)).foregroundStyle(ND.secondary)
-                        NDNumberField(placeholder: "0", value: $length.orZero, font: .system(size: 20, weight: .semibold))
-                    }
-                }
-                sizeReadout
-            }
-            // Mosaics come on sheets: no layout to choose.
-            if size != .mosaic {
+                sizeFields
+            } else if isMultiTile {
+                piecesEditor
+            } else if layout != nil {
                 VStack(alignment: .leading, spacing: 10) {
-                    NDLabel("Layout")
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                        ForEach(Layout.allCases) { l in
-                            let selected = layout == l
-                            Button { layout = l } label: {
-                                VStack(spacing: 6) {
-                                    NDLayoutPattern(layout: l)
-                                        .stroke(selected ? ND.link : ND.muted, lineWidth: 1.4)
-                                        .frame(width: 52, height: 34)
-                                        .clipShape(RoundedRectangle(cornerRadius: 2))
-                                    Text(l.rawValue)
-                                        .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(2)
-                                        .minimumScaleFactor(0.85)
-                                }
-                                .foregroundStyle(selected ? Color.white : ND.secondary)
-                                .frame(maxWidth: .infinity, minHeight: 88)
-                                .background(selected ? ND.selectedBg : ND.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(selected ? ND.link : ND.border, lineWidth: selected ? 2 : 1))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(selected ? .isSelected : [])
+                    NDLabel("Shape")
+                    NDFlow {
+                        ForEach(TileSize.allCases.filter { $0 != .mosaic }) { s in
+                            NDChip(title: s.rawValue, selected: size == s) { size = s }
                         }
                     }
                 }
+                sizeFields
             }
         }
+    }
+
+    // MARK: Layout
+
+    private var layoutGrid: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NDLabel("Layout")
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                ForEach(Layout.allCases) { l in
+                    layoutButton(title: l.rawValue, selected: !isMosaic && layout == l,
+                                 picture: AnyShape(NDLayoutPattern(layout: l))) { choose(l) }
+                }
+                layoutButton(title: "Mosaic", selected: isMosaic,
+                             picture: AnyShape(NDMosaicPattern())) { chooseMosaic() }
+            }
+        }
+    }
+
+    private func layoutButton(title: String, selected: Bool, picture: AnyShape,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                picture
+                    .stroke(selected ? ND.link : ND.muted, lineWidth: 1.4)
+                    .frame(width: 52, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: 2))
+                Text(title)
+                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(selected ? Color.white : ND.secondary)
+            .frame(maxWidth: .infinity, minHeight: 88)
+            .background(selected ? ND.selectedBg : ND.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(selected ? ND.link : ND.border, lineWidth: selected ? 2 : 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func choose(_ l: Layout) {
+        layout = l
+        if isMosaic { size = nil }              // back from Mosaic: choose a shape again
+        if l == .multiTile {
+            if size == nil { size = .rectangle }
+            if pieces.isEmpty {
+                // Start from the tile already entered, if any.
+                pieces = [TilePiece(shape: size ?? .rectangle, widthIn: width, lengthIn: length)]
+            }
+        }
+    }
+
+    private func chooseMosaic() {
+        size = .mosaic
+        layout = nil                            // mosaics have no layout
+    }
+
+    // MARK: Size
+
+    private var sizeFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NDLabel(isMosaic ? "Piece size (inches)" : "Tile size (inches)")
+            HStack(alignment: .bottom, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Width").font(.system(size: 13)).foregroundStyle(ND.secondary)
+                    NDNumberField(placeholder: "0", value: $width.orZero, font: .system(size: 20, weight: .semibold))
+                }
+                Text("×").font(.system(size: 20)).foregroundStyle(ND.muted).frame(height: 48)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Length").font(.system(size: 13)).foregroundStyle(ND.secondary)
+                    NDNumberField(placeholder: "0", value: $length.orZero, font: .system(size: 20, weight: .semibold))
+                }
+            }
+            sizeReadout
+        }
+    }
+
+    // MARK: Multi-tile pieces
+
+    private var piecesEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NDLabel("Tiles in the pattern")
+            NDCard {
+                ForEach(Array(pieces.enumerated()), id: \.element.id) { i, piece in
+                    if i > 0 { Divider().overlay(ND.border) }
+                    pieceRow(piece)
+                }
+            }
+            Button {
+                pieces.append(TilePiece(shape: pieces.last?.shape ?? .rectangle))
+            } label: {
+                Label("Add tile size", systemImage: "plus").font(.system(size: 15, weight: .medium))
+            }
+            .foregroundStyle(ND.link)
+            Text("Multi-tile layouts have no size adder; the Multi-Tile layout adder applies.")
+                .font(.system(size: 13)).foregroundStyle(ND.muted)
+        }
+    }
+
+    private func pieceRow(_ piece: TilePiece) -> some View {
+        let p = pieceBinding(piece.id)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Menu {
+                    ForEach(TileSize.allCases.filter { $0 != .mosaic }) { s in
+                        Button(s.rawValue) { p.wrappedValue.shape = s }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(piece.shape.rawValue).font(.system(size: 16, weight: .semibold))
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 12))
+                    }
+                    .foregroundStyle(ND.link)
+                    .frame(minHeight: 36)
+                }
+                Spacer()
+                Button(role: .destructive) {
+                    pieces.removeAll { $0.id == piece.id }
+                } label: {
+                    Image(systemName: "trash").frame(width: 36, height: 36)
+                }
+                .foregroundStyle(ND.muted)
+                .disabled(pieces.count <= 1)
+                .accessibilityLabel("Remove this tile size")
+            }
+            HStack(spacing: 10) {
+                NDNumberField(placeholder: "Width", value: p.widthIn.orZero)
+                Text("×").foregroundStyle(ND.muted)
+                NDNumberField(placeholder: "Length", value: p.lengthIn.orZero)
+                Text("in").font(.system(size: 13)).foregroundStyle(ND.muted)
+            }
+        }
+        .padding(14)
+    }
+
+    private func pieceBinding(_ id: UUID) -> Binding<TilePiece> {
+        Binding(
+            get: { pieces.first { $0.id == id } ?? TilePiece() },
+            set: { newValue in
+                guard let i = pieces.firstIndex(where: { $0.id == id }) else { return }
+                pieces[i] = newValue
+            }
+        )
     }
 
     @ViewBuilder
@@ -800,6 +913,23 @@ struct NDTileFields: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
+    }
+}
+
+/// A small drawing of a mosaic sheet: a grid of small squares.
+struct NDMosaicPattern: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let cols = 6, rows = 4, gap: CGFloat = 1.5
+        let w = (r.width - gap * CGFloat(cols - 1)) / CGFloat(cols)
+        let h = (r.height - gap * CGFloat(rows - 1)) / CGFloat(rows)
+        for c in 0..<cols {
+            for row in 0..<rows {
+                p.addRect(CGRect(x: r.minX + CGFloat(c) * (w + gap), y: r.minY + CGFloat(row) * (h + gap),
+                                 width: w, height: h))
+            }
+        }
+        return p
     }
 }
 
@@ -858,11 +988,12 @@ struct NDTileSheet: View {
             ScrollView {
                 NDTileFields(
                     type: Binding(get: { tile.tileType }, set: { if let v = $0 { tile.tileType = v } }),
-                    size: Binding(get: { tile.tileSize }, set: { if let v = $0 { tile.tileSize = v } }),
+                    size: Binding(get: { tile.tileSize }, set: { tile.tileSize = $0 ?? .rectangle }),
                     layout: Binding(get: { tile.layout }, set: { if let v = $0 { tile.layout = v } }),
                     width: $tile.tileWidthIn,
                     length: $tile.tileLengthIn,
                     mosaicStyle: $tile.mosaicStyle,
+                    pieces: $tile.pieces,
                     rates: rates
                 )
                 .padding(20)
@@ -872,7 +1003,6 @@ struct NDTileSheet: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .ndKeyboardDone()
         }
         .preferredColorScheme(.dark)
     }
@@ -910,7 +1040,6 @@ struct NDLineItemSheet: View {
             .navigationTitle(materials ? "Materials" : "Labor")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .ndKeyboardDone()
         }
         .preferredColorScheme(.dark)
     }

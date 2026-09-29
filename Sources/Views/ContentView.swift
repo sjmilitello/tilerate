@@ -1184,7 +1184,8 @@ struct ContentView: View {
                    layout: sec.layout ?? .straightStacked,
                    tileWidthIn: sec.tileWidthIn,
                    tileLengthIn: sec.tileLengthIn,
-                   mosaicStyle: sec.mosaicStyle)
+                   mosaicStyle: sec.mosaicStyle,
+                   pieces: sec.multiTilePieces)
     }
 
     /// Type, size, layout and dimensions of one tile choice.
@@ -1742,6 +1743,7 @@ struct ContentView: View {
         tmp.tileWidthIn  = state.tileWidthIn
         tmp.tileLengthIn = state.tileLengthIn
         tmp.mosaicStyle  = state.mosaicStyle
+        tmp.multiTilePieces = state.multiTilePieces
         tmp.showerFloorTile = state.showerFloorTile
         tmp.ceilingTile  = state.ceilingTile
         tmp.walls  = state.walls

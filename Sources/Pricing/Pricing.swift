@@ -41,6 +41,8 @@ func isMissingTileDimensions(size: TileSize?, lengthIn: Double?, widthIn: Double
 }
 
 private func sizeAdderPerSq(baseRate: Double, tile: TileChoice, rates: Rates) -> Double {
+    // A multi-tile layout mixes sizes: no size adder, only its layout adder.
+    if tile.layout == .multiTile, tile.tileSize != .mosaic { return 0 }
     switch tile.tileSize {
     case .square, .rectangle:
         let doublings = sizeDoublings(size: tile.tileSize, lengthIn: tile.tileLengthIn,
@@ -86,7 +88,7 @@ func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
 
     let mainTile = TileChoice(tileType: type, tileSize: size, layout: state.layout ?? .straightStacked,
                               tileWidthIn: state.tileWidthIn, tileLengthIn: state.tileLengthIn,
-                              mosaicStyle: state.mosaicStyle)
+                              mosaicStyle: state.mosaicStyle, pieces: state.multiTilePieces)
 
     func currency(rates: Rates, value: Double) -> String {
         let f = NumberFormatter(); f.numberStyle = .currency

@@ -254,6 +254,14 @@ struct DecorativeItem: Identifiable, Codable, Equatable, Hashable {
     var locations: [String] = []
 }
 
+/// One tile in a multi-tile layout: its shape and size.
+struct TilePiece: Identifiable, Codable, Equatable, Hashable {
+    var id = UUID()
+    var shape: TileSize = .rectangle
+    var widthIn: Double? = nil
+    var lengthIn: Double? = nil
+}
+
 /// A tile chosen for one surface when it differs from the section's main tile —
 /// a mosaic shower floor under large-format walls, say.
 struct TileChoice: Codable, Equatable, Hashable {
@@ -264,6 +272,8 @@ struct TileChoice: Codable, Equatable, Hashable {
     var tileLengthIn: Double? = nil
     /// Only used when `tileSize` is Mosaic.
     var mosaicStyle: MosaicStyle? = nil
+    /// The tiles in a Multi-Tile layout, each with its own shape and size.
+    var pieces: [TilePiece] = []
 }
 
 /// One shower or tub-surround wall with its own tile, used when the walls are
@@ -288,6 +298,8 @@ struct EstimatorState: Codable {
     var tileLengthIn: Double? = nil
     /// The main tile's mosaic style, used when its shape is Mosaic.
     var mosaicStyle: MosaicStyle? = nil
+    /// The main tile's pieces, used when its layout is Multi-Tile.
+    var multiTilePieces: [TilePiece] = []
 
     /// nil means the shower floor / ceiling uses the main tile.
     var showerFloorTile: TileChoice? = nil
@@ -316,6 +328,7 @@ extension EstimatorState {
         tileWidthIn = sec.tileWidthIn
         tileLengthIn = sec.tileLengthIn
         mosaicStyle = sec.mosaicStyle
+        multiTilePieces = sec.multiTilePieces
         showerFloorTile = sec.showerFloorTile
         ceilingTile = sec.ceilingTile
         walls = sec.walls
@@ -354,6 +367,8 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var tileLengthIn: Double? = nil
     /// The main tile's mosaic style, used when its shape is Mosaic.
     var mosaicStyle: MosaicStyle? = nil
+    /// The main tile's pieces, used when its layout is Multi-Tile.
+    var multiTilePieces: [TilePiece] = []
     /// nil means the shower floor / ceiling uses the main tile.
     var showerFloorTile: TileChoice? = nil
     var ceilingTile: TileChoice? = nil
@@ -465,6 +480,7 @@ extension EstimatorState {
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
         c.read(.mosaicStyle, into: &mosaicStyle)
+        c.read(.multiTilePieces, into: &multiTilePieces)
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
@@ -492,6 +508,7 @@ extension EstimateSection {
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
         c.read(.mosaicStyle, into: &mosaicStyle)
+        c.read(.multiTilePieces, into: &multiTilePieces)
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
@@ -528,6 +545,17 @@ extension DecorativeItem {
     }
 }
 
+extension TilePiece {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.shape, into: &shape)
+        c.read(.widthIn, into: &widthIn)
+        c.read(.lengthIn, into: &lengthIn)
+    }
+}
+
 extension TiledWall {
     init(from decoder: Decoder) throws {
         self.init()
@@ -549,6 +577,7 @@ extension TileChoice {
         c.read(.tileWidthIn, into: &tileWidthIn)
         c.read(.tileLengthIn, into: &tileLengthIn)
         c.read(.mosaicStyle, into: &mosaicStyle)
+        c.read(.pieces, into: &pieces)
     }
 }
 

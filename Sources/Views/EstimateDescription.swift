@@ -13,26 +13,29 @@ func estimateSentence(room: EstimateRoom, section: EstimateSection) -> String {
 /// adder cannot be charged until one is entered.
 func missingSizeWarnings(_ sec: EstimateSection) -> [String] {
     var out: [String] = []
-    if isMissingTileDimensions(size: sec.tileSize, lengthIn: sec.tileLengthIn, widthIn: sec.tileWidthIn) {
+    if sec.layout != .multiTile,
+       isMissingTileDimensions(size: sec.tileSize, lengthIn: sec.tileLengthIn, widthIn: sec.tileWidthIn) {
         out.append("Tile width and length missing: no size adder charged.")
     }
     if sec.area == .shower || sec.area == .tub {
-        for (i, wall) in sec.walls.enumerated() where wall.sqft > 0 &&
-            isMissingTileDimensions(size: wall.tile.tileSize, lengthIn: wall.tile.tileLengthIn,
-                                    widthIn: wall.tile.tileWidthIn) {
+        for (i, wall) in sec.walls.enumerated() where wall.sqft > 0 && needsSize(wall.tile) {
             let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
             out.append("\(name) tile width and length missing: no size adder charged.")
         }
     }
-    if sec.area == .shower, sec.measurements.showerFloorSqft > 0, let t = sec.showerFloorTile,
-       isMissingTileDimensions(size: t.tileSize, lengthIn: t.tileLengthIn, widthIn: t.tileWidthIn) {
+    if sec.area == .shower, sec.measurements.showerFloorSqft > 0, let t = sec.showerFloorTile, needsSize(t) {
         out.append("Shower floor tile width and length missing: no size adder charged.")
     }
-    if sec.measurements.ceilingSqft > 0, let t = sec.ceilingTile,
-       isMissingTileDimensions(size: t.tileSize, lengthIn: t.tileLengthIn, widthIn: t.tileWidthIn) {
+    if sec.measurements.ceilingSqft > 0, let t = sec.ceilingTile, needsSize(t) {
         out.append("Ceiling tile width and length missing: no size adder charged.")
     }
     return out
+}
+
+/// A square or rectangle tile with no width or length, outside a multi-tile
+/// layout (which has no size adder).
+private func needsSize(_ t: TileChoice) -> Bool {
+    t.layout != .multiTile && isMissingTileDimensions(size: t.tileSize, lengthIn: t.tileLengthIn, widthIn: t.tileWidthIn)
 }
 
 /// A section is priced only once it has an area and a main tile type, size
@@ -52,7 +55,9 @@ func describeSection(_ section: EstimateSection) -> String {
     let W = section.tileWidthIn
     let L = section.tileLengthIn
     
+    let isMultiTile = section.layout == .multiTile && section.tileSize != .mosaic
     func sizePart() -> String {
+        if isMultiTile { return "" }      // each piece's size is listed after the layout
         let wStr = describeInches(W) ?? ""
         let lStr = describeInches(L) ?? ""
         switch (wStr.isEmpty, lStr.isEmpty) {
@@ -70,7 +75,8 @@ func describeSection(_ section: EstimateSection) -> String {
     // Layout
     let layoutText = section.layout?.rawValue ?? "Layout"
     // Mosaics have no layout, so no "in … pattern".
-    let patternText = section.tileSize == .mosaic ? "" : " in \(layoutText) pattern"
+    let patternText = section.tileSize == .mosaic ? ""
+        : " in \(layoutText) pattern\(isMultiTile ? piecesText(section.multiTilePieces) : "")"
     
     // Surfaces based on entered measurements (unchanged)
     var surfaces: [String] = []
@@ -139,7 +145,23 @@ func describeSection(_ section: EstimateSection) -> String {
 private func tilePhrase(_ t: TileChoice) -> String {
     let w = describeInches(t.tileWidthIn), l = describeInches(t.tileLengthIn)
     let size = [w, l].compactMap { $0 }.joined(separator: "×")
+    if t.layout == .multiTile, t.tileSize != .mosaic {
+        return "\(t.tileType.rawValue) Tile in Multi-Tile pattern\(piecesText(t.pieces))"
+    }
     return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) \(tileWord(size: t.tileSize, style: t.mosaicStyle))\(t.tileSize == .mosaic ? "" : " in \(t.layout.rawValue) pattern")"
+}
+
+/// " (12×24, 24×24, 6×6 Hexagon)" for the tiles in a multi-tile layout.
+func piecesText(_ pieces: [TilePiece]) -> String {
+    let parts = pieces.map(pieceLabel).filter { !$0.isEmpty }
+    return parts.isEmpty ? "" : " (\(parts.joined(separator: ", ")))"
+}
+
+/// "12×24" for a square or rectangle, "6×6 Hexagon" for other shapes.
+func pieceLabel(_ p: TilePiece) -> String {
+    let size = [describeInches(p.widthIn), describeInches(p.lengthIn)].compactMap { $0 }.joined(separator: "×")
+    let shape = p.shape == .square || p.shape == .rectangle ? "" : p.shape.rawValue
+    return [size, shape].filter { !$0.isEmpty }.joined(separator: " ")
 }
 
 /// "Tile", or "Penny Round Mosaic" for a mosaic with a style chosen.
@@ -236,7 +258,8 @@ func defaultDecorativeTile(for sec: EstimateSection) -> TileChoice {
 private func mainTile(of sec: EstimateSection) -> TileChoice? {
     guard let tileType = sec.tileType, let tileSize = sec.tileSize else { return nil }
     return TileChoice(tileType: tileType, tileSize: tileSize, layout: sec.layout ?? .straightStacked,
-                      tileWidthIn: sec.tileWidthIn, tileLengthIn: sec.tileLengthIn, mosaicStyle: sec.mosaicStyle)
+                      tileWidthIn: sec.tileWidthIn, tileLengthIn: sec.tileLengthIn, mosaicStyle: sec.mosaicStyle,
+                      pieces: sec.multiTilePieces)
 }
 
 extension DecorativeItem {

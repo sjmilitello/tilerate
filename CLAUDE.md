@@ -171,6 +171,17 @@ the piece size and show on the estimate; the doubling size adder does not
 apply to mosaics. New enum cases are safe for saved data: rates tables merge,
 so a new case starts at its default.
 
+## Multi-tile layouts
+
+From 2026-09-28 a Multi-Tile layout lists its tiles, each with its own shape
+and size (`TilePiece`: `multiTilePieces` on a section, `pieces` on a
+`TileChoice`). Owner's rule: a multi-tile layout pays **no size adder**, only
+the Multi-Tile layout adder (plus the material adder), and missing sizes raise
+no warning. The estimate lists the pieces: "Porcelain Tile in Multi-Tile
+pattern (12×24, 24×24, 6×6 Hexagon)". In the new design the Tile step goes
+Material, Layout (with Mosaic as a layout choice, which leads to mosaic style
+and size), then shape and size; the classic design keeps its order.
+
 ## Bands, borders and inlays
 
 From 2026-09-28 an area can have any number of bands, borders and inlays

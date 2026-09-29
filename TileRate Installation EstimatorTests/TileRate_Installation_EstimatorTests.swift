@@ -360,6 +360,81 @@ struct MosaicStyleTests {
     }
 }
 
+// MARK: - Multi-tile layouts
+
+struct MultiTileTests {
+    private func rates() -> Rates {
+        var r = plainRates()
+        r.base[.wall] = 20
+        r.minimum[.wall] = 0
+        r.sizeAdderPerDoubling = 2.5
+        r.layoutAdder[.multiTile] = 6
+        r.typeAdder[.marble] = 4
+        return r
+    }
+
+    private func multi(_ pieces: [TilePiece]) -> EstimateSection {
+        var s = section(.wall, sqft: 100, type: .marble, size: .square, layout: .multiTile)
+        s.multiTilePieces = pieces
+        return s
+    }
+
+    @Test func noSizeAdderOnlyTheLayoutAndTypeAdders() {
+        let s = multi([TilePiece(shape: .square, widthIn: 6, lengthIn: 6),
+                       TilePiece(shape: .rectangle, widthIn: 24, lengthIn: 48)])
+        // $20 base + $4 marble + $6 multi-tile; neither size's adder.
+        let expected: Double = 100 * 30
+        #expect(price(s, rates()) == expected)
+    }
+
+    @Test func missingPieceSizesRaiseNoWarning() {
+        let s = multi([TilePiece(shape: .rectangle)])
+        #expect(missingSizeWarnings(s).isEmpty)
+        #expect(isSectionReady(s))
+    }
+
+    @Test func theEstimateListsEachTile() {
+        var s = multi([TilePiece(shape: .rectangle, widthIn: 12, lengthIn: 24),
+                       TilePiece(shape: .square, widthIn: 24, lengthIn: 24),
+                       TilePiece(shape: .hexagon, widthIn: 6, lengthIn: 6)])
+        s.tileType = .porcelain
+        #expect(describeSection(s).contains("Porcelain Tile in Multi-Tile pattern (12×24, 24×24, 6×6 Hexagon)"))
+    }
+
+    @Test func aSeparateMultiTileWallUsesItsPieces() {
+        var r = rates()
+        r.base[.shower] = 30
+        r.minimum[.shower] = 0
+        var s = section(.shower, size: .rectangle, widthIn: 12, lengthIn: 24)
+        s.walls = [TiledWall(name: "Back Wall", sqft: 40,
+                             tile: TileChoice(tileType: .ceramic, tileSize: .rectangle, layout: .multiTile,
+                                              pieces: [TilePiece(shape: .square, widthIn: 6, lengthIn: 6)]))]
+        let expected: Double = 40 * 36                           // no 6×6 size adder
+        #expect(price(s, r) == expected)
+        #expect(describeSection(s).contains("Ceramic Tile in Multi-Tile pattern (6×6) on Back Wall"))
+    }
+
+    @Test func otherLayoutsStillPayTheSizeAdder() {
+        let s = section(.wall, sqft: 100, type: .marble, size: .square, layout: .straightStacked,
+                        widthIn: 24, lengthIn: 24)
+        let expected: Double = 100 * 26.5
+        #expect(price(s, rates()) == expected)
+    }
+
+    @Test func savedDataWithoutPiecesStillLoads() throws {
+        let t = try JSONDecoder().decode(TileChoice.self, from: Data(#"{"layout":"Multi-Tile"}"#.utf8))
+        #expect(t.pieces.isEmpty)
+        let piece = try JSONDecoder().decode(TilePiece.self, from: Data(#"{"shape":"Hexagon","widthIn":6}"#.utf8))
+        #expect(piece.shape == .hexagon && piece.widthIn == 6 && piece.lengthIn == nil)
+
+        let s = multi([TilePiece(shape: .square, widthIn: 12, lengthIn: 12)])
+        let back = try JSONDecoder().decode(EstimateSection.self, from: JSONEncoder().encode(s))
+        #expect(back == s)
+        let state = try JSONDecoder().decode(EstimatorState.self, from: JSONEncoder().encode(EstimatorState(section: s)))
+        #expect(state.multiTilePieces == s.multiTilePieces)
+    }
+}
+
 // MARK: - Bands, borders and inlays
 
 struct DecorativeTests {
