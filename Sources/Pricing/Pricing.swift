@@ -24,13 +24,24 @@ private func perSqft(from value: Double, unit: AdderUnit, baseRate: Double) -> D
 /// How far a square or rectangle tile's size is from the standard tile, counted
 /// in doublings (bigger) or halvings (smaller) of its area, part doublings in
 /// proportion: 24×48 from 12×24 is 2, 3×12 is 3, 6×36 is about 0.42. Each one
-/// adds `sizeAdderPerDoubling`. Other shapes have none. Returns nil when the
+/// adds its adder (see `sizeAdderAmount`). Other shapes have none. Returns nil when the
 /// tile's width or length is missing, so the size adder can't be worked out.
 func sizeDoublings(size: TileSize, lengthIn: Double?, widthIn: Double?, rates: Rates) -> Double? {
     guard size == .square || size == .rectangle else { return 0 }
     guard let L = lengthIn, let W = widthIn, L > 0, W > 0 else { return nil }
     guard rates.sizeBaseAreaSqIn > 0 else { return 0 }
     return abs(log2(L * W / rates.sizeBaseAreaSqIn))
+}
+
+/// The size adder for a square or rectangle tile, in the size adder's unit
+/// ($/sq ft or % of the base rate): doublings × the doubling adder for tiles
+/// bigger than the standard, halvings × the halving adder for smaller ones.
+/// nil when the width or length is missing.
+func sizeAdderAmount(size: TileSize, lengthIn: Double?, widthIn: Double?, rates: Rates) -> Double? {
+    guard let steps = sizeDoublings(size: size, lengthIn: lengthIn, widthIn: widthIn, rates: rates) else { return nil }
+    guard steps > 0, let L = lengthIn, let W = widthIn else { return 0 }
+    let bigger = L * W > rates.sizeBaseAreaSqIn
+    return steps * (bigger ? rates.sizeAdderPerDoubling : rates.sizeAdderPerHalving)
 }
 
 /// True when a square or rectangle tile has no width or length entered, so its
@@ -45,9 +56,9 @@ private func sizeAdderPerSq(baseRate: Double, tile: TileChoice, rates: Rates) ->
     if tile.layout == .multiTile, tile.tileSize != .mosaic { return 0 }
     switch tile.tileSize {
     case .square, .rectangle:
-        let doublings = sizeDoublings(size: tile.tileSize, lengthIn: tile.tileLengthIn,
-                                      widthIn: tile.tileWidthIn, rates: rates) ?? 0
-        return doublings * perSqft(from: rates.sizeAdderPerDoubling, unit: rates.sizeAdderUnit, baseRate: baseRate)
+        let amount = sizeAdderAmount(size: tile.tileSize, lengthIn: tile.tileLengthIn,
+                                     widthIn: tile.tileWidthIn, rates: rates) ?? 0
+        return perSqft(from: amount, unit: rates.sizeAdderUnit, baseRate: baseRate)
     case .mosaic:
         // The Mosaic adder, plus the adder for its style when one is chosen.
         let style = tile.mosaicStyle.map { rates.mosaicStyleAdder[$0] ?? 0 } ?? 0

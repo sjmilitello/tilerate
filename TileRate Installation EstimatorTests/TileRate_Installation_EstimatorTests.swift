@@ -23,6 +23,7 @@ private func plainRates() -> Rates {
     r.layoutAdderUnit = .perSqft
     r.sizeBaseAreaSqIn = 288
     r.sizeAdderPerDoubling = 0
+    r.sizeAdderPerHalving = 0
     r.mosaicInlayRate = 0
     return r
 }
@@ -200,6 +201,7 @@ struct SizeDoublingTests {
         r.base[.wall] = 20
         r.minimum[.wall] = 0
         r.sizeAdderPerDoubling = 2.5
+        r.sizeAdderPerHalving = 2.5
         func perSqft(_ w: Double, _ l: Double) -> Double {
             price(section(.wall, sqft: 100, size: .rectangle, widthIn: w, lengthIn: l), r) / 100 - 20
         }
@@ -213,6 +215,7 @@ struct SizeDoublingTests {
     @Test func theAdderGrowsTheFurtherFromTheStandardInEitherDirection() {
         var r = plainRates()
         r.sizeAdderPerDoubling = 2.5
+        r.sizeAdderPerHalving = 2.5
         var last = 0.0
         for side in stride(from: 17.0, through: 96, by: 1) {       // 17×17 ≈ 288 and up
             let d = sizeDoublings(size: .square, lengthIn: side, widthIn: side, rates: r)!
@@ -225,11 +228,38 @@ struct SizeDoublingTests {
         }
     }
 
+    @Test func biggerAndSmallerHaveTheirOwnAdders() {
+        var r = plainRates()
+        r.base[.wall] = 20
+        r.minimum[.wall] = 0
+        r.sizeAdderPerDoubling = 2.5
+        r.sizeAdderPerHalving = 1.5
+        func perSqft(_ w: Double, _ l: Double) -> Double {
+            price(section(.wall, sqft: 100, size: .rectangle, widthIn: w, lengthIn: l), r) / 100 - 20
+        }
+        #expect(abs(perSqft(24, 48) - 5) < 1e-9)       // 2 doublings × $2.50
+        #expect(abs(perSqft(3, 12) - 4.5) < 1e-9)      // 3 halvings × $1.50
+        #expect(abs(perSqft(12, 12) - 1.5) < 1e-9)     // 1 halving
+        #expect(abs(perSqft(12, 24) - 0) < 1e-9)
+        #expect(sizeAdderAmount(size: .square, lengthIn: 24, widthIn: 24, rates: r) == 2.5)
+        #expect(sizeAdderAmount(size: .square, lengthIn: 24, widthIn: nil, rates: r) == nil)
+    }
+
+    @Test func aSavedDoublingAdderAlsoBecomesTheHalvingAdder() throws {
+        // Saved when one adder covered both directions: prices stay the same.
+        let one = try JSONDecoder().decode(Rates.self, from: Data(#"{"sizeAdderPerDoubling":3}"#.utf8))
+        #expect(one.sizeAdderPerDoubling == 3 && one.sizeAdderPerHalving == 3)
+        let two = try JSONDecoder().decode(Rates.self,
+                                           from: Data(#"{"sizeAdderPerDoubling":3,"sizeAdderPerHalving":1}"#.utf8))
+        #expect(two.sizeAdderPerDoubling == 3 && two.sizeAdderPerHalving == 1)
+    }
+
     @Test func missingWidthChargesNoSizeAdder() {
         var r = plainRates()
         r.base[.wall] = 20
         r.minimum[.wall] = 0
         r.sizeAdderPerDoubling = 2.5
+        r.sizeAdderPerHalving = 2.5
         // The app warns about this on the Size step and the Summary.
         #expect(price(section(.wall, sqft: 100, size: .square, lengthIn: 24), r) == 2000)
     }
@@ -239,6 +269,7 @@ struct SizeDoublingTests {
         r.base[.wall] = 20
         r.minimum[.wall] = 0
         r.sizeAdderPerDoubling = 10
+        r.sizeAdderPerHalving = 10
         r.sizeAdderUnit = .percent
         // 24×24 is 1 doubling: 10% of $20 = $2 → $22 × 10.
         #expect(abs(price(section(.wall, sqft: 10, size: .square, widthIn: 24, lengthIn: 24), r) - 220) < 0.005)
@@ -249,7 +280,8 @@ struct SizeDoublingTests {
         r.base[.wall] = 20
         r.minimum[.wall] = 0
         r.sizeAdder[.hexagon] = 3
-        r.sizeAdderPerDoubling = 100   // must not apply to a hexagon
+        r.sizeAdderPerDoubling = 100
+        r.sizeAdderPerHalving = 100   // must not apply to a hexagon
         #expect(price(section(.wall, sqft: 10, size: .hexagon, widthIn: 2, lengthIn: 2), r) == 230)
     }
 }
@@ -368,6 +400,7 @@ struct MultiTileTests {
         r.base[.wall] = 20
         r.minimum[.wall] = 0
         r.sizeAdderPerDoubling = 2.5
+        r.sizeAdderPerHalving = 2.5
         r.layoutAdder[.multiTile] = 6
         r.typeAdder[.marble] = 4
         return r
@@ -674,6 +707,7 @@ struct SeparateTileTests {
     @Test func aSeparateTileUsesItsOwnSize() {
         var r = rates()
         r.sizeAdderPerDoubling = 1
+        r.sizeAdderPerHalving = 1
         var s = shower()
         s.showerFloorTile = TileChoice(tileType: .ceramic, tileSize: .square, layout: .straightStacked,
                                        tileWidthIn: 6, tileLengthIn: 6)
@@ -704,6 +738,7 @@ struct WallTests {
         r.typeAdder[.marble] = 8
         r.layoutAdder[.herringbone] = 5
         r.sizeAdderPerDoubling = 1
+        r.sizeAdderPerHalving = 1
         return r
     }
 
@@ -886,6 +921,7 @@ struct SavedDataTests {
         #expect(r.floorEscAdjPerSqft == 14)
         #expect(r.sizeBaseAreaSqIn == 288)
         #expect(r.sizeAdderPerDoubling == 2.5)
+        #expect(r.sizeAdderPerHalving == 2.5)
     }
 
     @Test func ratesSavedBeforeTheNewMaterialsGetThemAtZero() throws {
@@ -914,6 +950,7 @@ struct SavedDataTests {
         #expect(r.base[.floor] == 21)
         #expect(r.sizeBaseAreaSqIn == 288)
         #expect(r.sizeAdderPerDoubling == 2.5)
+        #expect(r.sizeAdderPerHalving == 2.5)
     }
 
     @Test func sectionsSavedWithoutSeparateTilesStillLoad() throws {

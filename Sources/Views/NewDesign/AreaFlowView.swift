@@ -893,9 +893,8 @@ struct NDTileFields: View {
             if isMissingTileDimensions(size: size, lengthIn: length, widthIn: width) {
                 NDWarning(title: "Tile size needed",
                           message: "Enter the width and length. Without them no size adder is charged.")
-            } else if let doublings = sizeDoublings(size: size, lengthIn: length, widthIn: width, rates: rates),
+            } else if let amount = sizeAdderAmount(size: size, lengthIn: length, widthIn: width, rates: rates),
                       let note = sizeAdderNote(size: size, lengthIn: length, widthIn: width, rates: rates) {
-                let amount = doublings * rates.sizeAdderPerDoubling
                 HStack(spacing: 12) {
                     Text(rates.sizeAdderUnit == .percent ? "+\(ND.number(amount))%" : "+\(amount.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")))")
                         .font(.system(size: 22, weight: .bold).monospacedDigit())

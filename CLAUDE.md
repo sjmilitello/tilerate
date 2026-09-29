@@ -151,8 +151,12 @@ as the last. Counting square inches made large slabs cost far too much and
 tiny tiles too little. The owner's usual figures were $5 for both 24×48 and
 3×12, which no single linear rule can give; they chose one constant of $2.50.
 
-The standard tile size and the adder per doubling are Admin settings (default
-$2.50); the adder takes the same $/sqft or % unit as the other size adders.
+The standard tile size and the adder are Admin settings; the adder takes the
+same $/sqft or % unit as the other size adders. From 2026-09-29 bigger and
+smaller tiles have separate adders: `sizeAdderPerDoubling` for tiles bigger
+than the standard, `sizeAdderPerHalving` for smaller ones (`sizeAdderAmount`).
+Rates saved before then have no halving adder; it is read as the saved
+doubling adder, so prices don't move until the owner sets it.
 Hexagon, arabesque, star/cross and mosaic keep their own flat adders. A
 square or rectangle with no width or length gets no size adder, and both
 designs warn about it.
