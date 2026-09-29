@@ -752,7 +752,7 @@ struct NDTileFields: View {
                                  picture: AnyShape(NDLayoutPattern(layout: l))) { choose(l) }
                 }
                 layoutButton(title: "Mosaic", selected: isMosaic,
-                             picture: AnyShape(NDMosaicPattern())) { chooseMosaic() }
+                             picture: AnyShape(NDTilePattern(kind: .randomLinear))) { chooseMosaic() }
             }
         }
     }
@@ -916,23 +916,6 @@ struct NDTileFields: View {
     }
 }
 
-/// A small drawing of a mosaic sheet: a grid of small squares.
-struct NDMosaicPattern: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let cols = 6, rows = 4, gap: CGFloat = 1.5
-        let w = (r.width - gap * CGFloat(cols - 1)) / CGFloat(cols)
-        let h = (r.height - gap * CGFloat(rows - 1)) / CGFloat(rows)
-        for c in 0..<cols {
-            for row in 0..<rows {
-                p.addRect(CGRect(x: r.minX + CGFloat(c) * (w + gap), y: r.minY + CGFloat(row) * (h + gap),
-                                 width: w, height: h))
-            }
-        }
-        return p
-    }
-}
-
 /// A small drawing of each tile layout.
 struct NDLayoutPattern: Shape {
     let layout: Layout
@@ -955,22 +938,41 @@ struct NDLayoutPattern: Shape {
             for i in stride(from: -0.6, through: 1.0, by: 0.4) { line(i, 1, i + 0.65, 0) }
             for i in stride(from: 0.0, through: 1.6, by: 0.4) { line(i - 0.65, 0, i, 1) }
         case .herringbone:
-            for row in [0.35, 0.8] {
-                var x = 0.0
-                var up = true
-                while x < 1 {
-                    let nx = min(x + 0.16, 1)
-                    line(x, up ? row : row - 0.3, nx, up ? row - 0.3 : row)
-                    x = nx; up.toggle()
+            // 3:1 planks in a herringbone: staircases of alternating
+            // horizontal and vertical planks, repeated every (L, -L), then
+            // turned 45° so the planks form V rows. Clipped to the frame.
+            let pw: CGFloat = 1, pl: CGFloat = 3
+            let unit = h / 5.5
+            let turn = CGAffineTransform(translationX: r.midX, y: r.midY)
+                .rotated(by: .pi / 4)
+                .scaledBy(x: unit, y: unit)
+            for m in -8...8 {
+                for k in -12...12 {
+                    let ox = CGFloat(k) * pw + CGFloat(m) * pl
+                    let oy = CGFloat(k) * pw - CGFloat(m) * pl
+                    p.addRect(CGRect(x: ox, y: oy, width: pl, height: pw), transform: turn)
+                    p.addRect(CGRect(x: ox, y: oy + pw, width: pw, height: pl), transform: turn)
                 }
             }
         case .multiTile:
-            line(0, 0.5, 1, 0.5)
-            line(0.38, 0, 0.38, 1)
-            line(0.38, 0.25, 1, 0.25)
-            line(0.69, 0.25, 0.69, 1)
-            line(0, 0.75, 0.38, 0.75)
-            line(0.19, 0.5, 0.19, 1)
+            // A repeating pattern of large and small squares and rectangles.
+            let module: [(CGFloat, CGFloat, CGFloat, CGFloat)] =
+                [(0, 0, 2, 2), (2, 0, 2, 1), (2, 1, 1, 1), (3, 1, 1, 2), (0, 2, 1, 2), (1, 2, 2, 2), (3, 3, 1, 1)]
+            let size = h * 0.95
+            let u = size / 4
+            var row = 0
+            var y = r.minY - u
+            while y < r.maxY {
+                var x = r.minX - (row.isMultiple(of: 2) ? 0 : size / 2) - u
+                while x < r.maxX {
+                    for (mx, my, mw, mh) in module {
+                        p.addRect(CGRect(x: x + mx * u, y: y + my * u, width: mw * u, height: mh * u))
+                    }
+                    x += size
+                }
+                y += size
+                row += 1
+            }
         }
         return p
     }
