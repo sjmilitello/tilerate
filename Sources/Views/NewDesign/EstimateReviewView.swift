@@ -73,7 +73,6 @@ struct EstimateReviewView: View {
         .navigationTitle(Text(verbatim: "Estimate #\(estimateCounter + 1)"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(ND.ground, for: .navigationBar)
-        .ndKeyboardDone()
         .sheet(isPresented: $showCustomer) { NDCustomerSheet() }
         .sheet(item: $pdf) { p in
             NavigationStack {

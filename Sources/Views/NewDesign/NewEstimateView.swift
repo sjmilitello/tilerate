@@ -522,18 +522,3 @@ struct NDSavedEstimatesSheet: View {
         .preferredColorScheme(.dark)
     }
 }
-
-extension View {
-    /// A Done button above the number pad, which has no return key.
-    func ndKeyboardDone() -> some View {
-        toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                }
-                .fontWeight(.semibold)
-            }
-        }
-    }
-}
