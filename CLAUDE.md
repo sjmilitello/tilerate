@@ -175,6 +175,33 @@ the piece size and show on the estimate; the doubling size adder does not
 apply to mosaics. New enum cases are safe for saved data: rates tables merge,
 so a new case starts at its default.
 
+## Electric radiant heat
+
+From 2026-10-03 a Floor area or a shower floor can have electric radiant heat.
+It is priced from a **heating system** the owner sets up in Admin
+(`HeatingSystem` in `Sources/Models/HeatingSystems.swift`), not built in, so
+another brand can be priced the same way. A system has parts, each with a
+quantity rule: covers the floor (floor sq ft ÷ coverage, rounded up), sized to
+the heated area (heated sq ft × amount per sq ft, rounded up to the next
+stocked size from a price table; size lists can be limited by heated area,
+e.g. 120V up to 100 sq ft, and long runs split evenly across the fewest
+pieces), one per sized item (a thermostat per wire) or fixed per job.
+
+Materials = parts at cost × (1 + markup %). Owner's rule: markup 60% on cost
+(cost × 1.6), entered as a percentage with the matching margin shown.
+Installation = floor sq ft × $8, minimum $500 — the minimum applies to labor
+only. Each system can instead charge installation on the heated area only
+(`laborOnHeatedAreaOnly`); the owner charges the whole floor. On the estimate the kit is one taxable material line named after the
+system ("Strata Heat Electric Radiant Heat Kit W/ LCD Smart WiFi Thermostat")
+and installation a separate labor line; both names are editable. They are
+added to the area's lines in `sectionPrice`, so the Summary, the Review screen
+and the PDF all include them, and the kit counts toward tax and shipping.
+
+The owner's Strata Heat system (their wire price list, October 2026) is
+`HeatingSystem.ownersStrataHeat`, the default for rates saved before this.
+Before an App Store release the default should become an empty list, so other
+users enter their own brand and prices.
+
 ## Multi-tile layouts
 
 From 2026-09-28 a Multi-Tile layout lists its tiles, each with its own shape

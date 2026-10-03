@@ -164,6 +164,9 @@ struct Rates: Codable, Equatable {
     var unitFootrest: Double = 200
     var unitBench: Double = 200
 
+    /// Electric radiant heat systems, each priced from its own parts.
+    var heatingSystems: [HeatingSystem] = [.ownersStrataHeat]
+
     var floorEscThresholdLower: Int = 50
     var floorEscThresholdUpper: Int = 99
     var floorEscAdjPerSqft: Double = 0
@@ -207,6 +210,7 @@ extension Rates {
         c.read(.unitNiche, into: &unitNiche)
         c.read(.unitFootrest, into: &unitFootrest)
         c.read(.unitBench, into: &unitBench)
+        c.read(.heatingSystems, into: &heatingSystems)
         c.read(.floorEscThresholdLower, into: &floorEscThresholdLower)
         c.read(.floorEscThresholdUpper, into: &floorEscThresholdUpper)
         c.read(.floorEscAdjPerSqft, into: &floorEscAdjPerSqft)
@@ -315,6 +319,8 @@ struct EstimatorState: Codable {
     var walls: [TiledWall] = []
     /// Bands, borders and inlays, in any number and mix.
     var decoratives: [DecorativeItem] = []
+    /// Electric radiant heat under a floor or shower floor; nil means none.
+    var radiantHeat: RadiantHeatChoice? = nil
 
     var additionsLabor: [AdditionItem] = []
     var additionsMaterials: [AdditionItem] = []
@@ -338,6 +344,7 @@ extension EstimatorState {
         ceilingTile = sec.ceilingTile
         walls = sec.walls
         decoratives = sec.decoratives
+        radiantHeat = sec.radiantHeat
         additionsLabor = sec.additionsLabor
         additionsMaterials = sec.additionsMaterials
     }
@@ -383,6 +390,8 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var walls: [TiledWall] = []
     /// Bands, borders and inlays, in any number and mix.
     var decoratives: [DecorativeItem] = []
+    /// Electric radiant heat under a floor or shower floor; nil means none.
+    var radiantHeat: RadiantHeatChoice? = nil
 }
 
 struct EstimateRoom: Identifiable, Codable, Equatable, Hashable {
@@ -490,6 +499,7 @@ extension EstimatorState {
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
         c.read(.decoratives, into: &decoratives)
+        c.read(.radiantHeat, into: &radiantHeat)
         convertOldMosaicBand(features: &features, measurements: &measurements, into: &decoratives)
         c.read(.additionsLabor, into: &additionsLabor)
         c.read(.additionsMaterials, into: &additionsMaterials)
@@ -518,6 +528,7 @@ extension EstimateSection {
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
         c.read(.decoratives, into: &decoratives)
+        c.read(.radiantHeat, into: &radiantHeat)
         convertOldMosaicBand(features: &features, measurements: &measurements, into: &decoratives)
     }
 }

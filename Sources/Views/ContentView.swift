@@ -477,6 +477,7 @@ struct ContentView: View {
         sec.ceilingTile = nil
         sec.walls = []
         sec.decoratives = []
+        sec.radiantHeat = nil
     }
     
     private func missingSizeWarnings(_ sec: EstimateSection) -> [String] {
@@ -1306,6 +1307,41 @@ struct ContentView: View {
         }
     }
 
+    /// Electric radiant heat under a floor or shower floor.
+    @ViewBuilder
+    private func radiantHeatEditor(_ sec: Binding<EstimateSection>) -> some View {
+        let systems = store.rates.heatingSystems
+        if !systems.isEmpty {
+            let isOn = Binding<Bool>(
+                get: { sec.wrappedValue.radiantHeat != nil },
+                set: { sec.wrappedValue.radiantHeat = $0 ? RadiantHeatChoice(systemID: systems.first?.id) : nil }
+            )
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Electric Radiant Heat?", isOn: isOn)
+                if let choice = sec.wrappedValue.radiantHeat {
+                    if systems.count > 1 {
+                        Picker("System", selection: Binding(
+                            get: { choice.systemID ?? systems[0].id },
+                            set: { sec.wrappedValue.radiantHeat?.systemID = $0 })) {
+                            ForEach(systems) { Text($0.name).tag($0.id) }
+                        }
+                    }
+                    numberField("Heated sq ft (blank = whole floor)", value: Binding(
+                        get: { sec.wrappedValue.radiantHeat?.heatedSqft ?? 0 },
+                        set: { sec.wrappedValue.radiantHeat?.heatedSqft = $0 > 0 ? $0 : nil }))
+                    if let r = radiantHeatPrice(for: sec.wrappedValue, rates: store.rates) {
+                        Text("Kit \(currency(r.materials)) · Installation \(currency(r.labor))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
     /// Bands, borders and inlays: any number of each, each with its own tile.
     @ViewBuilder
     private func decorativesEditor(_ sec: Binding<EstimateSection>) -> some View {
@@ -1456,6 +1492,7 @@ struct ContentView: View {
                         separateTileEditor("Different tile on the shower floor",
                                            tile: sec.showerFloorTile,
                                            main: sec.wrappedValue)
+                        radiantHeatEditor(sec)
                     }
                     ceilingBlock(title: "Tile the Ceiling?",
                                  ceilingValue: Binding(
@@ -1506,6 +1543,9 @@ struct ContentView: View {
                         get: { sec.wrappedValue.measurements.sqft },
                         set: { sec.wrappedValue.measurements.sqft = $0 }
                     ))
+                    if sec.wrappedValue.measurements.sqft > 0 {
+                        radiantHeatEditor(sec)
+                    }
                     
                 case .none:
                     Text("Pick an Area First")
@@ -1532,7 +1572,7 @@ struct ContentView: View {
         // The same totals the PDF uses
         let totals = estimateTotals()
         let perSection = totals.sections
-        let hasAnySales: Bool = perSection.contains { !$0.section.additionsMaterials.isEmpty }
+        let hasAnySales: Bool = perSection.contains { !$0.materialItems.isEmpty }
         let preTaxSubtotal = totals.subtotal
         let taxableBase = totals.taxableBase
         let shipping = totals.shipping
@@ -1574,8 +1614,8 @@ struct ContentView: View {
                                 // --- Additions for this area ---
 
                                 // Additional Labor
-                                if !item.section.additionsLabor.isEmpty {
-                                    ForEach(item.section.additionsLabor) { row in
+                                if !item.laborItems.isEmpty {
+                                    ForEach(item.laborItems) { row in
                                         VStack(alignment: .leading, spacing: 2) {
                                             HStack {
                                                 Text("Additional Labor")
@@ -1592,8 +1632,8 @@ struct ContentView: View {
                                 }
 
                                 // Additional Sales (Materials)
-                                if !item.section.additionsMaterials.isEmpty {
-                                    ForEach(item.section.additionsMaterials) { row in
+                                if !item.materialItems.isEmpty {
+                                    ForEach(item.materialItems) { row in
                                         VStack(alignment: .leading, spacing: 2) {
                                             HStack {
                                                 Text("Sales")

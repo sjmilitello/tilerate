@@ -341,9 +341,31 @@ struct SectionPrice {
     let room: EstimateRoom
     let section: EstimateSection
     let core: Summary
-    let labor: Double
-    let mats: Double
+    /// The area's labor and material lines: what was added by hand, plus the
+    /// radiant heat kit and its installation when the area has them.
+    let laborItems: [AdditionItem]
+    let materialItems: [AdditionItem]
+    let radiant: RadiantHeatPrice?
+    var labor: Double { laborItems.reduce(0) { $0 + $1.amount } }
+    var mats: Double { materialItems.reduce(0) { $0 + $1.amount } }
     var subtotal: Double { core.total + labor + mats }
+}
+
+/// One area's whole price: its tile work, its added lines and its radiant heat.
+func sectionPrice(room: EstimateRoom, section sec: EstimateSection, rates: Rates) -> SectionPrice {
+    var labor = sec.additionsLabor
+    var materials = sec.additionsMaterials
+    let radiant = radiantHeatPrice(for: sec, rates: rates)
+    if let r = radiant {
+        materials.append(AdditionItem(id: r.kitLineID, activity: r.system.name, qty: 1,
+                                      rate: r.materials, taxable: r.system.taxable))
+        if r.labor > 0 {
+            labor.append(AdditionItem(id: r.laborLineID, activity: r.system.laborName, qty: 1, rate: r.labor))
+        }
+    }
+    return SectionPrice(room: room, section: sec,
+                        core: computeSummary(state: EstimatorState(section: sec), rates: rates),
+                        laborItems: labor, materialItems: materials, radiant: radiant)
 }
 
 /// Every number on the estimate. The Summary screen and the PDF both read
@@ -370,17 +392,11 @@ func computeTotals(document: EstimateDocument,
     var sections: [SectionPrice] = []
     for room in document.rooms {
         for sec in room.sections {
-            sections.append(SectionPrice(
-                room: room,
-                section: sec,
-                core: computeSummary(state: EstimatorState(section: sec), rates: rates),
-                labor: sec.additionsLabor.reduce(0) { $0 + $1.amount },
-                mats: sec.additionsMaterials.reduce(0) { $0 + $1.amount }
-            ))
+            sections.append(sectionPrice(room: room, section: sec, rates: rates))
         }
     }
 
-    let materials = document.rooms.flatMap { $0.sections }.flatMap { $0.additionsMaterials }
+    let materials = sections.flatMap(\.materialItems)
     let taxableBase = materials.filter { $0.taxable }.reduce(0) { $0 + $1.amount }
 
     return EstimateTotals(
@@ -390,4 +406,114 @@ func computeTotals(document: EstimateDocument,
         taxPercent: taxPercent,
         shipping: (shippingEnabled && !materials.isEmpty) ? shipping : 0
     )
+}
+
+// MARK: - Electric radiant heat
+
+/// What radiant heat adds to an area, part by part.
+struct RadiantHeatPrice {
+    struct Part {
+        let name: String
+        /// e.g. "8 × $16.59" or "1 × 200 LF (120V)"
+        let detail: String
+        let cost: Double
+    }
+    let system: HeatingSystem
+    let floorSqft: Double
+    let heatedSqft: Double
+    let parts: [Part]
+    /// The parts at cost.
+    let cost: Double
+    /// The parts with the markup: the kit's line on the estimate.
+    let materials: Double
+    /// Installation: floor (or heated) sq ft × the rate, or the minimum.
+    let labor: Double
+    let laborMinimumApplied: Bool
+    /// Ids for the kit and installation lines, the same every time an area is
+    /// priced so the screens don't redraw them as new rows.
+    let kitLineID: UUID
+    let laborLineID: UUID
+}
+
+/// The floor radiant heat goes under: a floor area's square feet, or a
+/// shower's floor. Other areas can't have it.
+func radiantFloorSqft(area: Area?, measurements m: Measurements) -> Double? {
+    switch area {
+    case .floor: m.sqft
+    case .shower: m.showerFloorSqft
+    default: nil
+    }
+}
+
+func radiantHeatPrice(for sec: EstimateSection, rates: Rates) -> RadiantHeatPrice? {
+    guard let choice = sec.radiantHeat,
+          let floor = radiantFloorSqft(area: sec.area, measurements: sec.measurements), floor > 0,
+          let system = rates.heatingSystems.first(where: { $0.id == choice.systemID }) ?? rates.heatingSystems.first
+    else { return nil }
+    let heated = choice.heatedSqft ?? floor
+    guard heated > 0 else { return nil }
+
+    func money(_ v: Double) -> String {
+        v.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD"))
+    }
+    func trim(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...2))) }
+
+    var parts: [RadiantHeatPrice.Part] = []
+    var sizedCount = 0
+
+    // Sized parts first: "one per sized item" parts count what they chose.
+    for part in system.parts where part.rule == .sizedToHeatedArea {
+        let need = heated * part.amountPerHeatedSqft
+        // The group for this size of area: the smallest limit it fits under.
+        let groups = part.sizeGroups.sorted { ($0.maxHeatedSqft ?? .infinity) < ($1.maxHeatedSqft ?? .infinity) }
+        guard need > 0,
+              let group = groups.first(where: { heated <= ($0.maxHeatedSqft ?? .infinity) }),
+              let largest = group.sizes.map(\.amount).max(), largest > 0
+        else { continue }
+        // Split evenly across the fewest pieces that cover it.
+        let count = need <= largest ? 1 : Int((need / largest).rounded(.up))
+        let each = need / Double(count)
+        guard let size = group.sizes.sorted(by: { $0.amount < $1.amount })
+                .first(where: { $0.amount >= each - 1e-9 }) else { continue }
+        sizedCount += count
+        let groupName = group.name.isEmpty ? "" : " (\(group.name))"
+        parts.append(.init(name: part.name,
+                           detail: "\(count) × \(trim(size.amount)) \(part.unitLabel)\(groupName)",
+                           cost: Double(count) * size.cost))
+    }
+    for part in system.parts where part.rule != .sizedToHeatedArea {
+        let quantity: Double
+        switch part.rule {
+        case .coversFloor:
+            guard part.coverageSqft > 0 else { continue }
+            quantity = (floor / part.coverageSqft - 1e-9).rounded(.up)
+        case .onePerSizedItem:
+            quantity = Double(max(1, sizedCount))
+        case .fixedPerJob:
+            quantity = part.quantity
+        case .sizedToHeatedArea:
+            continue
+        }
+        guard quantity > 0 else { continue }
+        parts.append(.init(name: part.name, detail: "\(trim(quantity)) × \(money(part.unitCost))",
+                           cost: quantity * part.unitCost))
+    }
+
+    let cost = parts.reduce(0) { $0 + $1.cost }
+    let materials = (cost * (1 + system.markupPercent / 100) * 100).rounded() / 100
+    let laborByArea = (system.laborOnHeatedAreaOnly ? heated : floor) * system.laborPerSqft
+    return RadiantHeatPrice(
+        system: system, floorSqft: floor, heatedSqft: heated, parts: parts,
+        cost: cost, materials: materials,
+        labor: max(laborByArea, system.laborMinimum),
+        laborMinimumApplied: system.laborMinimum > laborByArea,
+        kitLineID: lineID(sec.id, salt: 1), laborLineID: lineID(sec.id, salt: 2)
+    )
+}
+
+/// A UUID derived from a section's id, so a generated line keeps its id.
+private func lineID(_ id: UUID, salt: UInt8) -> UUID {
+    var bytes = id.uuid
+    bytes.15 ^= salt
+    return UUID(uuid: bytes)
 }

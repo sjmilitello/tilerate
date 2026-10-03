@@ -392,6 +392,135 @@ struct MosaicStyleTests {
     }
 }
 
+// MARK: - Electric radiant heat
+
+struct RadiantHeatTests {
+    private func rates() -> Rates {
+        var r = plainRates()
+        r.heatingSystems = [.ownersStrataHeat]
+        return r
+    }
+
+    private func floor(_ sqft: Double, heated: Double? = nil) -> EstimateSection {
+        var s = section(.floor, sqft: sqft)
+        s.radiantHeat = RadiantHeatChoice(systemID: HeatingSystem.ownersStrataHeat.id, heatedSqft: heated)
+        return s
+    }
+
+    private func cents(_ v: Double) -> Double { (v * 100).rounded() / 100 }
+
+    @Test func theOwnersExample() throws {
+        // 60 sq ft floor, 50 heated: 8 mats, a 200 LF 120V wire, 1 thermostat.
+        let r = try #require(radiantHeatPrice(for: floor(60, heated: 50), rates: rates()))
+        #expect(r.parts.map(\.detail) == ["1 × 200 LF (120V)", "8 × $16.59", "1 × $226.68"])
+        #expect(cents(r.cost) == cents(292.99 + 8 * 16.59 + 226.68))      // $652.39
+        #expect(r.materials == 1043.82)                                     // × 1.6
+        #expect(r.labor == 500 && r.laborMinimumApplied)                    // 60 × $8 = $480 < $500
+    }
+
+    @Test func voltageSwitchesAbove100SqFt() throws {
+        let at100 = try #require(radiantHeatPrice(for: floor(100), rates: rates()))
+        #expect(at100.parts[0].detail == "1 × 398 LF (120V)")
+        let at101 = try #require(radiantHeatPrice(for: floor(101), rates: rates()))
+        #expect(at101.parts[0].detail == "1 × 415 LF (240V)")
+        #expect(at101.labor == 808 && !at101.laborMinimumApplied)
+    }
+
+    @Test func longRunsSplitAcrossWiresEachWithAThermostat() throws {
+        // 250 sq ft: 987.5 LF, more than the 830 LF longest wire → two of 493.75 → 498 LF each.
+        let r = try #require(radiantHeatPrice(for: floor(250), rates: rates()))
+        #expect(r.parts[0].detail == "2 × 498 LF (240V)")
+        #expect(r.parts[2].detail == "2 × $226.68")
+        #expect(cents(r.parts[0].cost) == cents(2 * 530.13))
+    }
+
+    @Test func wholeFloorWhenNoHeatedAreaIsGiven() throws {
+        let r = try #require(radiantHeatPrice(for: floor(40), rates: rates()))
+        #expect(r.heatedSqft == 40)
+        #expect(r.parts[0].detail == "1 × 166 LF (120V)")                   // 158 LF needed
+    }
+
+    @Test func aShowerFloorCanBeHeated() throws {
+        var s = section(.shower)
+        s.measurements.showerWallsSqft = 90
+        s.measurements.showerFloorSqft = 12
+        s.radiantHeat = RadiantHeatChoice(systemID: HeatingSystem.ownersStrataHeat.id)
+        let r = try #require(radiantHeatPrice(for: s, rates: rates()))
+        #expect(r.floorSqft == 12)
+        #expect(r.parts.map(\.detail) == ["1 × 50 LF (120V)", "2 × $16.59", "1 × $226.68"])
+        #expect(r.labor == 500)
+    }
+
+    @Test func onlyFloorsAndShowerFloors() {
+        var wall = section(.wall, sqft: 50)
+        wall.radiantHeat = RadiantHeatChoice()
+        #expect(radiantHeatPrice(for: wall, rates: rates()) == nil)
+        #expect(radiantHeatPrice(for: section(.floor, sqft: 50), rates: rates()) == nil)   // not switched on
+        var none = rates()
+        none.heatingSystems = []
+        #expect(radiantHeatPrice(for: floor(50), rates: none) == nil)                        // no system set up
+    }
+
+    @Test func markupAndLaborFollowTheSettings() throws {
+        var r = rates()
+        r.heatingSystems[0].markupPercent = 100
+        r.heatingSystems[0].laborPerSqft = 10
+        r.heatingSystems[0].laborMinimum = 0
+        let p = try #require(radiantHeatPrice(for: floor(60, heated: 50), rates: r))
+        #expect(p.materials == cents(p.cost * 2))
+        #expect(p.labor == 600)
+    }
+
+    @Test func installationCanBeChargedOnTheHeatedAreaOnly() throws {
+        var r = rates()
+        r.heatingSystems[0].laborMinimum = 0
+        let whole = try #require(radiantHeatPrice(for: floor(120, heated: 90), rates: r))
+        #expect(whole.labor == 960)                     // 120 floor sq ft × $8
+        r.heatingSystems[0].laborOnHeatedAreaOnly = true
+        let heated = try #require(radiantHeatPrice(for: floor(120, heated: 90), rates: r))
+        #expect(heated.labor == 720)                    // 90 heated sq ft × $8
+        #expect(heated.materials == whole.materials)    // parts unchanged
+    }
+
+    @Test func theKitIsATaxableMaterialLineAndInstallationALaborLine() throws {
+        var r = rates()
+        r.base[.floor] = 20
+        r.minimum[.floor] = 0
+        r.floorEscAdjPerSqft = 0
+        let doc = EstimateDocument(rooms: [EstimateRoom(name: "Bath", sections: [floor(60, heated: 50)])])
+        let t = computeTotals(document: doc, rates: r, shippingEnabled: true, shipping: 40, taxPercent: 10)
+        let item = try #require(t.sections.first)
+        #expect(item.materialItems.map(\.activity) == [HeatingSystem.ownersStrataHeat.name])
+        #expect(item.materialItems[0].taxable && item.materialItems[0].amount == 1043.82)
+        #expect(item.laborItems.map(\.activity) == ["Radiant Heat Installation"])
+        #expect(item.subtotal == 1200 + 1043.82 + 500)
+        #expect(t.taxableBase == 1043.82)
+        #expect(t.shipping == 40)                       // the kit counts as material for shipping
+    }
+
+    @Test func savedDataLoads() throws {
+        // Rates saved before radiant heat get the owner's system.
+        let old = try JSONDecoder().decode(Rates.self, from: Data(#"{"unitBench":200}"#.utf8))
+        #expect(old.heatingSystems.map(\.id) == [HeatingSystem.ownersStrataHeat.id])
+        // An emptied list stays empty.
+        let empty = try JSONDecoder().decode(Rates.self, from: Data(#"{"heatingSystems":[]}"#.utf8))
+        #expect(empty.heatingSystems.isEmpty)
+        // A system and a section round-trip.
+        var r = rates()
+        r.heatingSystems[0].markupPercent = 55
+        let back = try JSONDecoder().decode(Rates.self, from: JSONEncoder().encode(r))
+        #expect(back.heatingSystems == r.heatingSystems)
+        let s = floor(60, heated: 45)
+        #expect(try JSONDecoder().decode(EstimateSection.self, from: JSONEncoder().encode(s)) == s)
+        let state = try JSONDecoder().decode(EstimatorState.self,
+                                             from: JSONEncoder().encode(EstimatorState(section: s)))
+        #expect(state.radiantHeat == s.radiantHeat)
+        let part = try JSONDecoder().decode(HeatingPart.self, from: Data(#"{"name":"Mat","rule":"Covers the floor"}"#.utf8))
+        #expect(part.rule == .coversFloor && part.coverageSqft == 8)
+        #expect(!old.heatingSystems[0].laborOnHeatedAreaOnly)    // whole floor, as before
+    }
+}
+
 // MARK: - Multi-tile layouts
 
 struct MultiTileTests {

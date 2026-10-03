@@ -9,8 +9,8 @@ enum EstimatePDF {
         totals.sections.map { item in
             .init(description: estimateSentence(room: item.room, section: item.section),
                   amount: item.core.total,
-                  labor: item.section.additionsLabor,
-                  materials: item.section.additionsMaterials)
+                  labor: item.laborItems,
+                  materials: item.materialItems)
         }
     }
 
@@ -27,7 +27,6 @@ enum EstimatePDF {
         let blocks = blocks(totals)
         let sentences = totals.sections.map { estimateSentence(room: $0.room, section: $0.section) }
         let description = sentences.isEmpty ? fallbackDescription : sentences.joined(separator: "  •  ")
-        let sections = document.rooms.flatMap { $0.sections }
 
         let pdfRoot = ExportedFormPDFView(
             biz: biz,
@@ -41,8 +40,8 @@ enum EstimatePDF {
             shipping: totals.shipping,
             taxPercent: totals.taxPercent,
             taxBase: totals.taxableBase,
-            additionalLabor: sections.flatMap { $0.additionsLabor },
-            materials: sections.flatMap { $0.additionsMaterials },
+            additionalLabor: totals.sections.flatMap(\.laborItems),
+            materials: totals.sections.flatMap(\.materialItems),
             blocks: blocks
         )
 

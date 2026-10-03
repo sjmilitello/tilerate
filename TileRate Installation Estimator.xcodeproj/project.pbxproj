@@ -15,6 +15,7 @@
 		8CE7D46F2F425342005C2965 /* AdminViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D46E2F425342005C2965 /* AdminViews.swift */; };
 		8CE7D4712F425385005C2965 /* PDFViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4702F425385005C2965 /* PDFViews.swift */; };
 		8CE7D4732F4253A2005C2965 /* PDFGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4722F4253A2005C2965 /* PDFGenerator.swift */; };
+		8CE7D4762F4253B0005C2965 /* HeatingSystems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4752F4253B0005C2965 /* HeatingSystems.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +47,7 @@
 		8CE7D46E2F425342005C2965 /* AdminViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminViews.swift; sourceTree = "<group>"; };
 		8CE7D4702F425385005C2965 /* PDFViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFViews.swift; sourceTree = "<group>"; };
 		8CE7D4722F4253A2005C2965 /* PDFGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFGenerator.swift; sourceTree = "<group>"; };
+		8CE7D4752F4253B0005C2965 /* HeatingSystems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatingSystems.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -135,6 +137,7 @@
 			isa = PBXGroup;
 			children = (
 				8CE7D4662F425291005C2965 /* EstimatorModels.swift */,
+				8CE7D4752F4253B0005C2965 /* HeatingSystems.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -323,6 +326,7 @@
 				8CE7D4692F42529E005C2965 /* Store.swift in Sources */,
 				8CE7D46D2F4252E1005C2965 /* AdminAuthManager.swift in Sources */,
 				8CE7D4672F425291005C2965 /* EstimatorModels.swift in Sources */,
+				8CE7D4762F4253B0005C2965 /* HeatingSystems.swift in Sources */,
 				8CE7D4732F4253A2005C2965 /* PDFGenerator.swift in Sources */,
 				8CAB8A6D2E5209E3005F2C18 /* TileRate_Installation_EstimatorApp.swift in Sources */,
 				8CE7D4712F425385005C2965 /* PDFViews.swift in Sources */,

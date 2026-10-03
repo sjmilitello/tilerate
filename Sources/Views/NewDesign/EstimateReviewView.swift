@@ -44,7 +44,7 @@ struct EstimateReviewView: View {
     }
 
     private var hasMaterials: Bool {
-        store.doc.rooms.contains { $0.sections.contains { !$0.additionsMaterials.isEmpty } }
+        totals.sections.contains { !$0.materialItems.isEmpty }
     }
 
     var body: some View {
@@ -159,7 +159,7 @@ struct EstimateReviewView: View {
                         Text(ND.money(line.amount)).font(.system(size: 14).monospacedDigit())
                     }
                 }
-                ForEach(item.section.additionsLabor + item.section.additionsMaterials) { add in
+                ForEach(item.laborItems + item.materialItems) { add in
                     HStack(alignment: .top) {
                         Text(add.activity.isEmpty ? "Other charge" : add.activity)
                             .font(.system(size: 14)).foregroundStyle(ND.secondary)

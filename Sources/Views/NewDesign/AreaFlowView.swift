@@ -55,11 +55,11 @@ struct AreaFlowView: View {
     private var roomName: String { roomIndex.map { store.doc.rooms[$0].name } ?? "" }
 
     private var summary: Summary { computeSummary(state: EstimatorState(section: section), rates: store.rates) }
-    private var areaPrice: Double {
-        summary.total
-            + section.additionsLabor.reduce(0) { $0 + $1.amount }
-            + section.additionsMaterials.reduce(0) { $0 + $1.amount }
+    /// The area's full price: tile work, added lines and radiant heat.
+    private var priced: SectionPrice {
+        sectionPrice(room: EstimateRoom(name: roomName), section: section, rates: store.rates)
     }
+    private var areaPrice: Double { priced.subtotal }
 
     private var tileReady: Bool {
         isSectionReady(section)
@@ -193,6 +193,7 @@ struct AreaFlowView: View {
             s.additionsLabor = []
             s.additionsMaterials = []
             s.decoratives = []
+            s.radiantHeat = nil
             s.showerFloorTile = nil
             s.ceilingTile = nil
             s.walls = []
@@ -242,6 +243,9 @@ struct AreaFlowView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(area == .floor ? "Floor area" : "\(area.rawValue) area").font(.ndTitle(22))
                     sqftField(sec.measurements.sqft, label: "Square feet")
+                    if area == .floor, section.measurements.sqft > 0 {
+                        radiantHeatBlock
+                    }
                 }
             case .none:
                 Text("Choose the area first.").foregroundStyle(ND.muted)
@@ -342,6 +346,77 @@ struct AreaFlowView: View {
                 separateTileRow(tile: section.showerFloorTile, target: .floor,
                                 turnOn: { sec.wrappedValue.showerFloorTile = section.ndMainTile ?? TileChoice(); editing = .floor },
                                 turnOff: { sec.wrappedValue.showerFloorTile = nil })
+                radiantHeatBlock
+            }
+        }
+    }
+
+    /// Electric radiant heat under a floor or shower floor: on or off, which
+    /// system, how much of the floor is heated, and what it comes to.
+    @ViewBuilder
+    private var radiantHeatBlock: some View {
+        let systems = store.rates.heatingSystems
+        let floorSqft = radiantFloorSqft(area: section.area, measurements: section.measurements) ?? 0
+        let isOn = Binding<Bool>(
+            get: { section.radiantHeat != nil },
+            set: { sec.wrappedValue.radiantHeat = $0 ? RadiantHeatChoice(systemID: systems.first?.id) : nil }
+        )
+        NDCard {
+            VStack(alignment: .leading, spacing: 12) {
+                if systems.isEmpty {
+                    Text("Electric radiant heat").font(.system(size: 16, weight: .semibold))
+                    Text("Set up a heating system in Admin to add radiant heat.")
+                        .font(.system(size: 13)).foregroundStyle(ND.muted)
+                } else {
+                    Toggle("Electric radiant heat", isOn: isOn)
+                        .font(.system(size: 16, weight: .semibold))
+                    if let choice = section.radiantHeat {
+                        if systems.count > 1 {
+                            LabeledContent("System") {
+                                Picker("System", selection: Binding(
+                                    get: { choice.systemID ?? systems[0].id },
+                                    set: { sec.wrappedValue.radiantHeat?.systemID = $0 })) {
+                                    ForEach(systems) { Text($0.name).tag($0.id) }
+                                }
+                            }
+                            .font(.system(size: 15))
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Heated sq ft (whole floor: \(ND.number(floorSqft)))")
+                                .font(.system(size: 13)).foregroundStyle(ND.secondary)
+                            NDNumberField(placeholder: ND.number(floorSqft), value: Binding(
+                                get: { section.radiantHeat?.heatedSqft ?? 0 },
+                                set: { sec.wrappedValue.radiantHeat?.heatedSqft = $0 > 0 ? $0 : nil }))
+                        }
+                        if let r = priced.radiant {
+                            radiantSummary(r)
+                        }
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+
+    private func radiantSummary(_ r: RadiantHeatPrice) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(r.parts.enumerated()), id: \.offset) { _, part in
+                HStack {
+                    Text("\(part.name): \(part.detail)").font(.system(size: 13)).foregroundStyle(ND.muted)
+                    Spacer()
+                    Text(ND.money(part.cost)).font(.system(size: 13).monospacedDigit()).foregroundStyle(ND.muted)
+                }
+            }
+            Divider().overlay(ND.border).padding(.vertical, 2)
+            HStack {
+                Text("Kit, with \(ND.number(r.system.markupPercent))% markup").font(.system(size: 14))
+                Spacer()
+                Text(ND.money(r.materials)).font(.system(size: 14, weight: .semibold).monospacedDigit())
+            }
+            HStack {
+                Text(r.laborMinimumApplied ? "Installation (minimum)" : "Installation").font(.system(size: 14))
+                Spacer()
+                Text(ND.money(r.labor)).font(.system(size: 14, weight: .semibold).monospacedDigit())
             }
         }
     }
@@ -633,7 +708,7 @@ struct AreaFlowView: View {
                             Text(ND.money(line.amount)).font(.system(size: 14).monospacedDigit())
                         }
                     }
-                    ForEach(section.additionsLabor + section.additionsMaterials) { item in
+                    ForEach(priced.laborItems + priced.materialItems) { item in
                         HStack(alignment: .top) {
                             Text(item.activity.isEmpty ? "Other charge" : item.activity)
                                 .font(.system(size: 14)).foregroundStyle(ND.secondary)

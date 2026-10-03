@@ -385,6 +385,7 @@ enum NDAreaText {
         let f = sec.features
         let builtIns = area == .floor ? 0 : f.niches + f.shelves + f.benches + f.footrests
         if builtIns > 0 { parts.append("\(builtIns) built-in\(builtIns == 1 ? "" : "s")") }
+        if sec.radiantHeat != nil, area == .floor || area == .shower { parts.append("radiant heat") }
         for kind in DecorativeKind.allCases {
             let n = sec.decoratives.filter { $0.kind == kind }.count
             if n > 0 { parts.append("\(n) \(kind.rawValue.lowercased())\(n == 1 ? "" : "s")") }
