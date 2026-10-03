@@ -105,11 +105,18 @@ then `-p com.apple.BiometricKit.enrollmentChanged` to enrol, and
 | Concern | Place |
 |---|---|
 | Pricing — every charge on an estimate | `Sources/Pricing/Pricing.swift` |
+| Radiant heat systems, and their Admin editor | `Sources/Models/HeatingSystems.swift`, `Sources/Views/HeatingSystemEditor.swift` |
 | Rates, measurements, estimate model | `Sources/Models/EstimatorModels.swift` |
 | Saving and loading | `Sources/Persistence/Store.swift` |
 | Admin screen (rates, minimums, escalator, business details) and its Face ID unlock | `Sources/Admin/` |
 | PDF estimate | `Sources/PDF/` |
 | Everything else in the UI | `Sources/Views/ContentView.swift` |
+
+`Sources/Views` is a synchronized folder in the Xcode project: a new file
+there is picked up by itself. `Sources/Models`, `Pricing`, `Persistence`,
+`Admin` and `PDF` are not — a new file in one of them must also be added to
+`project.pbxproj` (file reference, group, and the target's Sources phase), or
+the build won't see it.
 
 The scheme is **TileRate Installation Estimator**. The second scheme,
 `Integrity Tile Estimator`, and `Integrity Tile Estimator 2.xcodeproj` are the
@@ -191,16 +198,34 @@ Materials = parts at cost × (1 + markup %). Owner's rule: markup 60% on cost
 (cost × 1.6), entered as a percentage with the matching margin shown.
 Installation = floor sq ft × $8, minimum $500 — the minimum applies to labor
 only. Each system can instead charge installation on the heated area only
-(`laborOnHeatedAreaOnly`); the owner charges the whole floor. On the estimate the kit is one taxable material line named after the
+(`laborOnHeatedAreaOnly`); the owner charges the whole floor. Mats are based
+on the whole floor too, wire on the heated area.
+
+On the estimate the kit is one taxable material line named after the
 system ("Strata Heat Electric Radiant Heat Kit W/ LCD Smart WiFi Thermostat")
 and installation a separate labor line; both names are editable. They are
 added to the area's lines in `sectionPrice`, so the Summary, the Review screen
 and the PDF all include them, and the kit counts toward tax and shipping.
 
+Why a price table and not a formula: the owner wants 1.6 as the *minimum*
+markup on every item. Formulas fitted to the wire prices (best fit, base +
+rate, or a minimum + rate) all either undercharged some sizes or padded them
+by $13–$170 on average; the stocked-size table prices each wire at its real
+cost. Expected quirk, accepted by the owner: at the 120V/240V switch the
+price falls — 100 sq ft heated needs the 398 LF 120V wire ($527.33 cost),
+101 sq ft the 415 LF 240V wire ($458.42).
+
 The owner's Strata Heat system (their wire price list, October 2026) is
 `HeatingSystem.ownersStrataHeat`, the default for rates saved before this.
 Before an App Store release the default should become an empty list, so other
 users enter their own brand and prices.
+
+The Admin editor is `Sources/Views/HeatingSystemEditor.swift`: systems,
+their parts and each sized part's price lists, with "Delete this system".
+The part and size-list screens were not exercised on the simulator (scrolling
+inside the Admin sheet is unreliable there); check them on the phone after
+changing them. `RadiantHeatTests` covers the pricing, including the owner's
+example (60 sq ft floor, 50 heated: $1,043.82 kit, $500 installation).
 
 ## Multi-tile layouts
 
