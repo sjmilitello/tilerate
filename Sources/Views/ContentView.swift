@@ -460,7 +460,9 @@ struct ContentView: View {
                 else {
                     return
                 }
-                store.doc.rooms[rIdx].sections[sIdx] = newValue
+                var updated = newValue
+                updated.syncAreaQuantities()
+                store.doc.rooms[rIdx].sections[sIdx] = updated
             }
         )
     }
@@ -1850,8 +1852,14 @@ struct ContentView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 
-                // Qty
-                TextField("0", value: $item.qty, format: .number)
+                // Qty (typing one stops a price-list line following the area)
+                TextField("0", value: Binding(
+                    get: { item.qty },
+                    set: { v in
+                        guard v != item.qty else { return }
+                        item.qty = v
+                        item.followsAreaSqft = false
+                    }), format: .number)
                     .font(.caption)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.leading)
@@ -1931,6 +1939,20 @@ struct ContentView: View {
                         s.additionsMaterials.append(AdditionItem()) // taxable false by default
                         sec.wrappedValue = s
                     }
+                }
+                if !store.rates.priceList.isEmpty {
+                    Menu {
+                        ForEach(store.rates.priceList) { item in
+                            Button("\(item.name) — \(currency(item.price)) \(item.unit.rawValue)") {
+                                sec.wrappedValue.add(item)
+                            }
+                        }
+                    } label: {
+                        Label("Add From Price List", systemImage: "list.bullet")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                    .buttonStyle(.bordered)
                 }
                 
                 // -------- Additional Labor --------

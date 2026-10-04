@@ -46,7 +46,9 @@ struct AreaFlowView: View {
             set: { newValue in
                 guard let r = roomIndex,
                       let s = store.doc.rooms[r].sections.firstIndex(where: { $0.id == sectionID }) else { return }
-                store.doc.rooms[r].sections[s] = newValue
+                var updated = newValue
+                updated.syncAreaQuantities()
+                store.doc.rooms[r].sections[s] = updated
             }
         )
     }
@@ -565,14 +567,28 @@ struct AreaFlowView: View {
                         }
                     }
                 }
+                if !store.rates.priceList.isEmpty {
+                    Menu {
+                        ForEach(store.rates.priceList) { item in
+                            Button("\(item.name) — \(ND.money(item.price)) \(item.unit.rawValue)") {
+                                sec.wrappedValue.add(item)
+                            }
+                        }
+                    } label: {
+                        Label("From price list", systemImage: "list.bullet")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(ND.brand)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
                 HStack(spacing: 8) {
-                    Button { addLine(materials: false) } label: { Label("Labor", systemImage: "plus") }
+                    Button { addLine(materials: false) } label: { Label("Custom labor", systemImage: "plus") }
                         .buttonStyle(NDSecondaryButtonStyle())
-                    Button { addLine(materials: true) } label: { Label("Materials", systemImage: "plus") }
+                    Button { addLine(materials: true) } label: { Label("Custom materials", systemImage: "plus") }
                         .buttonStyle(NDSecondaryButtonStyle())
                 }
-                Text("A price list for extras like demolition or waterproofing is planned.")
-                    .font(.system(size: 13)).foregroundStyle(ND.muted)
             }
         }
     }
@@ -654,7 +670,7 @@ struct AreaFlowView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.activity.isEmpty ? (materials ? "Materials" : "Labor") : item.activity)
                         .font(.system(size: 16, weight: .medium))
-                    Text("\(materials ? "Materials" : "Labor")\(materials && item.taxable ? ", taxable" : "") · \(ND.number(item.qty)) × \(ND.money(item.rate))")
+                    Text("\(materials ? "Materials" : "Labor")\(materials && item.taxable ? ", taxable" : "") · \(ND.number(item.qty))\(item.unit.isEmpty ? "" : " " + item.unit) × \(ND.money(item.rate))")
                         .font(.system(size: 13)).foregroundStyle(ND.muted)
                 }
                 Spacer()
@@ -1098,8 +1114,18 @@ struct NDLineItemSheet: View {
                     TextField(materials ? "What is it? (e.g. Waterproofing)" : "What is it? (e.g. Demolition)", text: $item.activity)
                 }
                 Section {
-                    LabeledContent("Quantity") {
-                        NDNumberField(placeholder: "1", value: $item.qty, alignment: .trailing).frame(width: 120)
+                    LabeledContent(item.unit.isEmpty ? "Quantity" : "Quantity (\(item.unit))") {
+                        NDNumberField(placeholder: "1", value: Binding(
+                            get: { item.qty },
+                            set: { v in
+                                guard v != item.qty else { return }
+                                item.qty = v
+                                item.followsAreaSqft = false   // typed: stop following the area
+                            }), alignment: .trailing).frame(width: 120)
+                    }
+                    if item.followsAreaSqft {
+                        Text("Follows this area's square feet until you type a quantity.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                     LabeledContent("Price each") {
                         NDNumberField(placeholder: "0", value: $item.rate, alignment: .trailing).frame(width: 120)

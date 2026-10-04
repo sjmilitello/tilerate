@@ -392,6 +392,77 @@ struct MosaicStyleTests {
     }
 }
 
+// MARK: - Price list for extras
+
+struct PriceListTests {
+    private let demo = PriceListItem(name: "Demolition", unit: .perSqft, price: 3)
+    private let threshold = PriceListItem(name: "Threshold", unit: .each, price: 45, isMaterial: true, taxable: true)
+
+    @Test func thePerSqftItemFillsInTheAreasSquareFeet() {
+        var shower = section(.shower)
+        shower.measurements.showerWallsSqft = 90
+        shower.measurements.showerFloorSqft = 12
+        shower.add(demo)
+        let line = shower.additionsLabor[0]
+        #expect(line.activity == "Demolition" && line.qty == 102 && line.rate == 3 && line.unit == "sq ft")
+        #expect(line.followsAreaSqft && line.amount == 306)
+    }
+
+    @Test func itFollowsTheAreaUntilAQuantityIsTyped() {
+        var s = section(.floor, sqft: 100)
+        s.add(demo)
+        s.measurements.sqft = 120
+        s.syncAreaQuantities()
+        #expect(s.additionsLabor[0].qty == 120)
+        s.additionsLabor[0].qty = 80
+        s.additionsLabor[0].followsAreaSqft = false        // what typing a quantity does
+        s.measurements.sqft = 150
+        s.syncAreaQuantities()
+        #expect(s.additionsLabor[0].qty == 80)
+    }
+
+    @Test func otherUnitsStartAtOneAndMaterialsCanBeTaxed() {
+        var s = section(.floor, sqft: 100)
+        s.add(threshold)
+        let line = s.additionsMaterials[0]
+        #expect(s.additionsLabor.isEmpty)
+        #expect(line.qty == 1 && line.unit == "each" && line.taxable && !line.followsAreaSqft)
+    }
+
+    @Test func thePriceCanBeChangedForOneEstimate() {
+        var s = section(.floor, sqft: 10)
+        s.add(demo)
+        s.additionsLabor[0].rate = 4
+        #expect(s.additionsLabor[0].amount == 40)
+        #expect(demo.price == 3)                            // the list is unchanged
+    }
+
+    @Test func linesCountInTheTotals() {
+        var r = plainRates()
+        r.base[.floor] = 20
+        r.minimum[.floor] = 0
+        r.floorEscAdjPerSqft = 0
+        var s = section(.floor, sqft: 100)
+        s.add(demo)
+        s.add(threshold)
+        let t = computeTotals(document: EstimateDocument(rooms: [EstimateRoom(name: "Hall", sections: [s])]),
+                              rates: r, shippingEnabled: false, shipping: 0, taxPercent: 10)
+        #expect(t.subtotal == 2000 + 300 + 45)
+        #expect(t.taxableBase == 45)
+    }
+
+    @Test func savedDataLoads() throws {
+        let old = try JSONDecoder().decode(Rates.self, from: Data(#"{"unitBench":200}"#.utf8))
+        #expect(old.priceList.map(\.name) == ["Demolition", "Floor leveling", "Epoxy grout upgrade"])
+        #expect(old.priceList.allSatisfy { $0.price == 0 && $0.unit == .perSqft && !$0.isMaterial })
+        let line = try JSONDecoder().decode(AdditionItem.self, from: Data(#"{"activity":"Haul","qty":2,"rate":50}"#.utf8))
+        #expect(line.amount == 100 && line.unit == "" && !line.followsAreaSqft)
+        var r = Rates()
+        r.priceList = [threshold]
+        #expect(try JSONDecoder().decode(Rates.self, from: JSONEncoder().encode(r)).priceList == [threshold])
+    }
+}
+
 // MARK: - Electric radiant heat
 
 struct RadiantHeatTests {

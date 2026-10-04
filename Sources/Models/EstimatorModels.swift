@@ -6,7 +6,51 @@ struct AdditionItem: Identifiable, Codable, Hashable {
     var qty: Double = 1
     var rate: Double = 0
     var taxable: Bool = false
+    /// What the quantity counts, e.g. "sq ft"; empty for a typed line.
+    var unit: String = ""
+    /// A per-sq-ft line from the price list keeps its quantity equal to the
+    /// area's square feet until a quantity is typed in.
+    var followsAreaSqft: Bool = false
     var amount: Double { qty * rate }
+}
+
+// MARK: - Price list for extras
+
+enum PriceListUnit: String, Codable, CaseIterable, Identifiable {
+    case perSqft = "per sq ft"
+    case perLinFt = "per linear ft"
+    case each = "each"
+    case flat = "flat per job"
+    var id: String { rawValue }
+    /// What a line's quantity counts.
+    var quantityLabel: String {
+        switch self {
+        case .perSqft: "sq ft"
+        case .perLinFt: "lin ft"
+        case .each: "each"
+        case .flat: "job"
+        }
+    }
+}
+
+/// An extra the owner charges regularly, set up once in Admin and picked for
+/// an area instead of typing the price each time.
+struct PriceListItem: Identifiable, Codable, Equatable, Hashable {
+    var id = UUID()
+    var name: String = ""
+    var unit: PriceListUnit = .perSqft
+    var price: Double = 0
+    /// Materials are taxable when `taxable` is on and count toward shipping;
+    /// otherwise the item is labor.
+    var isMaterial: Bool = false
+    var taxable: Bool = false
+
+    /// The owner's starting list (October 2026); prices are set in Admin.
+    static let ownersStartingList: [PriceListItem] = [
+        PriceListItem(id: UUID(uuidString: "6B1C2D3E-0F41-4A52-8B63-7C84D5E6F701")!, name: "Demolition"),
+        PriceListItem(id: UUID(uuidString: "6B1C2D3E-0F41-4A52-8B63-7C84D5E6F702")!, name: "Floor leveling"),
+        PriceListItem(id: UUID(uuidString: "6B1C2D3E-0F41-4A52-8B63-7C84D5E6F703")!, name: "Epoxy grout upgrade"),
+    ]
 }
 
 // MARK: - Domain Models
@@ -167,6 +211,9 @@ struct Rates: Codable, Equatable {
     /// Electric radiant heat systems, each priced from its own parts.
     var heatingSystems: [HeatingSystem] = [.ownersStrataHeat]
 
+    /// Extras picked from a list instead of typed each time.
+    var priceList: [PriceListItem] = PriceListItem.ownersStartingList
+
     var floorEscThresholdLower: Int = 50
     var floorEscThresholdUpper: Int = 99
     var floorEscAdjPerSqft: Double = 0
@@ -211,6 +258,7 @@ extension Rates {
         c.read(.unitFootrest, into: &unitFootrest)
         c.read(.unitBench, into: &unitBench)
         c.read(.heatingSystems, into: &heatingSystems)
+        c.read(.priceList, into: &priceList)
         c.read(.floorEscThresholdLower, into: &floorEscThresholdLower)
         c.read(.floorEscThresholdUpper, into: &floorEscThresholdUpper)
         c.read(.floorEscAdjPerSqft, into: &floorEscAdjPerSqft)
@@ -453,6 +501,52 @@ extension AdditionItem {
         c.read(.qty, into: &qty)
         c.read(.rate, into: &rate)
         c.read(.taxable, into: &taxable)
+        c.read(.unit, into: &unit)
+        c.read(.followsAreaSqft, into: &followsAreaSqft)
+    }
+}
+
+extension PriceListItem {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.name, into: &name)
+        c.read(.unit, into: &unit)
+        c.read(.price, into: &price)
+        c.read(.isMaterial, into: &isMaterial)
+        c.read(.taxable, into: &taxable)
+    }
+}
+
+extension EstimateSection {
+    /// All the square feet tiled in the area: a shower's walls, floor and
+    /// ceiling, a tub surround's walls and ceiling, or the area's one figure.
+    var areaSqft: Double {
+        let m = measurements
+        let wallTotal = walls.reduce(0) { $0 + $1.sqft }
+        switch area {
+        case .shower: return (walls.isEmpty ? m.showerWallsSqft : wallTotal) + m.showerFloorSqft + m.ceilingSqft
+        case .tub: return (walls.isEmpty ? m.sqft : wallTotal) + m.ceilingSqft
+        default: return m.sqft
+        }
+    }
+
+    /// Adds a price-list item as a labor or materials line. A per-sq-ft item
+    /// starts at the area's square feet and follows it.
+    mutating func add(_ item: PriceListItem) {
+        let perSqft = item.unit == .perSqft
+        let line = AdditionItem(activity: item.name, qty: perSqft ? areaSqft : 1, rate: item.price,
+                                taxable: item.isMaterial && item.taxable,
+                                unit: item.unit.quantityLabel, followsAreaSqft: perSqft)
+        if item.isMaterial { additionsMaterials.append(line) } else { additionsLabor.append(line) }
+    }
+
+    /// Brings every line that follows the area's square feet up to date.
+    mutating func syncAreaQuantities() {
+        let sqft = areaSqft
+        for i in additionsLabor.indices where additionsLabor[i].followsAreaSqft { additionsLabor[i].qty = sqft }
+        for i in additionsMaterials.indices where additionsMaterials[i].followsAreaSqft { additionsMaterials[i].qty = sqft }
     }
 }
 

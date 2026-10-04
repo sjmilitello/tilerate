@@ -246,6 +246,8 @@ struct AdminSheet: View {
                     baseRow("Inlay ($/sq ft)", value: $rates.mosaicInlayRate)
                 }
 
+                PriceListSection(items: $rates.priceList)
+
                 HeatingSystemsSection(systems: $rates.heatingSystems)
 
                 Section("Features") {

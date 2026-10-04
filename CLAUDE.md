@@ -182,6 +182,21 @@ the piece size and show on the estimate; the doubling size adder does not
 apply to mosaics. New enum cases are safe for saved data: rates tables merge,
 so a new case starts at its default.
 
+## Price list for extras
+
+From 2026-10-04 Admin has a price list (`PriceListItem`, `Rates.priceList`):
+each item has a name, a unit (per sq ft, per linear ft, each, flat per job), a
+price, and whether it is labor or materials (taxable or not). Picking one for
+an area adds an ordinary labor or materials line (`EstimateSection.add`), so
+its price can still be changed on that estimate and it appears everywhere
+lines do. A per-sq-ft item starts at the area's square feet (`areaSqft`: a
+shower's walls + floor + ceiling, a tub's walls + ceiling, otherwise the
+area's figure) and follows it (`followsAreaSqft`, kept up to date by
+`syncAreaQuantities` whenever a section is saved) until a quantity is typed.
+Typed custom lines are still available. The owner's starting list:
+Demolition, Floor leveling, Epoxy grout upgrade — labor, per sq ft, $0 until
+set.
+
 ## Electric radiant heat
 
 From 2026-10-03 a Floor area or a shower floor can have electric radiant heat.
