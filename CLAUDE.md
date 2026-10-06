@@ -193,9 +193,26 @@ lines do. A per-sq-ft item starts at the area's square feet (`areaSqft`: a
 shower's walls + floor + ceiling, a tub's walls + ceiling, otherwise the
 area's figure) and follows it (`followsAreaSqft`, kept up to date by
 `syncAreaQuantities` whenever a section is saved) until a quantity is typed.
-Typed custom lines are still available. The owner's starting list:
-Demolition, Floor leveling, Epoxy grout upgrade — labor, per sq ft, $0 until
-set.
+Each item has a minimum charge (0 = none) that the line keeps
+(`AdditionItem.minimum`; amount = max(qty × price, minimum)). Typed custom
+lines are still available.
+
+A per-sq-ft item also has a measure (`EstimateSection.sqft(_:)`): whole area,
+walls only, walls and ceiling, Floor areas only, shower floor only, or ceiling
+only. Owner's rule: a shower floor is not a floor — it includes the mud bed
+and shower pan and is an item to itself.
+
+Demolition is one item per thing torn out (`PriceListItem.ownersDemolition`,
+named "Demo: …" and grouped under a Demolition submenu): fixtures priced each
+— one-piece tub/shower unit, tub only, acrylic shower base — and surfaces per
+sq ft — tile shower base (shower floor), tile walls (walls), tile floors
+(Floor areas), tile ceiling (ceiling), vinyl, laminate and hardwood floors,
+carpeting and plywood (Floor areas). Any item named "Group: name" is grouped
+the same way in the menu. The rest of the starting list: Floor leveling
+(Floor areas only) and Epoxy grout upgrade (whole area). All labor, $0 until
+set. The very first list (2026-10-04) had one "Demolition" item; reading
+saved rates replaces it with the demolition items — per-sq-ft ones keep its
+price and minimum — and makes floor leveling Floor areas only.
 
 ## Electric radiant heat
 

@@ -1875,7 +1875,7 @@ struct ContentView: View {
                     .frame(width: 60, alignment: .leading)
                 
                 // Amount (read-only)
-                Text(currencyString(item.qty * item.rate))
+                Text(currencyString(item.amount))
                     .font(.caption).fontWeight(.semibold)
                     .frame(width: 70, alignment: .trailing)
                 
@@ -1942,11 +1942,7 @@ struct ContentView: View {
                 }
                 if !store.rates.priceList.isEmpty {
                     Menu {
-                        ForEach(store.rates.priceList) { item in
-                            Button("\(item.name) — \(currency(item.price)) \(item.unit.rawValue)") {
-                                sec.wrappedValue.add(item)
-                            }
-                        }
+                        PriceListMenuItems(items: store.rates.priceList) { sec.wrappedValue.add($0) }
                     } label: {
                         Label("Add From Price List", systemImage: "list.bullet")
                             .font(.system(size: 12, weight: .semibold))

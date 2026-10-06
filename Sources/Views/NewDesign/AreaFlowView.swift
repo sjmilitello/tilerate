@@ -569,11 +569,7 @@ struct AreaFlowView: View {
                 }
                 if !store.rates.priceList.isEmpty {
                     Menu {
-                        ForEach(store.rates.priceList) { item in
-                            Button("\(item.name) — \(ND.money(item.price)) \(item.unit.rawValue)") {
-                                sec.wrappedValue.add(item)
-                            }
-                        }
+                        PriceListMenuItems(items: store.rates.priceList) { sec.wrappedValue.add($0) }
                     } label: {
                         Label("From price list", systemImage: "list.bullet")
                             .font(.system(size: 15, weight: .semibold))
@@ -670,7 +666,7 @@ struct AreaFlowView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.activity.isEmpty ? (materials ? "Materials" : "Labor") : item.activity)
                         .font(.system(size: 16, weight: .medium))
-                    Text("\(materials ? "Materials" : "Labor")\(materials && item.taxable ? ", taxable" : "") · \(ND.number(item.qty))\(item.unit.isEmpty ? "" : " " + item.unit) × \(ND.money(item.rate))")
+                    Text("\(materials ? "Materials" : "Labor")\(materials && item.taxable ? ", taxable" : "") · \(ND.number(item.qty))\(item.unit.isEmpty ? "" : " " + item.unit) × \(ND.money(item.rate))\(item.minimumApplied ? " · minimum" : "")")
                         .font(.system(size: 13)).foregroundStyle(ND.muted)
                 }
                 Spacer()
@@ -1133,7 +1129,12 @@ struct NDLineItemSheet: View {
                     if materials {
                         Toggle("Taxable", isOn: $item.taxable)
                     }
-                    LabeledContent("Amount", value: ND.money(item.amount))
+                    if item.minimum > 0 {
+                        LabeledContent("Minimum") {
+                            NDNumberField(placeholder: "0", value: $item.minimum, alignment: .trailing).frame(width: 120)
+                        }
+                    }
+                    LabeledContent(item.minimumApplied ? "Amount (minimum)" : "Amount", value: ND.money(item.amount))
                 }
                 Section {
                     Button("Remove this line", role: .destructive, action: onDelete)

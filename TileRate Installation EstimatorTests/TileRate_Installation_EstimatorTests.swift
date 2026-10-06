@@ -437,6 +437,55 @@ struct PriceListTests {
         #expect(demo.price == 3)                            // the list is unchanged
     }
 
+    @Test func theMinimumChargeApplies() {
+        var s = section(.floor, sqft: 40)
+        s.add(PriceListItem(name: "Demolition", unit: .perSqft, price: 3, minimum: 250))
+        #expect(s.additionsLabor[0].amount == 250 && s.additionsLabor[0].minimumApplied)   // 40 × $3 = $120
+        s.measurements.sqft = 100
+        s.syncAreaQuantities()
+        #expect(s.additionsLabor[0].amount == 300 && !s.additionsLabor[0].minimumApplied)
+    }
+
+    private func demo(_ name: String) -> PriceListItem {
+        PriceListItem.ownersDemolition.first { $0.name == "Demo: " + name }!
+    }
+
+    @Test func demolitionItemsFillInTheirOwnPart() {
+        var shower = section(.shower)
+        shower.measurements.showerWallsSqft = 90
+        shower.measurements.showerFloorSqft = 12
+        shower.measurements.ceilingSqft = 20
+        for name in ["Tile walls", "Tile shower base", "Tile ceiling", "Tile floors", "Acrylic shower base"] {
+            shower.add(demo(name))
+        }
+        #expect(shower.additionsLabor.map(\.qty) == [90, 12, 20, 0, 1])
+        #expect(shower.additionsLabor[4].unit == "each" && !shower.additionsLabor[4].followsAreaSqft)
+
+        var floor = section(.floor, sqft: 60)
+        for name in ["Tile floors", "Carpeting", "Plywood", "Tile walls"] { floor.add(demo(name)) }
+        #expect(floor.additionsLabor.map(\.qty) == [60, 60, 60, 0])
+
+        var tub = section(.tub, sqft: 50)
+        tub.add(demo("Tile walls"))
+        tub.add(demo("Tub only"))
+        tub.measurements.sqft = 70
+        tub.syncAreaQuantities()
+        #expect(tub.additionsLabor.map(\.qty) == [70, 1])
+    }
+
+    @Test func theOldSingleDemolitionItemSplitsKeepingItsPrice() throws {
+        let json = """
+        {"priceList":[{"id":"6B1C2D3E-0F41-4A52-8B63-7C84D5E6F701","name":"Demolition","unit":"per sq ft","price":4,"minimum":300},
+                      {"id":"6B1C2D3E-0F41-4A52-8B63-7C84D5E6F702","name":"Floor leveling","price":2}]}
+        """
+        let r = try JSONDecoder().decode(Rates.self, from: Data(json.utf8))
+        #expect(r.priceList.map(\.name) == PriceListItem.ownersDemolition.map(\.name) + ["Floor leveling"])
+        let demos = r.priceList.prefix(12)
+        #expect(demos.filter { $0.unit == .perSqft }.allSatisfy { $0.price == 4 && $0.minimum == 300 })
+        #expect(demos.filter { $0.unit == .each }.allSatisfy { $0.price == 0 && $0.minimum == 0 })
+        #expect(r.priceList.last?.measure == .floorOnly && r.priceList.last?.price == 2)
+    }
+
     @Test func linesCountInTheTotals() {
         var r = plainRates()
         r.base[.floor] = 20
@@ -453,10 +502,12 @@ struct PriceListTests {
 
     @Test func savedDataLoads() throws {
         let old = try JSONDecoder().decode(Rates.self, from: Data(#"{"unitBench":200}"#.utf8))
-        #expect(old.priceList.map(\.name) == ["Demolition", "Floor leveling", "Epoxy grout upgrade"])
-        #expect(old.priceList.allSatisfy { $0.price == 0 && $0.unit == .perSqft && !$0.isMaterial })
+        #expect(old.priceList.map(\.name)
+                == PriceListItem.ownersDemolition.map(\.name) + ["Floor leveling", "Epoxy grout upgrade"])
+        #expect(old.priceList.count == 14)
+        #expect(old.priceList.allSatisfy { $0.price == 0 && !$0.isMaterial })
         let line = try JSONDecoder().decode(AdditionItem.self, from: Data(#"{"activity":"Haul","qty":2,"rate":50}"#.utf8))
-        #expect(line.amount == 100 && line.unit == "" && !line.followsAreaSqft)
+        #expect(line.amount == 100 && line.unit == "" && !line.followsAreaSqft && line.minimum == 0)
         var r = Rates()
         r.priceList = [threshold]
         #expect(try JSONDecoder().decode(Rates.self, from: JSONEncoder().encode(r)).priceList == [threshold])

@@ -19,8 +19,13 @@ struct PriceListSection: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text("\(currencyString(item.price)) \(item.unit.rawValue)")
-                            .font(.subheadline).foregroundStyle(.secondary)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(currencyString(item.price)) \(item.unit.rawValue)")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                            if item.minimum > 0 {
+                                Text("min \(currencyString(item.minimum))").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
             }
@@ -39,11 +44,19 @@ struct PriceListSection: View {
 }
 
 struct PriceListItemEditor: View {
+    private static func text(_ v: Double) -> String {
+        v == 0 ? "" : v.formatted(.number.precision(.fractionLength(0...2)).grouping(.never))
+    }
+    private static func number(_ t: String) -> Double {
+        Double(t.replacingOccurrences(of: ",", with: "")) ?? 0
+    }
+
     @Binding var item: PriceListItem
     let onDelete: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var priceText = ""
+    @State private var minimumText = ""
     @State private var confirmDelete = false
 
     var body: some View {
@@ -52,6 +65,11 @@ struct PriceListItemEditor: View {
                 TextField("Name on the estimate", text: $item.name)
                 Picker("Charged", selection: $item.unit) {
                     ForEach(PriceListUnit.allCases) { Text($0.rawValue).tag($0) }
+                }
+                if item.unit == .perSqft {
+                    Picker("Square feet of", selection: $item.measure) {
+                        ForEach(PriceListMeasure.allCases) { Text($0.rawValue).tag($0) }
+                    }
                 }
                 LabeledContent("Price") {
                     HStack(spacing: 4) {
@@ -62,6 +80,17 @@ struct PriceListItemEditor: View {
                             .frame(minWidth: 70, maxWidth: 110)
                     }
                 }
+                LabeledContent("Minimum charge") {
+                    HStack(spacing: 4) {
+                        Text("$").foregroundStyle(.secondary)
+                        TextField("None", text: $minimumText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(minWidth: 70, maxWidth: 110)
+                    }
+                }
+            } footer: {
+                Text("The least this item charges on an area, however small the quantity. Leave empty for no minimum.")
             }
             Section {
                 Picker("Type", selection: $item.isMaterial) {
@@ -84,11 +113,16 @@ struct PriceListItemEditor: View {
         .navigationTitle(item.name.isEmpty ? "Price list item" : item.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            priceText = item.price == 0 ? "" : item.price.formatted(.number.precision(.fractionLength(0...2)).grouping(.never))
+            priceText = Self.text(item.price)
+            minimumText = Self.text(item.minimum)
         }
         .onChange(of: priceText) { _, t in
-            let v = Double(t.replacingOccurrences(of: ",", with: "")) ?? 0
+            let v = Self.number(t)
             if v != item.price { item.price = v }
+        }
+        .onChange(of: minimumText) { _, t in
+            let v = Self.number(t)
+            if v != item.minimum { item.minimum = v }
         }
         .confirmationDialog("Delete \(item.name.isEmpty ? "this item" : item.name)?",
                             isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -96,6 +130,36 @@ struct PriceListItemEditor: View {
                 dismiss()
                 onDelete()
             }
+        }
+    }
+}
+
+/// The price list as menu entries. Items named "Group: name" (e.g. "Demo:
+/// Tile walls") are gathered under a submenu for their group.
+struct PriceListMenuItems: View {
+    let items: [PriceListItem]
+    let onPick: (PriceListItem) -> Void
+
+    private func split(_ item: PriceListItem) -> (group: String?, name: String) {
+        let parts = item.name.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        return parts.count == 2 && !parts[0].isEmpty ? (parts[0], parts[1]) : (nil, item.name)
+    }
+
+    private func label(_ item: PriceListItem, _ name: String) -> String {
+        "\(name) — \(currencyString(item.price)) \(item.unit.rawValue)"
+    }
+
+    var body: some View {
+        let groups = items.compactMap { split($0).group }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        ForEach(groups, id: \.self) { group in
+            Menu(group == "Demo" ? "Demolition" : group) {
+                ForEach(items.filter { split($0).group == group }) { item in
+                    Button(label(item, split(item).name)) { onPick(item) }
+                }
+            }
+        }
+        ForEach(items.filter { split($0).group == nil }) { item in
+            Button(label(item, item.name)) { onPick(item) }
         }
     }
 }
