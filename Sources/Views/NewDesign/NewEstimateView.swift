@@ -10,7 +10,7 @@ enum NDRoute: Hashable {
 /// It reads and writes the same saved estimate as the classic design.
 struct NewEstimateView: View {
     @StateObject private var store = Store()
-    @StateObject private var saved = SavedEstimatesStore()
+    @ObservedObject private var saved = SavedEstimatesStore.shared
     @State private var path: [NDRoute] = []
 
     @State private var showAdmin = false
@@ -487,7 +487,11 @@ struct NDSavedEstimatesSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if saved.items.isEmpty {
+                if let problem = saved.loadProblem {
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                if saved.items.isEmpty && saved.loadProblem == nil {
                     Text("No saved estimates yet.").foregroundStyle(.secondary)
                 }
                 ForEach(saved.items) { e in

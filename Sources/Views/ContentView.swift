@@ -247,7 +247,7 @@ struct ContentView: View {
     @State private var isRenamingExistingRoom = false
     @State private var editingRoomIndex: Int? = nil
     @State private var roomNameBuffer: String = ""
-    @StateObject private var saved = SavedEstimatesStore()
+    @ObservedObject private var saved = SavedEstimatesStore.shared
     @State private var showSavedList = false
     
     
@@ -641,6 +641,7 @@ struct ContentView: View {
             .sheet(isPresented: $showSavedList) {
                 SavedEstimatesListView(
                     items: saved.items,
+                    problem: saved.loadProblem,
                     onLoad: { loadEstimate($0); showSavedList = false },
                     onDelete: { indexSet in saved.delete(at: indexSet) }
                 ).applyGlobalTapToDismiss()             }
@@ -2222,6 +2223,7 @@ private struct ExportFormView: View {
 
     private struct SavedEstimatesListView: View {
         let items: [SavedEstimate]
+        var problem: String? = nil
         let onLoad: (SavedEstimate) -> Void
         let onDelete: (IndexSet) -> Void
         @Environment(\.dismiss) private var dismiss
@@ -2229,6 +2231,10 @@ private struct ExportFormView: View {
         var body: some View {
             NavigationStack {
                 List {
+                    if let problem {
+                        Label(problem, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
                     if items.isEmpty {
                         Text("No saved estimates yet.")
                             .foregroundStyle(.secondary)

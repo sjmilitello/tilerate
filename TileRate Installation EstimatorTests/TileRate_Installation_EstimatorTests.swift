@@ -1265,3 +1265,95 @@ struct SavedDataTests {
         #expect(t.tileType == .ceramic)
     }
 }
+
+/// The saved estimates file must never be lost to a save after a bad read.
+struct SavedEstimatesSafetyTests {
+    private func tempFolder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func estimate(_ title: String) -> SavedEstimate {
+        let party = PartyInfo(name: "", address: "", phone: "", email: "")
+        return SavedEstimate(title: title, estimateNumber: 1, biz: party, cust: party,
+                             shipping: 0, taxPercent: 0, forceSinglePage: false, document: EstimateDocument())
+    }
+
+    private func backupFiles(_ folder: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
+    }
+
+    @Test func anUnreadableFileIsKeptBeforeAnythingIsSaved() throws {
+        let dir = try tempFolder()
+        let file = dir.appendingPathComponent("SavedEstimates.json")
+        let backups = DataBackups(folder: dir.appendingPathComponent("Data Backups"))
+        let garbage = Data("[{\"title\": broken".utf8)
+        try garbage.write(to: file)
+
+        let store = SavedEstimatesStore(fileURL: file, backups: backups)
+        #expect(store.items.isEmpty)
+        #expect(store.loadProblem != nil)
+        let kept = backupFiles(backups.folder).filter { $0.hasPrefix("SavedEstimates unreadable") }
+        #expect(kept.count == 1)
+        #expect(try Data(contentsOf: backups.folder.appendingPathComponent(kept[0])) == garbage)
+
+        // Saving afterwards writes a new list; the original stays in the copy.
+        store.add(estimate("New"))
+        #expect(SavedEstimatesStore(fileURL: file, backups: backups).items.map(\.title) == ["New"])
+        #expect(try Data(contentsOf: backups.folder.appendingPathComponent(kept[0])) == garbage)
+    }
+
+    @Test func oneUnreadableEstimateDoesNotLoseTheOthers() throws {
+        let dir = try tempFolder()
+        let file = dir.appendingPathComponent("SavedEstimates.json")
+        let backups = DataBackups(folder: dir.appendingPathComponent("Data Backups"))
+        let good = try JSONEncoder().encode([estimate("Kitchen"), estimate("Bath")])
+        var list = try JSONSerialization.jsonObject(with: good) as! [Any]
+        list.insert("not an estimate", at: 1)
+        try JSONSerialization.data(withJSONObject: list).write(to: file)
+
+        let store = SavedEstimatesStore(fileURL: file, backups: backups)
+        #expect(store.items.map(\.title) == ["Kitchen", "Bath"])
+        #expect(store.loadProblem?.hasPrefix("1 saved estimate couldn't be read") == true)
+        #expect(backupFiles(backups.folder).contains { $0.hasPrefix("SavedEstimates unreadable") })
+    }
+
+    @Test func aGoodFileLoadsWithNoWarningAndIsBackedUpBeforeSaving() throws {
+        let dir = try tempFolder()
+        let file = dir.appendingPathComponent("SavedEstimates.json")
+        let backups = DataBackups(folder: dir.appendingPathComponent("Data Backups"))
+        let original = try JSONEncoder().encode([estimate("Kitchen")])
+        try original.write(to: file)
+
+        let store = SavedEstimatesStore(fileURL: file, backups: backups)
+        #expect(store.loadProblem == nil)
+        store.add(estimate("Bath"))
+        let daily = backupFiles(backups.folder).filter { !$0.contains("unreadable") }
+        #expect(daily.count == 1)
+        #expect(try Data(contentsOf: backups.folder.appendingPathComponent(daily[0])) == original)
+        #expect(SavedEstimatesStore(fileURL: file, backups: backups).items.map(\.title) == ["Bath", "Kitchen"])
+    }
+
+    @Test func noFileMeansAnEmptyListAndNoWarning() throws {
+        let dir = try tempFolder()
+        let store = SavedEstimatesStore(fileURL: dir.appendingPathComponent("SavedEstimates.json"),
+                                        backups: DataBackups(folder: dir.appendingPathComponent("Data Backups")))
+        #expect(store.items.isEmpty)
+        #expect(store.loadProblem == nil)
+    }
+
+    @Test func dailyBackupsKeepOnlyTheNewestDays() throws {
+        let backups = DataBackups(folder: try tempFolder())
+        let day: TimeInterval = 86_400
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        for i in 0..<20 {
+            backups.daily(Data("\(i)".utf8), name: "Rates", keep: 14, now: start + Double(i) * day)
+        }
+        // A second save the same day doesn't replace that day's copy.
+        backups.daily(Data("later".utf8), name: "Rates", keep: 14, now: start + 19 * day + 60)
+        let files = backupFiles(backups.folder)
+        #expect(files.count == 14)
+        #expect(try Data(contentsOf: backups.folder.appendingPathComponent(files.last!)) == Data("19".utf8))
+    }
+}

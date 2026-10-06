@@ -35,6 +35,18 @@ Since 2026-09-25 every saved type reads each field on its own through the
 it is never loaded. A new saved *type* needs its own `init(from:)` before it
 is saved anywhere.
 
+Since 2026-10-05 `SavedEstimatesStore` (one shared instance, `.shared`, for
+both designs) also survives a file it can't read. Estimates are decoded one
+at a time, so a bad one doesn't lose the rest. If any of the file can't be
+read, a copy of it as it was goes into `Documents/Data Backups`
+("SavedEstimates unreadable <time>.json", never overwritten), the saved
+estimates list shows a warning, and only then may a save write over it; if
+the copy can't be made, nothing is saved. Before the first save of each day
+the file is copied there too, and so are the rates (`DataBackups.daily`, the
+newest 14 days kept). Rates, the current estimate and state that won't decode
+are copied there before the defaults replace them. `SavedEstimatesSafetyTests`
+covers this.
+
 `SavedEstimate` and `PartyInfo` keep fields with no default on purpose —
 nothing should create an estimate without a title — so their fallbacks live in
 `init(from:)` only. Do not add defaults to the properties to make decoding
