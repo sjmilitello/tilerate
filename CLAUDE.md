@@ -62,6 +62,22 @@ dictionary keyed by an enum is written in no fixed order.
 entered in the Admin screen and saved on the phone. Never reason about what a
 customer is charged from the numbers in the source.
 
+## Saved estimates open as they were sent
+
+From 2026-10-05 (roadmap Phase 1) a saved estimate keeps the rates it was
+priced with (`SavedEstimate.rates`) and its grand total (`total`, shown in the
+saved lists). Opening one (`Store.open`) prices the estimate being worked on
+with those rates (`Store.opened`, kept across launches) until "Convert to
+current pricing" (`convertToCurrentPricing`), which first shows the saved and
+the current total. Everything that prices the estimate uses
+`store.pricingRates` — never `store.rates`, which is what Admin edits; the
+price list menus still offer the current price list. `OpenedPricingBanner`
+says which is in force, in both designs. Estimates saved before then have no
+rates: they open at the current rates with a note, and saving one again keeps
+today's rates with it. Starting a new estimate clears `opened`.
+`QuoteHistoryTests` covers this. Still to come in Phase 1's spirit: wording
+and PDF template choice saved with the estimate (Phases 3 and 4).
+
 ## Signing, and why the app stops opening
 
 A build installed from Xcode is signed for one year. When that runs out iOS

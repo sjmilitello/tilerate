@@ -38,7 +38,7 @@ struct EstimateReviewView: View {
     }
 
     private var totals: EstimateTotals {
-        computeTotals(document: store.doc, rates: store.rates,
+        computeTotals(document: store.doc, rates: store.pricingRates,
                       shippingEnabled: shippingEnabled, shipping: exportShipping,
                       taxPercent: taxPercent)
     }
@@ -53,6 +53,10 @@ struct EstimateReviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Review before sending").font(.ndTitle(26))
+                    OpenedPricingBanner(store: store) {
+                        computeTotals(document: store.doc, rates: $0, shippingEnabled: shippingEnabled,
+                                      shipping: exportShipping, taxPercent: taxPercent)
+                    }
                     warnings(t)
                     customerCard
                     ForEach(t.sections, id: \.section.id) { item in

@@ -532,6 +532,20 @@ struct SavedEstimate: Identifiable, Codable, Equatable {
     var taxPercent: Double
     var forceSinglePage: Bool
     var document: EstimateDocument
+    /// The rates it was priced with, so it opens as it was sent. Nil for
+    /// estimates saved before 2026-10-05, which were saved without them.
+    var rates: Rates? = nil
+    /// The grand total when it was saved; nil before 2026-10-05.
+    var total: Double? = nil
+}
+
+/// Where the estimate being worked on is priced from, when it was opened
+/// from a saved estimate. It keeps the rates it was saved with until it is
+/// converted to current pricing; one saved without rates is priced at the
+/// current rates.
+struct OpenedEstimatePricing: Codable, Equatable {
+    var savedAt: Date
+    var rates: Rates?
 }
 
 // MARK: - Reading what was saved
@@ -852,5 +866,17 @@ extension SavedEstimate {
         self.init(id: id, createdAt: createdAt, title: title, estimateNumber: estimateNumber,
                   biz: biz, cust: cust, shipping: shipping, taxPercent: taxPercent,
                   forceSinglePage: forceSinglePage, document: document)
+        c.read(.rates, into: &rates)
+        c.read(.total, into: &total)
+    }
+}
+
+extension OpenedEstimatePricing {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var savedAt = Date()
+        c.read(.savedAt, into: &savedAt)
+        self.init(savedAt: savedAt, rates: nil)
+        c.read(.rates, into: &rates)
     }
 }

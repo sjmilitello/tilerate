@@ -1152,7 +1152,7 @@ struct ContentView: View {
                   systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundStyle(.orange)
-        } else if let note = sizeAdderNote(size: size, lengthIn: lengthIn, widthIn: widthIn, rates: store.rates) {
+        } else if let note = sizeAdderNote(size: size, lengthIn: lengthIn, widthIn: widthIn, rates: store.pricingRates) {
             Text(note)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -1313,7 +1313,7 @@ struct ContentView: View {
     /// Electric radiant heat under a floor or shower floor.
     @ViewBuilder
     private func radiantHeatEditor(_ sec: Binding<EstimateSection>) -> some View {
-        let systems = store.rates.heatingSystems
+        let systems = store.pricingRates.heatingSystems
         if !systems.isEmpty {
             let isOn = Binding<Bool>(
                 get: { sec.wrappedValue.radiantHeat != nil },
@@ -1332,7 +1332,7 @@ struct ContentView: View {
                     numberField("Heated sq ft (blank = whole floor)", value: Binding(
                         get: { sec.wrappedValue.radiantHeat?.heatedSqft ?? 0 },
                         set: { sec.wrappedValue.radiantHeat?.heatedSqft = $0 > 0 ? $0 : nil }))
-                    if let r = radiantHeatPrice(for: sec.wrappedValue, rates: store.rates) {
+                    if let r = radiantHeatPrice(for: sec.wrappedValue, rates: store.pricingRates) {
                         Text("Kit \(currency(r.materials)) · Installation \(currency(r.labor))")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -1586,6 +1586,10 @@ struct ContentView: View {
         // 4) Build the view using only lightweight bindings/loops
         return AnyView(
             VStack(alignment: .leading, spacing: 12) {
+                OpenedPricingBanner(store: store) {
+                    computeTotals(document: store.doc, rates: $0, shippingEnabled: additionsShippingEnabled,
+                                  shipping: exportShipping, taxPercent: exportTaxPercent)
+                }
                 // Group by room for display
                 ForEach(store.doc.rooms, id: \.id) { room in
                     VStack(alignment: .leading, spacing: 8) {
@@ -1743,7 +1747,9 @@ struct ContentView: View {
             shipping: estimateTotals().shipping,
             taxPercent: exportTaxPercent,
             forceSinglePage: exportForceSinglePage,
-            document: store.doc
+            document: store.doc,
+            rates: store.pricingRates,
+            total: estimateTotals().grandTotal
         )
         
         saved.add(e)
@@ -1763,7 +1769,7 @@ struct ContentView: View {
         exportForceSinglePage = e.forceSinglePage
         additionsShippingEnabled = (e.shipping > 0)
         
-        store.doc = e.document
+        store.open(e)
         
         currentRoomIndex = 0
         currentSectionIndex = 0
@@ -2072,7 +2078,7 @@ struct ContentView: View {
     /// The one place the estimate's totals come from, for the screen and the PDF.
     private func estimateTotals() -> EstimateTotals {
         computeTotals(document: store.doc,
-                      rates: store.rates,
+                      rates: store.pricingRates,
                       shippingEnabled: additionsShippingEnabled,
                       shipping: exportShipping,
                       taxPercent: exportTaxPercent)
@@ -2250,8 +2256,12 @@ private struct ExportFormView: View {
                                         Text("#\(e.estimateNumber)")
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
-                                    Text(dateString(e.createdAt))
-                                        .font(.caption).foregroundStyle(.secondary)
+                                    HStack {
+                                        Text(dateString(e.createdAt))
+                                        Spacer()
+                                        if let total = e.total { Text(currencyString(total)) }
+                                    }
+                                    .font(.caption).foregroundStyle(.secondary)
                                     Text(e.cust.name).font(.subheadline)
                                 }
                             }

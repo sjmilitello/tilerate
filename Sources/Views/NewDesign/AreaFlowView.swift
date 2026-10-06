@@ -56,10 +56,10 @@ struct AreaFlowView: View {
     private var section: EstimateSection { sec.wrappedValue }
     private var roomName: String { roomIndex.map { store.doc.rooms[$0].name } ?? "" }
 
-    private var summary: Summary { computeSummary(state: EstimatorState(section: section), rates: store.rates) }
+    private var summary: Summary { computeSummary(state: EstimatorState(section: section), rates: store.pricingRates) }
     /// The area's full price: tile work, added lines and radiant heat.
     private var priced: SectionPrice {
-        sectionPrice(room: EstimateRoom(name: roomName), section: section, rates: store.rates)
+        sectionPrice(room: EstimateRoom(name: roomName), section: section, rates: store.pricingRates)
     }
     private var areaPrice: Double { priced.subtotal }
 
@@ -218,7 +218,7 @@ struct AreaFlowView: View {
                 length: sec.tileLengthIn,
                 mosaicStyle: sec.mosaicStyle,
                 pieces: sec.multiTilePieces,
-                rates: store.rates
+                rates: store.pricingRates
             )
             if section.area == .shower || section.area == .tub {
                 Text("Walls, the shower floor and the ceiling can each have their own tile on the Measure step.")
@@ -357,7 +357,7 @@ struct AreaFlowView: View {
     /// system, how much of the floor is heated, and what it comes to.
     @ViewBuilder
     private var radiantHeatBlock: some View {
-        let systems = store.rates.heatingSystems
+        let systems = store.pricingRates.heatingSystems
         let floorSqft = radiantFloorSqft(area: section.area, measurements: section.measurements) ?? 0
         let isOn = Binding<Bool>(
             get: { section.radiantHeat != nil },
@@ -494,20 +494,20 @@ struct AreaFlowView: View {
         switch target {
         case .wall(let id):
             NDTileSheet(title: section.walls.first { $0.id == id }?.name ?? "Wall",
-                        tile: wallBinding(id).tile, rates: store.rates)
+                        tile: wallBinding(id).tile, rates: store.pricingRates)
         case .floor:
             NDTileSheet(title: "Shower floor tile",
                         tile: Binding(get: { section.showerFloorTile ?? TileChoice() },
                                       set: { sec.wrappedValue.showerFloorTile = $0 }),
-                        rates: store.rates)
+                        rates: store.pricingRates)
         case .decorative(let id):
             let item = decorativeBinding(id)
-            NDTileSheet(title: "\(item.wrappedValue.kind.rawValue) tile", tile: item.tile, rates: store.rates)
+            NDTileSheet(title: "\(item.wrappedValue.kind.rawValue) tile", tile: item.tile, rates: store.pricingRates)
         case .ceiling:
             NDTileSheet(title: "Ceiling tile",
                         tile: Binding(get: { section.ceilingTile ?? TileChoice() },
                                       set: { sec.wrappedValue.ceilingTile = $0 }),
-                        rates: store.rates)
+                        rates: store.pricingRates)
         }
     }
 
@@ -612,7 +612,7 @@ struct AreaFlowView: View {
                         .frame(width: 76)
                     Text(item.kind.unit).font(.system(size: 13)).foregroundStyle(ND.muted)
                 }
-                let rate = decorativeRate(item.kind, rates: store.rates)
+                let rate = decorativeRate(item.kind, rates: store.pricingRates)
                 Text(rate == 0 ? "No rate set in Admin" : ND.money(item.quantity * rate))
                     .font(.system(size: 13).monospacedDigit())
                     .foregroundStyle(rate == 0 ? ND.warning : ND.secondary)

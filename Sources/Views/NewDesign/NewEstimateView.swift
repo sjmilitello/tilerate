@@ -37,7 +37,7 @@ struct NewEstimateView: View {
     }
 
     private var totals: EstimateTotals {
-        computeTotals(document: store.doc, rates: store.rates,
+        computeTotals(document: store.doc, rates: store.pricingRates,
                       shippingEnabled: shippingEnabled, shipping: exportShipping,
                       taxPercent: exportTaxPercent)
     }
@@ -105,6 +105,10 @@ struct NewEstimateView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
+                    OpenedPricingBanner(store: store) {
+                        computeTotals(document: store.doc, rates: $0, shippingEnabled: shippingEnabled,
+                                      shipping: exportShipping, taxPercent: exportTaxPercent)
+                    }
                     totalCard(t)
                     if store.doc.rooms.isEmpty {
                         emptyState
@@ -418,7 +422,9 @@ enum NDEstimateActions {
             shipping: totals.shipping,
             taxPercent: d.double(forKey: "export.taxPercent"),
             forceSinglePage: d.bool(forKey: "export.forceSinglePage"),
-            document: store.doc
+            document: store.doc,
+            rates: store.pricingRates,
+            total: totals.grandTotal
         ))
     }
 
@@ -437,7 +443,7 @@ enum NDEstimateActions {
         d.set(e.taxPercent, forKey: "export.taxPercent")
         d.set(e.forceSinglePage, forKey: "export.forceSinglePage")
         d.set(e.shipping > 0, forKey: "additions.shippingEnabled")
-        store.doc = e.document
+        store.open(e)
         store.state.stepIndex = 0
     }
 }
@@ -502,8 +508,12 @@ struct NDSavedEstimatesSheet: View {
                                 Spacer()
                                 Text("#\(e.estimateNumber)").font(.caption).foregroundStyle(.secondary)
                             }
-                            Text(e.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Text(e.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                Spacer()
+                                if let total = e.total { Text(currencyString(total)) }
+                            }
+                            .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .foregroundStyle(.primary)

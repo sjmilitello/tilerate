@@ -1357,3 +1357,77 @@ struct SavedEstimatesSafetyTests {
         #expect(try Data(contentsOf: backups.folder.appendingPathComponent(files.last!)) == Data("19".utf8))
     }
 }
+
+/// Saved estimates open priced as they were saved (2026-10-05 on). Serialized:
+/// two of these use the app's own saved settings, which tests can't share at once.
+@Suite(.serialized)
+struct QuoteHistoryTests {
+    private func estimate(rates: Rates?) -> SavedEstimate {
+        let party = PartyInfo(name: "", address: "", phone: "", email: "")
+        var room = EstimateRoom(name: "Bath")
+        room.sections = [section(.floor, sqft: 120, type: .porcelain)]
+        return SavedEstimate(title: "Bath", estimateNumber: 7, biz: party, cust: party,
+                             shipping: 0, taxPercent: 0, forceSinglePage: false,
+                             document: EstimateDocument(rooms: [room]), rates: rates, total: 2400)
+    }
+
+    @Test func anEstimateSavedBeforePricesWereKeptHasNoRates() throws {
+        let json = #"[{"title":"Old","estimateNumber":3,"shipping":0,"taxPercent":0,"forceSinglePage":false,"document":{"rooms":[]}}]"#
+        let list = try JSONDecoder().decode([SavedEstimate].self, from: Data(json.utf8))
+        #expect(list.count == 1)
+        #expect(list[0].rates == nil)
+        #expect(list[0].total == nil)
+    }
+
+    @Test func savedRatesAndTotalComeBackAsSaved() throws {
+        var r = plainRates()
+        r.base[.floor] = 20
+        let back = try JSONDecoder().decode(SavedEstimate.self, from: JSONEncoder().encode(estimate(rates: r)))
+        #expect(back.rates == r)
+        #expect(back.total == 2400)
+    }
+
+    @Test func anOpenedEstimateKeepsItsSavedRatesUntilConverted() {
+        let keys = ["TileRate.state", "TileRate.rates", "TileRate.document", "TileRate.openedPricing"]
+        let before = keys.map { UserDefaults.standard.object(forKey: $0) }
+        defer { for (k, v) in zip(keys, before) { UserDefaults.standard.set(v, forKey: k) } }
+
+        let store = Store()
+        var current = plainRates()
+        current.base[.floor] = 25
+        current.minimum[.floor] = 0
+        current.floorEscAdjPerSqft = 0
+        store.rates = current
+        var then = current
+        then.base[.floor] = 20
+
+        store.open(estimate(rates: then))
+        #expect(store.isPricedWithSavedRates)
+        #expect(computeTotals(document: store.doc, rates: store.pricingRates, shippingEnabled: false,
+                              shipping: 0, taxPercent: 0).grandTotal == 2400)
+        // Changing the rates in Admin doesn't move it.
+        store.rates.base[.floor] = 30
+        #expect(store.pricingRates.base[.floor] == 20)
+        // It survives the app closing.
+        #expect(Store().pricingRates.base[.floor] == 20)
+
+        store.convertToCurrentPricing()
+        #expect(!store.isPricedWithSavedRates)
+        #expect(computeTotals(document: store.doc, rates: store.pricingRates, shippingEnabled: false,
+                              shipping: 0, taxPercent: 0).grandTotal == 3600)
+    }
+
+    @Test func anEstimateSavedWithoutRatesIsPricedAtTheCurrentOnes() {
+        let keys = ["TileRate.state", "TileRate.rates", "TileRate.document", "TileRate.openedPricing"]
+        let before = keys.map { UserDefaults.standard.object(forKey: $0) }
+        defer { for (k, v) in zip(keys, before) { UserDefaults.standard.set(v, forKey: k) } }
+
+        let store = Store()
+        store.open(estimate(rates: nil))
+        #expect(store.opened != nil)
+        #expect(!store.isPricedWithSavedRates)
+        #expect(store.pricingRates == store.rates)
+        store.reset()
+        #expect(store.opened == nil)
+    }
+}

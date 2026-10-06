@@ -139,25 +139,53 @@ final class Store: ObservableObject {
     @Published var state: EstimatorState { didSet { save() } }
     @Published var rates: Rates { didSet { saveRates() } }
     @Published var doc: EstimateDocument { didSet { saveDoc() } }
+    /// Set when the estimate being worked on was opened from a saved one.
+    @Published private(set) var opened: OpenedEstimatePricing? { didSet { saveOpened() } }
 
-    private let stateKey = "TileRate.state"
-    private let ratesKey = "TileRate.rates"
-    private let docKey   = "TileRate.document"
+    private let stateKey  = "TileRate.state"
+    private let ratesKey  = "TileRate.rates"
+    private let docKey    = "TileRate.document"
+    private let openedKey = "TileRate.openedPricing"
 
     init() {
         if let s = Self.load(EstimatorState.self, key: stateKey) { state = s } else { state = EstimatorState() }
         if let r = Self.load(Rates.self, key: ratesKey) { rates = r } else { rates = Rates() }
         if let d = Self.load(EstimateDocument.self, key: docKey) { doc = d } else { doc = EstimateDocument() }
+        opened = Self.load(OpenedEstimatePricing.self, key: openedKey)
     }
 
+    /// The rates the estimate being worked on is priced with: the ones it
+    /// was saved with when it was opened from a saved estimate (until it is
+    /// converted), otherwise the current rates. Admin edits `rates`.
+    var pricingRates: Rates { opened?.rates ?? rates }
+
+    /// True when the estimate is priced with rates other than the current ones.
+    var isPricedWithSavedRates: Bool { opened?.rates != nil }
+
     func reset() {
-        state = EstimatorState()
-        doc   = EstimateDocument()
+        state  = EstimatorState()
+        doc    = EstimateDocument()
+        opened = nil
+    }
+
+    /// Puts a saved estimate's document in place, priced as it was saved.
+    func open(_ e: SavedEstimate) {
+        doc = e.document
+        opened = OpenedEstimatePricing(savedAt: e.createdAt, rates: e.rates)
+    }
+
+    /// From now on the estimate is priced with the current rates.
+    func convertToCurrentPricing() {
+        opened = nil
     }
 
     private func save()     { Self.persist(state, key: stateKey) }
     private func saveRates(){ Self.persist(rates, key: ratesKey) }
     private func saveDoc()  { Self.persist(doc,   key: docKey) }
+    private func saveOpened() {
+        if let opened { Self.persist(opened, key: openedKey) }
+        else { UserDefaults.standard.removeObject(forKey: openedKey) }
+    }
 
     private static func persist<T: Codable>(_ value: T, key: String) {
         guard let data = try? JSONEncoder().encode(value) else { return }
