@@ -841,6 +841,17 @@ struct ScannedRoom: Codable, Hashable, Equatable {
     var tubLengthFt: Double? = nil
     /// The bathtub's outline on the plan, when found.
     var tubOutline: [Point] = []
+    /// Toilets, sinks, vanities and the like the scanner found, for the 3-D view.
+    var fixtures: [Fixture] = []
+
+    /// Something the scanner found in the room: its footprint and height.
+    struct Fixture: Codable, Hashable, Equatable {
+        /// "Toilet", "Sink", "Cabinet", "Bathtub"…
+        var kind: String = ""
+        /// Its four corners on the plan.
+        var outline: [Point] = []
+        var heightFt: Double = 0
+    }
 }
 
 /// What one area takes from a room scan: pieces of walls, each tiled to its
@@ -1491,6 +1502,27 @@ extension ScannedRoom {
         c.read(.floorOutline, into: &floorOutline)
         c.read(.tubLengthFt, into: &tubLengthFt)
         c.read(.tubOutline, into: &tubOutline)
+        c.read(.fixtures, into: &fixtures)
+    }
+}
+
+extension ScannedRoom.Fixture {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.kind, into: &kind)
+        c.read(.outline, into: &outline)
+        c.read(.heightFt, into: &heightFt)
+    }
+}
+
+extension EstimateSection {
+    /// The area's main tile, once its type and shape are chosen.
+    var mainTile: TileChoice? {
+        guard let type = tileType, let size = tileSize else { return nil }
+        return TileChoice(tileType: type, tileSize: size, layout: layout ?? .straightStacked,
+                          tileWidthIn: tileWidthIn, tileLengthIn: tileLengthIn,
+                          mosaicStyle: mosaicStyle, pieces: multiTilePieces)
     }
 }
 

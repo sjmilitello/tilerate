@@ -7,10 +7,14 @@ import SwiftUI
 // floor and ceiling. Everything snaps to the inch and to edges nearby.
 
 /// Another area in the same room, shown faintly so walls aren't counted twice.
-struct OtherAreaPieces {
+struct OtherAreaPieces: Equatable {
     let name: String
     let pieces: [AreaTakeoff.Piece]
     var floor: AreaTakeoff.FloorRect? = nil
+    /// For the 3-D view: its tile, its floor's tile, and whether it tiles the room's floor.
+    var tile: TileChoice? = nil
+    var floorTile: TileChoice? = nil
+    var roomFloor: Bool = false
 }
 
 struct ScanEditor: View {
@@ -21,6 +25,9 @@ struct ScanEditor: View {
     let kneeWallThicknessIn: Double
     /// Stone prices and the curb height, from Admin.
     let stone: StonePrices
+    /// This area's tile and floor tile, for the 3-D view.
+    let tile: TileChoice?
+    let floorTile: TileChoice?
     /// The area's choices, and the room with any walls drawn in.
     let onUse: (AreaTakeoff, ScannedRoom) -> Void
     let onRescan: () -> Void
@@ -40,6 +47,38 @@ struct ScanEditor: View {
     @State private var selectedItem: UUID? = nil
     /// A message about something that couldn't be placed.
     @State private var placeNote: String? = nil
+    /// The room in 3-D instead of the plan.
+    @State private var show3D = false
+    /// Waiting for a tap in 3-D on the wall where this goes.
+    @State private var placing3D: Place3D? = nil
+
+    enum Place3D: String, CaseIterable, Identifiable {
+        case door, window, niche, cornerShelf, cornerSeat, cornerFootrest, floatingBench, framedBench
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .door: "Door"
+            case .window: "Window"
+            case .niche: "Niche"
+            case .cornerShelf: "Corner shelf"
+            case .cornerSeat: "Corner seat"
+            case .cornerFootrest: "Corner footrest"
+            case .floatingBench: "Floating bench"
+            case .framedBench: "Framed bench"
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .door: "door.left.hand.open"
+            case .window: "window.horizontal"
+            case .niche: "square.split.1x2"
+            case .cornerShelf, .cornerSeat, .cornerFootrest: "triangle"
+            case .floatingBench: "rectangle.split.1x2"
+            case .framedBench: "square.bottomhalf.filled"
+            }
+        }
+    }
+    @State private var showFixtures = true
     /// An open side of the shower floor tapped on the plan: offer to close it.
     @State private var closingSide: AreaTakeoff.OpenSide? = nil
     @State private var askClose = false
@@ -51,12 +90,15 @@ struct ScanEditor: View {
 
     init(room: ScannedRoom, area: Area?, title: String, takeoff: AreaTakeoff, others: [OtherAreaPieces],
          kneeWallThicknessIn: Double = 4.5, stone: StonePrices = .init(),
+         tile: TileChoice? = nil, floorTile: TileChoice? = nil,
          onUse: @escaping (AreaTakeoff, ScannedRoom) -> Void, onRescan: @escaping () -> Void) {
         _room = State(initialValue: room)
         openedRoom = room
         openedTakeoff = takeoff
         self.kneeWallThicknessIn = kneeWallThicknessIn
         self.stone = stone
+        self.tile = tile
+        self.floorTile = floorTile
         self.area = area
         self.title = title
         self.others = others
@@ -69,11 +111,38 @@ struct ScanEditor: View {
 
     private var usesWalls: Bool { area != .floor }
     private var openSides: [AreaTakeoff.OpenSide] { area == .shower ? takeoff.openSides(in: room) : [] }
+
+    private var content3D: Room3DContent {
+        let stoneParts = Set(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn).filter(\.stone).map(\.key))
+        return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile, others: others,
+                             curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
+                             showFixtures: showFixtures, selectedItem: selectedItem)
+    }
     private var otherPieces: [AreaTakeoff.Piece] { others.flatMap(\.pieces) }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                ZStack(alignment: .bottomTrailing) {
+                if show3D {
+                    Room3DView(content: content3D, showFixtures: $showFixtures) { tap3D($0) }
+                        .frame(height: 250)
+                        .overlay(alignment: .topTrailing) {
+                            if area == .shower {
+                                Menu {
+                                    ForEach(Place3D.allCases) { p in
+                                        Button { placing3D = p } label: { Label(p.title, systemImage: p.symbol) }
+                                    }
+                                } label: {
+                                    Label("Place", systemImage: "plus")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 10).padding(.vertical, 7)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                }
+                                .padding(8)
+                            }
+                        }
+                } else {
                 PlanCanvas(room: room, mine: takeoff.pieces, others: others, selectedWall: selectedWall,
                            floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
                            onResetFloor: placeShowerFloor,
@@ -106,9 +175,28 @@ struct ScanEditor: View {
                     tapWall(wallID)
                 }
                 .frame(height: 250)
+                }
+                Picker("View", selection: $show3D) {
+                    Text("2D").tag(false)
+                    Text("3D").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 100)
+                .padding(8)
+                .disabled(addingWall || placingBench || placing3D != nil)
+                }
                 .background(Color(white: 0.09))
                 .overlay(alignment: .top) {
-                    if placingBench {
+                    if let p = placing3D {
+                        HStack(spacing: 10) {
+                            Image(systemName: "hand.tap")
+                            Text("Tap the wall where the \(p.title.lowercased()) goes.").font(.caption)
+                            Button("Cancel") { placing3D = nil }.font(.caption.weight(.semibold))
+                        }
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(8)
+                    } else if placingBench {
                         HStack(spacing: 10) {
                             Image(systemName: "hand.tap")
                             Text("Tap the wall the bench goes against.").font(.caption)
@@ -251,10 +339,10 @@ struct ScanEditor: View {
     /// Add a Wall: full or half, then tap the curb or drag on the plan.
     private var addWallMenu: some View {
         Menu {
-            Button { addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
-            Button { addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
+            Button { show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
+            Button { show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
             if area == .shower {
-                Button { addingWall = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
+                Button { show3D = false; addingWall = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
             }
         } label: {
             Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
@@ -323,26 +411,83 @@ struct ScanEditor: View {
         place(item, on: wall)
     }
 
-    private func addOpening(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall) {
+    /// A niche or window: in the middle of this area's tile on the wall, or
+    /// centred where it was tapped in 3-D.
+    private func addOpening(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall,
+                            at along: Double? = nil, centreUpIn: Double? = nil) {
         let w = (kind == .niche ? defaults.nicheWidthIn : defaults.windowWidthIn) / 12
-        let mid = takeoff.middle(of: wall, face: face)
+        let h = kind == .niche ? defaults.nicheHeightIn : defaults.windowHeightIn
+        let mid = along ?? takeoff.middle(of: wall, face: face)
         let from = min(max(0, mid - w / 2), max(0, wall.lengthFt - w))
+        let bottom = centreUpIn.map { min(max(0, ($0 - h / 2).rounded()), wall.heightFt * 12 - h) }
+            ?? (kind == .niche ? defaults.nicheBottomIn : defaults.windowBottomIn)
         let item = AreaTakeoff.Item(kind: kind, wallID: wall.id, face: face, fromFt: from, toFt: from + w,
-                                    bottomIn: kind == .niche ? defaults.nicheBottomIn : defaults.windowBottomIn,
-                                    heightIn: kind == .niche ? defaults.nicheHeightIn : defaults.windowHeightIn)
+                                    bottomIn: bottom, heightIn: h)
         place(item, on: wall)
+    }
+
+    /// A tap in the 3-D view: an item chooses it; a wall places what was
+    /// picked from Place there, or else chooses the wall (and its side).
+    private func tap3D(_ hit: Room3DHit) {
+        switch hit.target {
+        case .item(let id):
+            guard let item = takeoff.items.first(where: { $0.id == id }) else { return }
+            placing3D = nil
+            selectedWall = item.wallID
+            face = item.face
+            selectedItem = id
+        case .wall(let id):
+            guard let wall = room.wall(id) else { return }
+            let along = room.along(.init(x: Double(hit.point.x), y: Double(hit.point.z)), on: wall)
+            let upIn = (Double(hit.point.y) * 12).rounded()
+            // A wall drawn in has two sides: the one tapped.
+            var side = 0
+            if wall.planned {
+                let n0 = (x: -(wall.end.y - wall.start.y), y: wall.end.x - wall.start.x)
+                side = Double(hit.normal.x) * n0.x + Double(hit.normal.z) * n0.y >= 0 ? 0 : 1
+            }
+            guard let p = placing3D else {
+                tapWall(id)
+                if wall.planned {
+                    face = side
+                    selectedPiece = takeoff.pieces.first { $0.wallID == id && $0.face == side }?.id
+                }
+                return
+            }
+            placing3D = nil
+            selectedWall = id
+            face = side
+            switch p {
+            case .door:
+                if room.isKneeWall(wall) {
+                    placeNote = "A door goes in a full wall, not a half wall."
+                } else if let i = room.openings.firstIndex(where: { $0.wallID == id && $0.kind == .showerDoor }) {
+                    let width = room.openings[i].widthFt
+                    room.openings[i].alongFt = min(max(along, width / 2), wall.lengthFt - width / 2)
+                } else {
+                    _ = room.addShowerDoor(on: wall, along: along, widthIn: stone.doorWidthIn, heightIn: stone.doorHeightIn)
+                }
+            case .window: addOpening(.window, on: wall, at: along, centreUpIn: upIn)
+            case .niche: addOpening(.niche, on: wall, at: along, centreUpIn: upIn)
+            case .cornerShelf: addCorner(.cornerShelf, on: wall, atStart: along < wall.lengthFt / 2, heightIn: upIn)
+            case .cornerSeat: addCorner(.cornerSeat, on: wall, atStart: along < wall.lengthFt / 2, heightIn: upIn)
+            case .cornerFootrest: addCorner(.cornerFootrest, on: wall, atStart: along < wall.lengthFt / 2, heightIn: upIn)
+            case .floatingBench: addBench(on: wall, floating: true)
+            case .framedBench: addBench(on: wall, floating: false)
+            }
+        }
     }
 
     /// A corner shelf, footrest or seat in a corner of the wall; another
     /// shelf in the same corner goes 12″ above the last.
-    private func addCorner(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall, atStart: Bool) {
+    private func addCorner(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall, atStart: Bool, heightIn: Double? = nil) {
         let (size, height): (Double, Double) = switch kind {
         case .cornerShelf: (defaults.cornerShelfIn, defaults.cornerShelfHeightIn)
         case .cornerFootrest: (defaults.cornerFootrestIn, defaults.cornerFootrestHeightIn)
         default: (defaults.cornerSeatIn, defaults.cornerSeatHeightIn)
         }
         let same = takeoff.items.filter { $0.kind == kind && $0.wallID == wall.id && $0.atStart == atStart }
-        let bottom = kind == .cornerShelf ? (same.map(\.bottomIn).max().map { $0 + 12 } ?? height) : height
+        let bottom = heightIn ?? (kind == .cornerShelf ? (same.map(\.bottomIn).max().map { $0 + 12 } ?? height) : height)
         let item = AreaTakeoff.Item(kind: kind, wallID: wall.id, face: face, bottomIn: min(bottom, wall.heightFt * 12),
                                     sizeIn: size, atStart: atStart)
         place(item, on: wall)

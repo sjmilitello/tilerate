@@ -277,9 +277,11 @@ struct AreaFlowView: View {
         guard section.roomScan == nil, let r = roomIndex else { return [] }
         return store.doc.rooms[r].sections.compactMap { other in
             guard other.id != section.id, other.roomScan == nil, let t = other.scanTakeoff,
-                  !t.pieces.isEmpty || t.floor == .drawn else { return nil }
+                  !t.pieces.isEmpty || t.floor == .drawn || (other.area == .floor && t.floor == .room) else { return nil }
             return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces,
-                                   floor: t.floor == .drawn ? t.floorRect : nil)
+                                   floor: t.floor == .drawn ? t.floorRect : nil,
+                                   tile: other.mainTile, floorTile: other.showerFloorTile,
+                                   roomFloor: other.area == .floor && t.floor == .room)
         }
     }
 
@@ -371,6 +373,7 @@ struct AreaFlowView: View {
                            takeoff: takeoffForEditor(scan), others: otherScanAreas,
                            kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
                            stone: StonePrices(rates: store.pricingRates),
+                           tile: section.mainTile, floorTile: section.showerFloorTile,
                            onUse: { t, room in
                                // Walls drawn in belong to the scan, for every area using it.
                                if room != scan {

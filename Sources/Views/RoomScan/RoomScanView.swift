@@ -90,6 +90,27 @@ extension ScannedRoom {
         }
         floorSqft = Self.area(floorOutline)
 
+        // Everything else it found, for the 3-D view.
+        fixtures = room.objects.map { o in
+            let c = center(o.transform)
+            let ax = SIMD2(o.transform.columns.0.x, o.transform.columns.0.z) * o.dimensions.x / 2
+            let az = SIMD2(o.transform.columns.2.x, o.transform.columns.2.z) * o.dimensions.z / 2
+            let mid = SIMD2(c.x, c.z)
+            let name: String = switch o.category {
+            case .toilet: "Toilet"
+            case .sink: "Sink"
+            case .bathtub: "Bathtub"
+            case .storage: "Cabinet"
+            case .washerDryer: "Washer/dryer"
+            default: String(describing: o.category).capitalized
+            }
+            return Fixture(kind: name,
+                           outline: [mid - ax - az, mid + ax - az, mid + ax + az, mid - ax + az].map {
+                               Point(x: Double($0.x) * f, y: Double($0.y) * f)
+                           },
+                           heightFt: Double(o.dimensions.y) * f)
+        }
+
         if let tub = room.objects.first(where: { $0.category == .bathtub }) {
             tubLengthFt = Double(max(tub.dimensions.x, tub.dimensions.z)) * f
             let c = center(tub.transform)
@@ -346,6 +367,11 @@ extension ScannedRoom {
         r.floorSqft = 72
         r.tubOutline = [.init(x: 0, y: 0), .init(x: 5, y: 0), .init(x: 5, y: 2.5), .init(x: 0, y: 2.5)]
         r.tubLengthFt = 5
+        r.fixtures = [
+            Fixture(kind: "Bathtub", outline: r.tubOutline, heightFt: 1.75),
+            Fixture(kind: "Toilet", outline: [.init(x: 0, y: 4.2), .init(x: 2.3, y: 4.2), .init(x: 2.3, y: 5.8), .init(x: 0, y: 5.8)], heightFt: 2.4),
+            Fixture(kind: "Cabinet", outline: [.init(x: 1, y: 6.2), .init(x: 4.5, y: 6.2), .init(x: 4.5, y: 8), .init(x: 1, y: 8)], heightFt: 2.8),
+        ]
         return r
     }
 
@@ -357,6 +383,7 @@ extension ScannedRoom {
         r.walls = walls.map { var w = $0; w.start = t(w.start); w.end = t(w.end); return w }
         r.floorOutline = floorOutline.map(t)
         r.tubOutline = tubOutline.map(t)
+        r.fixtures = fixtures.map { var x = $0; x.outline = x.outline.map(t); return x }
         return r
     }
 }

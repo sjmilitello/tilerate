@@ -334,6 +334,26 @@ overhangs don't change it.
 `AreaTakeoff.apply` fills in the area's measurements; a shower or tub with a
 tile per wall gets a wall each named "Wall A"… keeping its tile.
 
+A **2D / 3D** switch on the plan (owner asked 2026-10-07) shows the room in
+3-D (`Room3DView.swift`, SceneKit), built from the scan and the areas'
+choices — not Apple's own model, so walls drawn in, doors, items and tile
+all show: walls with doors and windows cut out (`Room3DScene.cells`), each
+area's tile with grout lines at its real size and layout (`TilePattern`:
+stacked, running bond, diagonal, herringbone; long side across; sizes from
+the tile, else usual for its shape), benches, niches, corner pieces, the
+curb, stone in a stone colour, and the fixtures the scanner found
+(`ScannedRoom.fixtures`, kept from 2026-10-07 scans on; switchable). The
+room's own walls are drawn from inside only, like a doll's house, so the
+near walls drop away whichever way it's turned. Views: into this area
+(from its open side) and the whole room; turn and pinch by hand. In 3-D, **Place** (shower) picks a door, window,
+niche, corner piece or bench, then a tap on a wall puts it there (`tap3D`,
+`Room3DHit`: scene nodes are named "wall|id" and "item|id"): a niche or
+window centred on the tap, a corner piece in the nearer corner at the tapped
+height, a bench along that wall, a door at that spot (moving the wall's door
+if it has one). Without Place, tapping a wall or item chooses it, and the
+face-on drawing below fine-tunes it; the chosen item is lit up. Still to
+come: pictures of it on the estimate.
+
 The editor (`ScanEditor`): floor plan on top (`PlanCanvas`: tap a wall,
 pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
 this area's tile blue, other areas' orange), the chosen wall face-on below

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CoreGraphics
 @testable import TileRate_Installation_Estimator
 
 /// Square feet from a LiDAR room scan (AreaTakeoff).
@@ -535,6 +536,31 @@ struct RoomScanTests {
         // Framed, it runs flush with the outside of a 4½″ curb on the open side.
         let framed = t.benchSpan(on: r.walls[0], in: r, floating: false, curbWidthFt: 4.5 / 12)
         #expect(framed.map { abs($0.lowerBound - (5 - 4.5 / 12)) < 1e-9 && abs($0.upperBound - 9) < 1e-9 } == true)
+    }
+
+    // MARK: 3-D view
+
+    @Test func aWallWithADoorIsBuiltAroundIt() {
+        // An 8′ × 8′ wall with a 2½′ × 6′ 8″ door 2′ in: the strip either side,
+        // and the header over the door.
+        let cells = Room3DScene.cells(.init(x0: 0, x1: 8, y0: 0, y1: 8),
+                                      minus: [.init(x0: 2, x1: 4.5, y0: 0, y1: 80.0 / 12)])
+        #expect(cells.count == 3)
+        let area = cells.reduce(0) { $0 + $1.w * $1.h }
+        #expect(abs(area - (64 - 2.5 * 80 / 12)) < 1e-9)
+        #expect(cells.contains { abs($0.x0 - 2) < 1e-9 && abs($0.y0 - 80.0 / 12) < 1e-9 })
+    }
+
+    @Test func tileSizesComeLongSideFirstWithUsualFallbacks() {
+        var t = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: .runningBond, tileWidthIn: 24, tileLengthIn: 12)
+        #expect(TilePattern.size(t) == (24, 12))
+        t.tileWidthIn = nil; t.tileLengthIn = nil
+        #expect(TilePattern.size(t) == (24, 12))
+        t.tileSize = .mosaic
+        #expect(TilePattern.size(t) == (2, 2))
+        // Herringbone 12 × 24 repeats every 48″.
+        t = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: .herringbone, tileWidthIn: 12, tileLengthIn: 24)
+        #expect(TilePattern.make(t).periodIn == CGSize(width: 48, height: 48))
     }
 
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {
