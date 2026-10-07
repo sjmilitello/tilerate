@@ -658,9 +658,91 @@ struct CustomWording: Codable, Hashable, Equatable {
     var generatedFrom: String
 }
 
+/// A room scanned with the iPhone's LiDAR (RoomPlan), kept with the area so
+/// its plan can be seen again. Feet throughout; positions are on the floor
+/// plan, seen from above.
+struct ScannedRoom: Codable, Hashable, Equatable {
+    struct Point: Codable, Hashable, Equatable { var x: Double = 0; var y: Double = 0 }
+
+    struct Wall: Identifiable, Codable, Hashable, Equatable {
+        var id = UUID()
+        /// A, B, C… in the order the walls go round the room.
+        var label: String = ""
+        var lengthFt: Double = 0
+        var heightFt: Double = 0
+        var start = Point()
+        var end = Point()
+    }
+
+    enum OpeningKind: String, Codable, CaseIterable { case door = "Door", window = "Window", opening = "Opening" }
+
+    struct Opening: Identifiable, Codable, Hashable, Equatable {
+        var id = UUID()
+        var kind: OpeningKind = .door
+        /// The wall it is in, when the scan could tell.
+        var wallID: UUID? = nil
+        var widthFt: Double = 0
+        var heightFt: Double = 0
+        /// Height of its bottom edge above the floor (0 for a door).
+        var bottomFt: Double = 0
+        /// Where its middle is along its wall, measured from the wall's start.
+        var alongFt: Double? = nil
+    }
+
+    var scannedAt = Date()
+    var walls: [Wall] = []
+    var openings: [Opening] = []
+    var floorSqft: Double = 0
+    var floorOutline: [Point] = []
+    /// A bathtub found in the scan: its length, for a tub surround.
+    var tubLengthFt: Double? = nil
+    /// The bathtub's outline on the plan, when found.
+    var tubOutline: [Point] = []
+}
+
+/// What one area takes from a room scan: pieces of walls, each tiled to its
+/// own height, the openings that come off, and the floor and ceiling.
+struct AreaTakeoff: Codable, Hashable, Equatable {
+    /// A stretch of one wall, tiled from the floor up to `heightIn`.
+    struct Piece: Identifiable, Codable, Hashable, Equatable {
+        var id = UUID()
+        var wallID: UUID
+        /// Where it starts and ends along the wall, from the wall's start.
+        var fromFt: Double
+        var toFt: Double
+        var heightIn: Double
+    }
+
+    enum FloorSource: String, Codable, CaseIterable {
+        /// The scanned floor, less anything excluded below.
+        case room
+        /// Width × depth, e.g. a shower floor inside a bigger room.
+        case size
+        case none
+    }
+
+    var pieces: [Piece] = []
+    /// Openings taken off the pieces they fall in.
+    var subtracted: [UUID] = []
+    var floor: FloorSource = .none
+    /// `room`: leave out the bathtub's footprint.
+    var excludeTub: Bool = false
+    /// `room`: square feet taken off for other things on the floor (a shower).
+    var excludeSqft: Double = 0
+    /// `size`: the floor's width and depth, in feet.
+    var floorWidthFt: Double = 0
+    var floorDepthFt: Double = 0
+    var tileCeiling: Bool = false
+}
+
 struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var id = UUID()
     var roomName: String = ""
+    /// A scan of just this area (e.g. inside a shower), used instead of
+    /// the room's scan.
+    var roomScan: ScannedRoom? = nil
+    /// What this area takes from the scan, so reopening it shows its choices.
+    var scanTakeoff: AreaTakeoff? = nil
     /// The owner's own wording for this area, in place of the generated one.
     var customWording: CustomWording? = nil
     var area: Area? = nil
@@ -694,6 +776,8 @@ struct EstimateRoom: Identifiable, Codable, Equatable, Hashable {
     var id: UUID = UUID()
     var name: String = "Room"
     var sections: [EstimateSection] = []
+    /// The room scanned with LiDAR; every area in it can measure from it.
+    var scan: ScannedRoom? = nil
 }
 
 struct EstimateDocument: Codable, Equatable {
@@ -908,6 +992,8 @@ extension EstimateSection {
         c.read(.id, into: &id)
         c.read(.roomName, into: &roomName)
         c.read(.customWording, into: &customWording)
+        c.read(.roomScan, into: &roomScan)
+        c.read(.scanTakeoff, into: &scanTakeoff)
         c.read(.area, into: &area)
         c.read(.tileType, into: &tileType)
         c.read(.tileSize, into: &tileSize)
@@ -1000,6 +1086,7 @@ extension EstimateRoom {
         c.read(.id, into: &id)
         c.read(.name, into: &name)
         c.read(.sections, into: &sections)
+        c.read(.scan, into: &scan)
     }
 }
 
@@ -1111,5 +1198,83 @@ extension EstimateTemplate.TextSection {
         c.read(.id, into: &id)
         c.read(.heading, into: &heading)
         c.read(.body, into: &body)
+    }
+}
+
+extension ScannedRoom {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.scannedAt, into: &scannedAt)
+        c.read(.walls, into: &walls)
+        c.read(.openings, into: &openings)
+        c.read(.floorSqft, into: &floorSqft)
+        c.read(.floorOutline, into: &floorOutline)
+        c.read(.tubLengthFt, into: &tubLengthFt)
+        c.read(.tubOutline, into: &tubOutline)
+    }
+}
+
+extension ScannedRoom.Point {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.x, into: &x)
+        c.read(.y, into: &y)
+    }
+}
+
+extension ScannedRoom.Wall {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.label, into: &label)
+        c.read(.lengthFt, into: &lengthFt)
+        c.read(.heightFt, into: &heightFt)
+        c.read(.start, into: &start)
+        c.read(.end, into: &end)
+    }
+}
+
+extension ScannedRoom.Opening {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.kind, into: &kind)
+        c.read(.wallID, into: &wallID)
+        c.read(.widthFt, into: &widthFt)
+        c.read(.heightFt, into: &heightFt)
+        c.read(.bottomFt, into: &bottomFt)
+        c.read(.alongFt, into: &alongFt)
+    }
+}
+
+extension AreaTakeoff {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.pieces, into: &pieces)
+        c.read(.subtracted, into: &subtracted)
+        c.read(.floor, into: &floor)
+        c.read(.excludeTub, into: &excludeTub)
+        c.read(.excludeSqft, into: &excludeSqft)
+        c.read(.floorWidthFt, into: &floorWidthFt)
+        c.read(.floorDepthFt, into: &floorDepthFt)
+        c.read(.tileCeiling, into: &tileCeiling)
+    }
+}
+
+extension AreaTakeoff.Piece {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var id = UUID(), wallID = UUID(), from = 0.0, to = 0.0, height = 0.0
+        c.read(.id, into: &id)
+        c.read(.wallID, into: &wallID)
+        c.read(.fromFt, into: &from)
+        c.read(.toFt, into: &to)
+        c.read(.heightIn, into: &height)
+        self.init(id: id, wallID: wallID, fromFt: from, toFt: to, heightIn: height)
     }
 }

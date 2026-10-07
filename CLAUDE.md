@@ -197,6 +197,41 @@ the rule on all the walls together, each wall's adders on top.
 $14 from 50 to 99: the suggestion gives exactly $14) and a ceiling with
 $600 minimum and $25/sq ft from 31 (suggested $10.93).
 
+## Room scanning with LiDAR
+
+From 2026-10-07 (new design, Measure step) a room can be scanned with the
+iPhone's LiDAR (Apple's RoomPlan; `RoomScanner.isAvailable`, the owner's
+16 Pro Max has it). One scan belongs to the room (`EstimateRoom.scan`) and
+every area in the room measures from it; "Scan just this area" keeps a scan
+on the area instead (`EstimateSection.roomScan`, e.g. from inside a shower).
+`ScannedRoom(captured:)` converts RoomPlan's result to feet: walls (pieces
+the scanner split are merged back, `mergingStraightRuns`; lettered A, B…
+round the room, each running with the room on its right), doors, windows and
+openings (wall, width, height, height off the floor, position along the
+wall), the floor outline and area, and the bathtub's outline.
+
+Each area keeps its own choices (`EstimateSection.scanTakeoff`,
+`AreaTakeoff`): pieces of walls (a stretch along one wall, from/to in feet
+from the wall's start, and a tile height in inches — so a shower wall that
+continues into the room is two pieces, one per area), the openings ticked to
+come off (owner's call: nothing comes off unless ticked; only the part of an
+opening inside a piece), and the floor (scanned floor less the tub and other
+areas' floors, or width × depth for a shower floor) and ceiling.
+`AreaTakeoff.apply` fills in the area's measurements; a shower or tub with a
+tile per wall gets a wall each named "Wall A"… keeping its tile.
+
+The editor (`ScanEditor`): floor plan on top (`PlanCanvas`: tap a wall,
+pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
+this area's tile blue, other areas' orange), the chosen wall face-on below
+(`WallElevation`: drag a piece's sides and top; ends snap to the inch and to
+corners, openings, the tub and other areas' ends; tap a door or window to
+take it off), height chips, From/To/Height typed in inches, Add piece,
+Split, Remove. A new piece takes the wall's longest free stretch at a
+starting height (backsplash 18″, tub 84″, else full height). The scanner
+only runs on a real LiDAR iPhone; in DEBUG builds without LiDAR a "Use a
+sample room" button loads `ScannedRoom.sample` to try the editor.
+`RoomScanTests` covers the arithmetic.
+
 ## Estimate wording templates (roadmap Phase 3)
 
 From 2026-10-06 each area's sentence on the estimate is built from templates

@@ -10,6 +10,15 @@ struct AreaFlowView: View {
     let onFinish: () -> Void
 
     @State private var step = 0
+    @State private var scanning: ScanTarget? = nil
+    @State private var measuringOnPlan = false
+
+    /// Where a new scan is kept: on the room for all its areas, or on this
+    /// area alone (e.g. scanned from inside a shower).
+    private enum ScanTarget: String, Identifiable {
+        case room, area
+        var id: String { rawValue }
+    }
     @State private var didStart = false
     @State private var visitedExtras = false
     @State private var editing: TileTarget? = nil
@@ -233,6 +242,9 @@ struct AreaFlowView: View {
     @ViewBuilder
     private var measureStep: some View {
         VStack(alignment: .leading, spacing: 20) {
+            if section.area != nil {
+                scanBlock
+            }
             switch section.area {
             case .shower:
                 wallsBlock(title: "Walls", allSame: \.showerWallsSqft)
@@ -253,6 +265,148 @@ struct AreaFlowView: View {
                 Text("Choose the area first.").foregroundStyle(ND.muted)
             }
         }
+    }
+
+    /// The scan this area measures from: its own, else its room's.
+    private var activeScan: ScannedRoom? {
+        section.roomScan ?? roomIndex.flatMap { store.doc.rooms[$0].scan }
+    }
+
+    /// Other areas in the room measured from the same scan, shown faintly.
+    private var otherScanAreas: [OtherAreaPieces] {
+        guard section.roomScan == nil, let r = roomIndex else { return [] }
+        return store.doc.rooms[r].sections.compactMap { other in
+            guard other.id != section.id, other.roomScan == nil, let t = other.scanTakeoff, !t.pieces.isEmpty else { return nil }
+            return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces)
+        }
+    }
+
+    /// This area's choices on the scan, or where it starts the first time.
+    private func takeoffForEditor(_ scan: ScannedRoom) -> AreaTakeoff {
+        if var t = section.scanTakeoff {
+            let walls = Set(scan.walls.map(\.id))
+            t.pieces.removeAll { !walls.contains($0.wallID) }      // from an earlier scan
+            if !t.pieces.isEmpty || t.floor != .none { return t }
+        }
+        let others = roomIndex.map { store.doc.rooms[$0].sections.filter { $0.id != section.id } } ?? []
+        return AreaTakeoff.starting(for: section.area, room: scan, otherAreas: others)
+    }
+
+    /// Scanning the room with the iPhone's LiDAR, and measuring this area on
+    /// the plan it makes.
+    @ViewBuilder
+    private var scanBlock: some View {
+        Group {
+            if let scan = activeScan {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label(section.roomScan != nil ? "This area's scan" : "Room scan", systemImage: "viewfinder")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        if RoomScanner.isAvailable {
+                            Menu {
+                                Button { scanning = .room } label: { Label("Scan the room again", systemImage: "viewfinder") }
+                                Button { scanning = .area } label: { Label("Scan just this area", systemImage: "square.dashed") }
+                            } label: {
+                                Text("Rescan").font(.system(size: 14, weight: .medium))
+                            }
+                        }
+                    }
+                    Button { measuringOnPlan = true } label: {
+                        PlanCanvas(room: scan, mine: section.scanTakeoff?.pieces ?? [], others: otherScanAreas, interactive: false)
+                            .frame(height: 150)
+                            .background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    if let t = section.scanTakeoff {
+                        Text(scanSummary(t, scan)).font(.system(size: 14)).foregroundStyle(ND.secondary)
+                    }
+                    Button { measuringOnPlan = true } label: {
+                        Label(section.scanTakeoff == nil ? "Measure on the plan" : "Adjust on the plan", systemImage: "ruler")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(NDPrimaryButtonStyle())
+                }
+                .padding(14)
+                .background(ND.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
+            } else if RoomScanner.isAvailable {
+                Button { scanning = .room } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "viewfinder").font(.system(size: 26))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Scan the room").font(.system(size: 16, weight: .semibold))
+                            Text("Walk round it with the camera; every area in \(roomName.isEmpty ? "the room" : roomName) can measure from it.")
+                                .font(.system(size: 13)).foregroundStyle(ND.secondary).multilineTextAlignment(.leading)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").foregroundStyle(ND.muted)
+                    }
+                    .padding(14)
+                    .background(ND.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
+                    .foregroundStyle(ND.text)
+                }
+                .buttonStyle(.plain)
+            } else {
+                sampleScanButton
+            }
+        }
+        .fullScreenCover(item: $scanning) { target in
+            RoomScanCover { room in finishScan(room, target: target) }
+        }
+        .fullScreenCover(isPresented: $measuringOnPlan) {
+            if let scan = activeScan {
+                ScanEditor(room: scan, area: section.area,
+                           title: "\(roomName.isEmpty ? "" : roomName + " · ")\(section.area?.rawValue ?? "Area")",
+                           takeoff: takeoffForEditor(scan), others: otherScanAreas,
+                           onUse: { t in
+                               var s = section
+                               t.apply(scan, to: &s)
+                               sec.wrappedValue = s
+                           },
+                           onRescan: {
+                               measuringOnPlan = false
+                               DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                   scanning = section.roomScan != nil ? .area : .room
+                               }
+                           })
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sampleScanButton: some View {
+        #if DEBUG
+        Button("Use a sample room (no LiDAR here)") { finishScan(.sample, target: .room) }
+            .font(.system(size: 14))
+        #else
+        EmptyView()
+        #endif
+    }
+
+    private func finishScan(_ room: ScannedRoom, target: ScanTarget) {
+        switch target {
+        case .room:
+            if let r = roomIndex { store.doc.rooms[r].scan = room }
+            sec.wrappedValue.roomScan = nil
+        case .area:
+            sec.wrappedValue.roomScan = room
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { measuringOnPlan = true }
+    }
+
+    private func scanSummary(_ t: AreaTakeoff, _ scan: ScannedRoom) -> String {
+        var parts: [String] = []
+        if !t.pieces.isEmpty {
+            let walls = Set(t.pieces.map(\.wallID)).compactMap { scan.wall($0)?.label }.sorted()
+            parts.append("Walls \(walls.joined(separator: ", ")): \(ND.number(t.wallsSqft(in: scan))) sq ft")
+        }
+        if t.floor != .none, section.area == .floor || section.area == .shower {
+            parts.append("\(section.area == .shower ? "Shower floor" : "Floor"): \(ND.number(t.floorSqft(in: scan))) sq ft")
+        }
+        if t.tileCeiling { parts.append("Ceiling: \(ND.number(t.ceilingSqft(in: scan))) sq ft") }
+        return parts.isEmpty ? "Nothing measured from the scan yet." : parts.joined(separator: " · ")
     }
 
     private func wallsBlock(title: String, allSame: WritableKeyPath<Measurements, Double>) -> some View {
