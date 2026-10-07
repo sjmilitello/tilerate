@@ -30,6 +30,7 @@ struct EstimateReviewView: View {
     @State private var askForCustomer = false
     @State private var pdf: NDPDF? = nil
     @State private var notice: String? = nil
+    @State private var editingWording: EstimateSection? = nil
 
     private struct NDPDF: Identifiable {
         let id = UUID()
@@ -78,6 +79,13 @@ struct EstimateReviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(ND.ground, for: .navigationBar)
         .sheet(isPresented: $showCustomer) { NDCustomerSheet() }
+        .sheet(item: $editingWording) { section in
+            NDWordingSheet(section: section, wording: store.pricingRates.wording,
+                           onSave: { text in
+                               updateSection(section.id) { $0.setWording(text, wording: store.pricingRates.wording) }
+                           },
+                           onUseGenerated: { updateSection(section.id) { $0.customWording = nil } })
+        }
         .sheet(item: $pdf) { p in
             NavigationStack {
                 PDFKitPreview(data: p.data, onTap: {})
@@ -114,6 +122,10 @@ struct EstimateReviewView: View {
     private func warnings(_ t: EstimateTotals) -> some View {
         ForEach(t.sections, id: \.section.id) { item in
             let list = NDAreaText.warnings(item.section)
+            if areaWording(item.section, wording: store.pricingRates.wording).isOutOfDate {
+                NDWarning(title: "\(item.room.name) · \(item.section.area?.rawValue ?? "New area")",
+                          message: "Its wording was edited before the area changed. Check it below before sending.")
+            }
             if let first = list.first {
                 NDWarning(title: "\(item.room.name) · \(item.section.area?.rawValue ?? "New area")",
                           message: list.count > 1 ? "\(first) (and \(list.count - 1) more)" : first,
@@ -148,6 +160,56 @@ struct EstimateReviewView: View {
     }
 
     private func areaCard(_ item: SectionPrice) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            areaPrices(item)
+            wordingBlock(item.section)
+        }
+        .background(ND.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
+    }
+
+    /// What the area says on the estimate, with Edit wording.
+    private func wordingBlock(_ section: EstimateSection) -> some View {
+        let w = areaWording(section, wording: store.pricingRates.wording)
+        return VStack(alignment: .leading, spacing: 8) {
+            Divider().overlay(ND.border)
+            Text(w.text).font(.system(size: 14)).foregroundStyle(ND.text)
+            if w.isOutOfDate {
+                Text("This area changed after its wording was edited. Now it would read: \(w.generated)")
+                    .font(.system(size: 13)).foregroundStyle(ND.warning)
+                HStack(spacing: 16) {
+                    Button("Keep my wording") {
+                        updateSection(section.id) { $0.keepWording(wording: store.pricingRates.wording) }
+                    }
+                    Button("Use the new wording") {
+                        updateSection(section.id) { $0.customWording = nil }
+                    }
+                }
+                .font(.system(size: 14, weight: .semibold))
+            }
+            Button {
+                editingWording = section
+            } label: {
+                Label(w.isCustom ? "Edit wording (your own)" : "Edit wording", systemImage: "pencil")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundStyle(ND.link)
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 14)
+    }
+
+    private func updateSection(_ id: UUID, _ change: (inout EstimateSection) -> Void) {
+        for r in store.doc.rooms.indices {
+            if let i = store.doc.rooms[r].sections.firstIndex(where: { $0.id == id }) {
+                change(&store.doc.rooms[r].sections[i])
+                return
+            }
+        }
+    }
+
+    private func areaPrices(_ item: SectionPrice) -> some View {
         Button { onEditArea(item.room.id, item.section.id, 4) } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
@@ -173,9 +235,7 @@ struct EstimateReviewView: View {
                 }
             }
             .padding(14)
-            .background(ND.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
+            .contentShape(Rectangle())
             .foregroundStyle(ND.text)
         }
         .buttonStyle(.plain)

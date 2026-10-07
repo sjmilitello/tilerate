@@ -709,7 +709,7 @@ struct AreaFlowView: View {
             }
             NDCard {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(describeSection(section))
+                    Text(areaWording(section, wording: store.pricingRates.wording).text)
                         .font(.system(size: 14))
                         .foregroundStyle(ND.secondary)
                     Divider().overlay(ND.border)

@@ -265,6 +265,77 @@ struct Rates: Codable, Equatable {
     var floorEscThresholdLower: Int = 50
     var floorEscThresholdUpper: Int = 99
     var floorEscAdjPerSqft: Double = 0
+
+    /// How each area is worded on the estimate. Kept with the rates so a
+    /// saved estimate keeps the wording it was sent with.
+    var wording = WordingTemplates()
+}
+
+/// The estimate's wording, as templates the owner can edit (roadmap Phase 3).
+/// A word in braces, like {material}, is filled in from the area. A part in
+/// square brackets is left out when every brace word in it is empty, so
+/// "[ in {layout} pattern]" disappears for a mosaic, which has no layout.
+struct WordingTemplates: Codable, Equatable {
+    /// One tile: "12×24 Porcelain Tile in Running Bond pattern". Used for the
+    /// area's tile and for each wall, floor or ceiling with its own tile.
+    var tile: String = WordingTemplates.standardTile
+    /// The sentence for each kind of area. {tiles} is every tile with the
+    /// surfaces it goes on.
+    var areas: [Area: String] = Dictionary(uniqueKeysWithValues: Area.allCases.map { ($0, WordingTemplates.standardSentence) })
+
+    static let standardTile = "[{size} ]{material} {tile}[ in {layout} pattern][ ({pieces})]"
+    static let standardSentence = "Tile installation consisting of {tiles}[ with {features}]."
+    static let standard = WordingTemplates()
+
+    static let tilePlaceholders: [(name: String, meaning: String)] = [
+        ("size", "Width × length, e.g. 12×24"),
+        ("material", "Porcelain, Marble, …"),
+        ("tile", "\"Tile\", or the mosaic style, e.g. Penny Round Mosaic"),
+        ("shape", "Square, Rectangle, Hexagon, …"),
+        ("mosaic", "The mosaic style alone"),
+        ("layout", "Running Bond, Herringbone, … (empty for mosaics)"),
+        ("pieces", "A multi-tile layout's tiles, e.g. 12×24, 24×24"),
+    ]
+    static let sentencePlaceholders: [(name: String, meaning: String)] = [
+        ("tiles", "Each tile and what it goes on"),
+        ("features", "Shelves, niches, benches, bands, borders, inlays"),
+        ("area", "Shower, Floor, …"),
+        ("sqft", "The area's square feet, e.g. 64 sq ft"),
+    ]
+
+    func sentence(for area: Area?) -> String {
+        area.flatMap { areas[$0] } ?? Self.standardSentence
+    }
+}
+
+/// Area sentences suggested from wording typed on an estimate, waiting in
+/// Admin → Estimate wording to be used or dismissed. Nothing changes until
+/// the owner uses one there.
+enum WordingSuggestions {
+    static let key = "wording.suggestions"
+
+    static func all() -> [Area: String] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let list = try? JSONDecoder().decode([Area: String].self, from: data) else { return [:] }
+        return list
+    }
+
+    static func suggest(_ template: String, for area: Area) {
+        var list = all()
+        list[area] = template
+        save(list)
+    }
+
+    static func remove(_ area: Area) {
+        var list = all()
+        list[area] = nil
+        save(list)
+    }
+
+    private static func save(_ list: [Area: String]) {
+        if list.isEmpty { UserDefaults.standard.removeObject(forKey: key) }
+        else if let data = try? JSONEncoder().encode(list) { UserDefaults.standard.set(data, forKey: key) }
+    }
 }
 
 // Rates are saved on the phone as JSON, and the synthesized decoder refuses the
@@ -307,6 +378,7 @@ extension Rates {
         c.read(.unitBench, into: &unitBench)
         c.read(.heatingSystems, into: &heatingSystems)
         c.read(.priceList, into: &priceList)
+        c.read(.wording, into: &wording)
         // The first starting list had one "Demolition" item; it became one
         // item per thing torn out. Its per-sq-ft price carries over to the
         // per-sq-ft ones; fixtures priced each start at $0.
@@ -479,9 +551,20 @@ extension EstimatorState {
 
 // MARK: - Multi-room
 
+/// Wording typed over an area's generated sentence on one estimate
+/// (roadmap Phase 3).
+struct CustomWording: Codable, Hashable, Equatable {
+    var text: String
+    /// The generated sentence when it was typed. When the area's generated
+    /// sentence no longer matches it, the area has changed since.
+    var generatedFrom: String
+}
+
 struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var id = UUID()
     var roomName: String = ""
+    /// The owner's own wording for this area, in place of the generated one.
+    var customWording: CustomWording? = nil
     var area: Area? = nil
     var tileType: TileType? = nil
     var tileSize: TileSize? = nil
@@ -723,6 +806,7 @@ extension EstimateSection {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         c.read(.id, into: &id)
         c.read(.roomName, into: &roomName)
+        c.read(.customWording, into: &customWording)
         c.read(.area, into: &area)
         c.read(.tileType, into: &tileType)
         c.read(.tileSize, into: &tileSize)
@@ -878,5 +962,24 @@ extension OpenedEstimatePricing {
         c.read(.savedAt, into: &savedAt)
         self.init(savedAt: savedAt, rates: nil)
         c.read(.rates, into: &rates)
+    }
+}
+
+extension WordingTemplates {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.tile, into: &tile)
+        c.merge(.areas, into: &areas)
+    }
+}
+
+extension CustomWording {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var text = "", generatedFrom = ""
+        c.read(.text, into: &text)
+        c.read(.generatedFrom, into: &generatedFrom)
+        self.init(text: text, generatedFrom: generatedFrom)
     }
 }

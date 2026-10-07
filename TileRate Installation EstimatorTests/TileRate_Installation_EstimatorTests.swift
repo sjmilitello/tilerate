@@ -336,18 +336,18 @@ struct MosaicStyleTests {
         var s = mosaic(.pennyRound)
         s.tileType = .porcelain
         s.measurements.sqft = 10
-        #expect(describeSection(s).contains("Porcelain Penny Round Mosaic on Walls"))
+        #expect(describeSection(s, wording: .standard).contains("Porcelain Penny Round Mosaic on Walls"))
 
         var sq = mosaic(.square)
         sq.tileType = .glass
         sq.tileWidthIn = 1
         sq.tileLengthIn = 1
-        #expect(describeSection(sq).contains("1×1 Glass Square Mosaic"))
+        #expect(describeSection(sq, wording: .standard).contains("1×1 Glass Square Mosaic"))
 
         var plain = mosaic(nil)
         plain.tileType = .porcelain
-        #expect(describeSection(plain).contains("Porcelain Tile"))
-        #expect(!describeSection(plain).contains("pattern"))
+        #expect(describeSection(plain, wording: .standard).contains("Porcelain Tile"))
+        #expect(!describeSection(plain, wording: .standard).contains("pattern"))
     }
 
     @Test func mosaicsNeedNoLayoutAndPayNoLayoutAdder() {
@@ -371,8 +371,8 @@ struct MosaicStyleTests {
         s.tileType = .porcelain
         s.layout = .herringbone
         s.measurements.sqft = 10
-        #expect(describeSection(s).contains("Porcelain Penny Round Mosaic on Walls"))
-        #expect(!describeSection(s).contains("pattern"))
+        #expect(describeSection(s, wording: .standard).contains("Porcelain Penny Round Mosaic on Walls"))
+        #expect(!describeSection(s, wording: .standard).contains("pattern"))
     }
 
     @Test func savedDataWithoutStylesStillLoads() throws {
@@ -682,7 +682,7 @@ struct MultiTileTests {
                        TilePiece(shape: .square, widthIn: 24, lengthIn: 24),
                        TilePiece(shape: .hexagon, widthIn: 6, lengthIn: 6)])
         s.tileType = .porcelain
-        #expect(describeSection(s).contains("Porcelain Tile in Multi-Tile pattern (12×24, 24×24, 6×6 Hexagon)"))
+        #expect(describeSection(s, wording: .standard).contains("Porcelain Tile in Multi-Tile pattern (12×24, 24×24, 6×6 Hexagon)"))
     }
 
     @Test func aSeparateMultiTileWallUsesItsPieces() {
@@ -695,7 +695,7 @@ struct MultiTileTests {
                                               pieces: [TilePiece(shape: .square, widthIn: 6, lengthIn: 6)]))]
         let expected: Double = 40 * 36                           // no 6×6 size adder
         #expect(price(s, r) == expected)
-        #expect(describeSection(s).contains("Ceramic Tile in Multi-Tile pattern (6×6) on Back Wall"))
+        #expect(describeSection(s, wording: .standard).contains("Ceramic Tile in Multi-Tile pattern (6×6) on Back Wall"))
     }
 
     @Test func otherLayoutsStillPayTheSizeAdder() {
@@ -800,7 +800,7 @@ struct DecorativeTests {
             DecorativeItem(kind: .inlay, quantity: 4, tile: TileChoice(tileType: .marble, tileSize: .square,
                                                                        tileWidthIn: 6, tileLengthIn: 6)),
         ]
-        let d = describeSection(s)
+        let d = describeSection(s, wording: .standard)
         #expect(d.contains("Band “Chair rail” of Glass Penny Round Mosaic"))
         #expect(d.contains("Inlay of 6×6 Marble Tile"))
         #expect(!d.contains("lin ft") && !d.contains("sq ft"))
@@ -863,7 +863,7 @@ struct DecorativeTests {
         let opts = decorativeLocationOptions(tub)
         band.toggleLocation(opts[0]); band.toggleLocation(opts[1])
         tub.decoratives = [band]
-        #expect(describeSection(tub).contains("Band of Glass Penny Round Mosaic on Back Wall & Left Wall"))
+        #expect(describeSection(tub, wording: .standard).contains("Band of Glass Penny Round Mosaic on Back Wall & Left Wall"))
 
         var r = rates()
         r.base[.tub] = 26

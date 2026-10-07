@@ -178,6 +178,44 @@ engines also matched every area of the phone's saved estimates at the
 owner's real rates. A change to pricing must be made in both engines while
 both exist.
 
+## Estimate wording templates (roadmap Phase 3)
+
+From 2026-10-06 each area's sentence on the estimate is built from templates
+the owner edits in Admin → Estimate wording (`WordingTemplates`, kept in
+`Rates.wording`, so a saved estimate keeps the wording it was saved with and
+"Convert to current pricing" also brings in the current wording). Two kinds:
+`tile` describes one tile ("12×24 Porcelain Tile in Running Bond pattern"),
+used for the area's tile and each wall, floor or ceiling with its own tile;
+`areas` holds the sentence for each kind of area, where {tiles} is every
+tile with the surfaces it goes on. `fillTemplate` fills {brace words}; a part
+in [square brackets] is dropped when every brace word in it is empty; an
+unknown brace word is printed as typed. Fixed for now: the " on " and "; "
+joining tiles to surfaces, the feature and band/border/inlay phrases, and the
+"Room - Area" prefix.
+
+Every caller passes the templates (`describeSection(_:wording:)`,
+`estimateSentence(room:section:wording:)`, `SectionPrice.sentence`), taken
+from `store.pricingRates`. `WordingGoldenTests` holds the standard templates
+to the wording of 1,403 areas recorded before templates
+(`WordingCases.swift`, `WordingGolden.swift`) — never regenerate it to pass.
+
+An area's sentence can also be typed over on one estimate (new design: the
+review screen's Edit wording, `NDWordingSheet`). It is saved on the section
+(`EstimateSection.customWording`) with the generated sentence it replaced;
+when the area later generates something different, the review screen flags
+it (`AreaWording.isOutOfDate`) with Keep my wording / Use the new wording.
+`areaWording` is what every screen and the PDF show. Using wording for
+future estimates" is decided in Admin, not on the estimate (owner's
+call, 2026-10-06). The edit sheet shows what the edit would be as that
+area's template (`templateFromEdit`: the app's own {tiles}, {features} and
+{sqft} text goes back to brace words, their joining words into brackets),
+explains each part, and can leave it as a suggestion (`WordingSuggestions`,
+in UserDefaults). Admin → Estimate wording shows a waiting suggestion under
+its area with Use this suggestion / Dismiss. Every area sentence and the tile
+description has its own Reset to standard, besides "Back to the standard
+wording" for all of it. An edit inside the tile description can't become a
+sentence template; that is changed under Each tile.
+
 ## The floor escalator
 
 Owner's rule: a floor of 50 sq ft or less is the floor minimum ($1,500). From

@@ -399,9 +399,13 @@ struct SectionPrice {
     let laborItems: [AdditionItem]
     let materialItems: [AdditionItem]
     let radiant: RadiantHeatPrice?
+    /// The wording templates it is described with (from the same rates).
+    let wording: WordingTemplates
     var labor: Double { laborItems.reduce(0) { $0 + $1.amount } }
     var mats: Double { materialItems.reduce(0) { $0 + $1.amount } }
     var subtotal: Double { core.total + labor + mats }
+    /// "Primary bath - Shower Tile installation consisting of …"
+    var sentence: String { estimateSentence(room: room, section: section, wording: wording) }
 }
 
 /// One area's whole price: its tile work, its added lines and its radiant heat.
@@ -418,7 +422,7 @@ func sectionPrice(room: EstimateRoom, section sec: EstimateSection, rates: Rates
     }
     return SectionPrice(room: room, section: sec,
                         core: computeSummary(state: EstimatorState(section: sec), rates: rates),
-                        laborItems: labor, materialItems: materials, radiant: radiant)
+                        laborItems: labor, materialItems: materials, radiant: radiant, wording: rates.wording)
 }
 
 /// Every number on the estimate. The Summary screen and the PDF both read

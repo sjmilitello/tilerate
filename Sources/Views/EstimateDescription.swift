@@ -4,10 +4,77 @@ import Foundation
 // Summary, the PDF and the new design all describe a section the same way.
 
 /// "Primary bath - Shower Tile installation consisting of …"
-func estimateSentence(room: EstimateRoom, section: EstimateSection) -> String {
+func estimateSentence(room: EstimateRoom, section: EstimateSection, wording: WordingTemplates) -> String {
     let areaText = section.area?.rawValue ?? "Area"
-    return "\(room.name) - \(areaText) \(describeSection(section))"
+    return "\(room.name) - \(areaText) \(areaWording(section, wording: wording).text)"
 }
+
+/// What an area says on the estimate: the owner's own wording when they
+/// typed some, otherwise the sentence generated from the templates.
+struct AreaWording {
+    let text: String
+    let generated: String
+    let isCustom: Bool
+    /// Typed before the area last changed: the typed words may no longer
+    /// describe it.
+    let isOutOfDate: Bool
+}
+
+func areaWording(_ section: EstimateSection, wording: WordingTemplates) -> AreaWording {
+    let generated = describeSection(section, wording: wording)
+    guard let custom = section.customWording else {
+        return AreaWording(text: generated, generated: generated, isCustom: false, isOutOfDate: false)
+    }
+    return AreaWording(text: custom.text, generated: generated, isCustom: true,
+                       isOutOfDate: custom.generatedFrom != generated)
+}
+
+extension EstimateSection {
+    /// Sets the area's own wording; wording identical to the generated
+    /// sentence clears it.
+    mutating func setWording(_ text: String, wording: WordingTemplates) {
+        let generated = describeSection(self, wording: wording)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        customWording = trimmed.isEmpty || trimmed == generated
+            ? nil : CustomWording(text: trimmed, generatedFrom: generated)
+    }
+
+    /// Keeps the typed wording after the area changed: it is no longer flagged.
+    mutating func keepWording(wording: WordingTemplates) {
+        let generated = describeSection(self, wording: wording)
+        customWording?.generatedFrom = generated
+    }
+}
+
+/// Turns wording typed for one area into a sentence template for every area
+/// of its kind: the parts the app wrote for this area go back to brace words
+/// ({tiles}, {features}, {sqft}), and the words joining features are put in
+/// brackets so they drop out when there are none. nil when the tile
+/// description was changed, which a sentence template can't hold — that is
+/// edited under "Each tile".
+func templateFromEdit(_ text: String, section: EstimateSection, wording: WordingTemplates) -> String? {
+    let (prefix, values) = sentenceParts(section, wording: wording)
+    var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !prefix.isEmpty, t.hasPrefix(prefix) { t.removeFirst(prefix.count) }
+    guard let tiles = values["tiles"], !tiles.isEmpty, t.contains(tiles) else { return nil }
+    t = t.replacingOccurrences(of: tiles, with: "{tiles}")
+    if let features = values["features"], !features.isEmpty {
+        t = t.replacingOccurrences(of: features, with: "{features}")
+    }
+    if let sqft = values["sqft"], !sqft.isEmpty {
+        t = t.replacingOccurrences(of: sqft, with: "{sqft}")
+    }
+    // " with {features}", ", including {features}", " ({sqft})" … in brackets.
+    for word in ["features", "sqft"] {
+        let pattern = #"((?:,|;|:)?\s*(?:(?:with|including|and|plus|featuring|also)\s+)?\(?\{"# + word + #"\}\)?)"#
+        if let r = t.range(of: pattern, options: [.regularExpression, .caseInsensitive]),
+           !t[..<r.lowerBound].hasSuffix("[") {
+            t.replaceSubrange(r, with: "[" + t[r] + "]")
+        }
+    }
+    return t
+}
+
 
 /// Warnings for square/rectangle tiles with no width or length: their size
 /// adder cannot be charged until one is entered.
@@ -45,40 +112,25 @@ func isSectionReady(_ sec: EstimateSection) -> Bool {
         && (sec.tileSize == .mosaic || sec.layout != nil)
 }
 
-/// The sentence describing one section on the Summary and the PDF.
-func describeSection(_ section: EstimateSection) -> String {
-    // Room + Area (room name may already be shown elsewhere; keeping as-is)
+/// The sentence describing one section on the Summary and the PDF, from the
+/// owner's wording templates. `WordingTemplates.standard` gives the wording
+/// the app always used; WordingGoldenTests holds it to that.
+func describeSection(_ section: EstimateSection, wording: WordingTemplates) -> String {
+    let (roomPrefix, values) = sentenceParts(section, wording: wording)
+    return roomPrefix + fillTemplate(wording.sentence(for: section.area), values)
+}
+
+/// The "Room – " lead-in and what the sentence template's brace words stand
+/// for, for one area.
+private func sentenceParts(_ section: EstimateSection, wording: WordingTemplates) -> (prefix: String, values: [String: String]) {
     let roomPrefix = section.roomName.isEmpty ? "" : "\(section.roomName) – "
-    
-    // --- Size FIRST (Width × Length), no "in"
-    // If your properties are optional, change to: let W = section.tileWidthIn ?? 0, etc.
-    let W = section.tileWidthIn
-    let L = section.tileLengthIn
-    
-    let isMultiTile = section.layout == .multiTile && section.tileSize != .mosaic
-    func sizePart() -> String {
-        if isMultiTile { return "" }      // each piece's size is listed after the layout
-        let wStr = describeInches(W) ?? ""
-        let lStr = describeInches(L) ?? ""
-        switch (wStr.isEmpty, lStr.isEmpty) {
-        case (false, false): return "\(wStr)×\(lStr) "   // note trailing space
-        case (false, true):  return "\(wStr) "           // width only
-        case (true, false):  return "\(lStr) "           // length only
-        default:             return ""                   // no size shown
-        }
-    }
-    
-    // Tile type
-    let typeText = section.tileType?.rawValue ?? "Tile"
-    let tileNoun = tileWord(size: section.tileSize, style: section.mosaicStyle)
-    
-    // Layout
-    let layoutText = section.layout?.rawValue ?? "Layout"
-    // Mosaics have no layout, so no "in … pattern".
-    let patternText = section.tileSize == .mosaic ? ""
-        : " in \(layoutText) pattern\(isMultiTile ? piecesText(section.multiTilePieces) : "")"
-    
-    // Surfaces based on entered measurements (unchanged)
+
+    let mainPhrase = fillTemplate(wording.tile, tileValues(
+        type: section.tileType?.rawValue ?? "Tile", size: section.tileSize,
+        layout: section.layout?.rawValue ?? "Layout", widthIn: section.tileWidthIn,
+        lengthIn: section.tileLengthIn, style: section.mosaicStyle, pieces: section.multiTilePieces))
+
+    // The surfaces the area's own tile goes on, from the measurements entered.
     var surfaces: [String] = []
     switch section.area {
     case .some(.shower):
@@ -99,27 +151,32 @@ func describeSection(_ section: EstimateSection) -> String {
     case .none:
         break
     }
-    // Shower walls, floor or ceiling with their own tile are described separately
+    // Walls, floor or ceiling with their own tile are described separately.
     var otherTiles: [String] = []
     if section.area == .shower || section.area == .tub {
         for (i, wall) in section.walls.enumerated() where wall.sqft > 0 {
             let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
-            otherTiles.append("\(tilePhrase(wall.tile)) on \(name)")
+            otherTiles.append("\(tilePhrase(wall.tile, wording)) on \(name)")
         }
     }
     if section.area == .shower, section.measurements.showerFloorSqft > 0, let t = section.showerFloorTile {
         surfaces.removeAll { $0 == "Floor" }
-        otherTiles.append("\(tilePhrase(t)) on Floor")
+        otherTiles.append("\(tilePhrase(t, wording)) on Floor")
     }
     if section.measurements.ceilingSqft > 0, let t = section.ceilingTile {
         surfaces.removeAll { $0 == "Ceiling" }
-        otherTiles.append("\(tilePhrase(t)) on Ceiling")
+        otherTiles.append("\(tilePhrase(t, wording)) on Ceiling")
     }
-    let otherTilesText = otherTiles.map { "; " + $0 }.joined()
 
-    let surfacesText = surfaces.isEmpty ? "" : " on " + surfaces.joined(separator: ", ")
+    // Every surface with its own tile: no area tile to lead with.
+    let tiles: String
+    if surfaces.isEmpty, !otherTiles.isEmpty {
+        tiles = otherTiles.joined(separator: "; ")
+    } else {
+        tiles = mainPhrase + (surfaces.isEmpty ? "" : " on " + surfaces.joined(separator: ", "))
+            + otherTiles.map { "; " + $0 }.joined()
+    }
 
-    // Feature list (unchanged)
     var features: [String] = []
     if section.area != .floor {
         if section.features.shelves   > 0 { features.append(section.features.shelves   == 1 ? "Shelf"    : "\(section.features.shelves) Shelves") }
@@ -130,25 +187,83 @@ func describeSection(_ section: EstimateSection) -> String {
     for item in section.decoratives where item.quantity > 0 {
         features.append(decorativePhrase(item, in: section))
     }
-    let featuresText = features.isEmpty ? "" : " with " + features.joined(separator: ", ")
-    
-    // Every surface has its own tile: no main-tile phrase to lead with
-    if surfaces.isEmpty, !otherTiles.isEmpty {
-        return "\(roomPrefix)Tile installation consisting of \(otherTiles.joined(separator: "; "))\(featuresText)."
-    }
 
-    // Final sentence: SIZE first, then type
-    return "\(roomPrefix)Tile installation consisting of \(sizePart())\(typeText) \(tileNoun)\(patternText)\(surfacesText)\(otherTilesText)\(featuresText)."
+    let sqft = section.areaSqft
+    return (roomPrefix, [
+        "tiles": tiles,
+        "features": features.joined(separator: ", "),
+        "area": section.area?.rawValue ?? "",
+        "sqft": sqft > 0 ? "\(sqft.formatted(.number.precision(.fractionLength(0...2)))) sq ft" : "",
+    ])
 }
 
 /// "2×2 Porcelain Tile in Straight Stacked pattern", for a separate tile.
-private func tilePhrase(_ t: TileChoice) -> String {
-    let w = describeInches(t.tileWidthIn), l = describeInches(t.tileLengthIn)
-    let size = [w, l].compactMap { $0 }.joined(separator: "×")
-    if t.layout == .multiTile, t.tileSize != .mosaic {
-        return "\(t.tileType.rawValue) Tile in Multi-Tile pattern\(piecesText(t.pieces))"
+private func tilePhrase(_ t: TileChoice, _ wording: WordingTemplates) -> String {
+    fillTemplate(wording.tile, tileValues(type: t.tileType.rawValue, size: t.tileSize, layout: t.layout.rawValue,
+                                          widthIn: t.tileWidthIn, lengthIn: t.tileLengthIn,
+                                          style: t.mosaicStyle, pieces: t.pieces))
+}
+
+/// What the tile template's brace words stand for, for one tile.
+private func tileValues(type: String, size shape: TileSize?, layout: String, widthIn: Double?, lengthIn: Double?,
+                        style: MosaicStyle?, pieces: [TilePiece]) -> [String: String] {
+    let isMosaic = shape == .mosaic
+    // A multi-tile layout's sizes are listed with its pieces instead.
+    let isMultiTile = layout == Layout.multiTile.rawValue && !isMosaic
+    let size = isMultiTile ? "" : [describeInches(widthIn), describeInches(lengthIn)].compactMap { $0 }.joined(separator: "×")
+    let pieceList = pieces.map(pieceLabel).filter { !$0.isEmpty }.joined(separator: ", ")
+    return [
+        "size": size,
+        "material": type,
+        "tile": tileWord(size: shape, style: style),
+        "shape": shape?.rawValue ?? "",
+        "mosaic": isMosaic ? (style?.rawValue ?? "") : "",
+        "layout": isMosaic ? "" : layout,
+        "pieces": isMultiTile ? pieceList : "",
+    ]
+}
+
+/// Fills a wording template. "{name}" is replaced by its value; a part in
+/// square brackets is left out when every brace word in it is empty. A brace
+/// word the app doesn't know is left as typed, so a typo shows.
+func fillTemplate(_ template: String, _ values: [String: String]) -> String {
+    /// The text with its brace words filled in, and whether it had any
+    /// known brace word, and whether any of them had a value.
+    func fill(_ text: Substring) -> (text: String, hasWords: Bool, anyFilled: Bool) {
+        var out = "", hasWords = false, anyFilled = false
+        var rest = text
+        while let open = rest.firstIndex(of: "{") {
+            out += rest[..<open]
+            guard let close = rest[open...].firstIndex(of: "}") else {
+                out += rest[open...]; rest = ""; break
+            }
+            let name = String(rest[rest.index(after: open)..<close]).trimmingCharacters(in: .whitespaces).lowercased()
+            if let value = values[name] {
+                hasWords = true
+                if !value.isEmpty { anyFilled = true }
+                out += value
+            } else {
+                out += rest[open...close]
+            }
+            rest = rest[rest.index(after: close)...]
+        }
+        out += rest
+        return (out, hasWords, anyFilled)
     }
-    return "\(size.isEmpty ? "" : size + " ")\(t.tileType.rawValue) \(tileWord(size: t.tileSize, style: t.mosaicStyle))\(t.tileSize == .mosaic ? "" : " in \(t.layout.rawValue) pattern")"
+
+    var out = ""
+    var rest = Substring(template)
+    while let open = rest.firstIndex(of: "[") {
+        out += fill(rest[..<open]).text
+        guard let close = rest[open...].firstIndex(of: "]") else {
+            rest = rest[open...]; break
+        }
+        let part = fill(rest[rest.index(after: open)..<close])
+        if !part.hasWords || part.anyFilled { out += part.text }
+        rest = rest[rest.index(after: close)...]
+    }
+    out += fill(rest).text
+    return out
 }
 
 /// " (12×24, 24×24, 6×6 Hexagon)" for the tiles in a multi-tile layout.

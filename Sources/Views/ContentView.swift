@@ -488,7 +488,7 @@ struct ContentView: View {
 
     // Build the required sentence for PDF/summary
     private func sentence(for room: EstimateRoom, section: EstimateSection) -> String {
-        estimateSentence(room: room, section: section)
+        estimateSentence(room: room, section: section, wording: store.pricingRates.wording)
     }
     private func saveImageToPhotos(_ image: UIImage) {
         // iOS 14+: request add-only access if possible (falls back below)
@@ -1777,7 +1777,7 @@ struct ContentView: View {
     }
     
     private func buildEstimateDescription(from section: EstimateSection) -> String {
-        describeSection(section)
+        describeSection(section, wording: store.pricingRates.wording)
     }
     // MARK: - Adapter for legacy calls that still pass EstimatorState
     @inline(__always)

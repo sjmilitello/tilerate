@@ -7,7 +7,7 @@ enum EstimatePDF {
     /// labor and material lines.
     static func blocks(_ totals: EstimateTotals) -> [InstallationBlock] {
         totals.sections.map { item in
-            .init(description: estimateSentence(room: item.room, section: item.section),
+            .init(description: item.sentence,
                   amount: item.core.total,
                   labor: item.laborItems,
                   materials: item.materialItems)
@@ -25,7 +25,7 @@ enum EstimatePDF {
                      forceSinglePage: Bool,
                      fallbackDescription: String) throws -> (data: Data, url: URL) {
         let blocks = blocks(totals)
-        let sentences = totals.sections.map { estimateSentence(room: $0.room, section: $0.section) }
+        let sentences = totals.sections.map(\.sentence)
         let description = sentences.isEmpty ? fallbackDescription : sentences.joined(separator: "  •  ")
 
         let pdfRoot = ExportedFormPDFView(

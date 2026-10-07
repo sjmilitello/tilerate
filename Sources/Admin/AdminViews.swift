@@ -283,6 +283,8 @@ struct AdminSheet: View {
                     Text("Both designs work on the same estimate, rates and saved estimates, so you can switch back and forth at any time.")
                 }
 
+                WordingSection(wording: $rates.wording)
+
                 PricingEngineSection()
             }
             .scrollDismissesKeyboard(.immediately)
