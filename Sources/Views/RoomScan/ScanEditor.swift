@@ -34,6 +34,9 @@ struct ScanEditor: View {
     @State private var addingWall = false
     /// The wall being drawn is a full wall with a shower door in it.
     @State private var addingDoorWall = false
+    /// An open side of the shower floor tapped on the plan: offer to close it.
+    @State private var closingSide: AreaTakeoff.OpenSide? = nil
+    @State private var askClose = false
     @State private var confirmDeleteWall = false
 
     init(room: ScannedRoom, area: Area?, title: String, takeoff: AreaTakeoff, others: [OtherAreaPieces],
@@ -53,6 +56,7 @@ struct ScanEditor: View {
     }
 
     private var usesWalls: Bool { area != .floor }
+    private var openSides: [AreaTakeoff.OpenSide] { area == .shower ? takeoff.openSides(in: room) : [] }
     private var otherPieces: [AreaTakeoff.Piece] { others.flatMap(\.pieces) }
 
     var body: some View {
@@ -62,7 +66,8 @@ struct ScanEditor: View {
                            floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
                            onResetFloor: placeShowerFloor,
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
-                           hint: addingWall ? nil : (usesWalls ? "Tap a wall to tile it · pinch to zoom" : "Pinch to zoom"),
+                           hint: addingWall ? nil : (usesWalls ? (openSides.isEmpty ? "Tap a wall to tile it · pinch to zoom"
+                                                                                       : "Tap a wall to tile it · tap the curb to add a wall") : "Pinch to zoom"),
                            addingWall: addingWall,
                            onAddWall: { a, b in addKneeWall(from: a, to: b) },
                            onMovePlannedEnd: { id, start, p in
@@ -72,6 +77,11 @@ struct ScanEditor: View {
                            onMovePlannedWall: { original, d in
                                let guides = takeoff.newWallLines(in: room, thicknessIn: original.thicknessIn).flatMap { [$0.0, $0.1] }
                                room.movePlannedWall(original, by: d, guides: guides)
+                           },
+                           openSides: openSides.map { ($0.a, $0.b) },
+                           onTapOpenSide: { i in
+                               closingSide = openSides[i]
+                               askClose = true
                            },
                            snapNewWall: { a, b in
                                area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
@@ -114,6 +124,13 @@ struct ScanEditor: View {
                 totalsBar
             }
             .background(ND.ground.ignoresSafeArea())
+            .confirmationDialog("Add a wall on the curb", isPresented: $askClose, titleVisibility: .visible,
+                                presenting: closingSide) { side in
+                Button("Full wall with a shower door") { closeSide(side, door: true) }
+                Button("Knee wall") { closeSide(side, door: false) }
+            } message: { side in
+                Text("Along the open side of the shower, \(feetAndInches(side.lengthFt)). Move or resize it after.")
+            }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -169,6 +186,35 @@ struct ScanEditor: View {
         if addingDoorWall { _ = room.addShowerDoor(on: w, along: w.lengthFt / 2, widthIn: stone.doorWidthIn, heightIn: stone.doorHeightIn) }
         addingDoorWall = false
         if usesWalls { tapWall(w.id) } else { selectedWall = w.id }
+    }
+
+    /// A wall added on an open side of the shower floor, on the curb: a
+    /// full wall with a door in its middle, or a knee wall leaving room for
+    /// a door beside it (from the side's end against a wall). Its first
+    /// face looks into the shower and is tiled.
+    private func closeSide(_ side: AreaTakeoff.OpenSide, door: Bool) {
+        var a = side.a, b = side.b
+        if !door {
+            let length = side.lengthFt
+            let doorFt = stone.doorWidthIn / 12
+            let knee = length > doorFt + 1 ? length - doorFt : length / 2
+            // From the end against a wall.
+            if side.startWall == nil, side.endWall != nil { swap(&a, &b) }
+            let t = knee / max(length, 1e-9)
+            b = .init(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+        }
+        // Its first face toward the shower.
+        if let r = takeoff.floorRect {
+            let c = r.corners
+            let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+            let n = ScannedRoom.Point(x: -(b.y - a.y), y: b.x - a.x)
+            if (center.x - a.x) * n.x + (center.y - a.y) * n.y < 0 { swap(&a, &b) }
+        }
+        let ceiling = (room.ceilingFt * 12).rounded(.down)
+        let w = room.addPlannedWall(from: a, to: b, heightIn: door ? ceiling : min(42, ceiling), thicknessIn: kneeWallThicknessIn)
+        if door { _ = room.addShowerDoor(on: w, along: w.lengthFt / 2, widthIn: stone.doorWidthIn, heightIn: stone.doorHeightIn) }
+        face = 0
+        tapWall(w.id)
     }
 
     /// A shower door opening on a wall: in the middle of this area's tile on it.
@@ -361,6 +407,20 @@ struct ScanEditor: View {
                         set: { takeoff.curbHeightIn = $0 }))
                         .frame(maxWidth: 140, alignment: .leading)
                 }
+                ForEach(Array(openSides.enumerated()), id: \.offset) { _, side in
+                    Menu {
+                        Button { closeSide(side, door: true) } label: {
+                            Label("Full wall with a shower door", systemImage: "door.left.hand.open")
+                        }
+                        Button { closeSide(side, door: false) } label: {
+                            Label("Knee wall", systemImage: "square.split.diagonal.2x2")
+                        }
+                    } label: {
+                        Label("Add a wall on the curb (\(feetAndInches(side.lengthFt)) open)", systemImage: "plus.rectangle.on.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+                    .font(.subheadline)
+                }
                 if pieces.isEmpty {
                     Text("Draw the shower floor on the plan and choose its walls; the curb and jambs are measured from them.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -499,6 +559,24 @@ struct ScanEditor: View {
                         get: { room.openings[i].heightFt * 12 },
                         set: { room.openings[i].heightFt = min(max(36, $0) / 12, wall.heightFt) }))
                 }
+                HStack(spacing: 12) {
+                    InchField(title: "Left of door", inches: Binding(
+                        get: { room.span(of: room.openings[i]).lowerBound * 12 },
+                        set: { v in
+                            let width = room.openings[i].widthFt
+                            let left = min(max(0, v / 12), wall.lengthFt - width)
+                            room.openings[i].alongFt = left + width / 2
+                        }))
+                    InchField(title: "Right of door", inches: Binding(
+                        get: { (wall.lengthFt - room.span(of: room.openings[i]).upperBound) * 12 },
+                        set: { v in
+                            let width = room.openings[i].widthFt
+                            let right = min(max(0, v / 12), wall.lengthFt - width)
+                            room.openings[i].alongFt = wall.lengthFt - right - width / 2
+                        }))
+                }
+                Text("Left and right as the wall is drawn above.")
+                    .font(.caption2).foregroundStyle(.secondary)
                 Button {
                     room.openings[i].heightFt = header ? wall.heightFt : min(stone.doorHeightIn / 12, wall.heightFt)
                 } label: {
@@ -692,7 +770,10 @@ struct PlanCanvas: View {
     var onMovePlannedEnd: (UUID, Bool, ScannedRoom.Point) -> Void = { _, _, _ in }
     /// Dragging a whole planned wall: where it started, and how far, in plan feet.
     var onMovePlannedWall: (ScannedRoom.Wall, ScannedRoom.Point) -> Void = { _, _ in }
-    /// Where a wall being drawn lands (e.g. just outside the shower floor).
+    /// The shower floor's open sides; tapping one offers to add a wall there.
+    var openSides: [(ScannedRoom.Point, ScannedRoom.Point)] = []
+    var onTapOpenSide: (Int) -> Void = { _ in }
+    /// Where a wall being drawn lands (e.g. on the shower's curb).
     var snapNewWall: (ScannedRoom.Point, ScannedRoom.Point) -> (ScannedRoom.Point, ScannedRoom.Point) = { ($0, $1) }
     var onTapWall: (UUID) -> Void = { _ in }
 
@@ -801,6 +882,7 @@ struct PlanCanvas: View {
                     }
                     .onTapGesture(count: 1, coordinateSpace: .local) { location in
                         if editingFloor { withAnimation(.easeOut(duration: 0.15)) { editingFloor = false }; return }
+                        if let side = openSide(at: location, f) { onTapOpenSide(side); return }
                         if let id = wall(at: location, f) { onTapWall(id) }
                     }
                     .clipped()
@@ -975,6 +1057,18 @@ struct PlanCanvas: View {
             .onChanged { pan = CGSize(width: lastPan.width + $0.translation.width, height: lastPan.height + $0.translation.height) }
             .onEnded { _ in lastPan = pan }
         return magnify.simultaneously(with: drag)
+    }
+
+    /// An open side of the shower floor under a tap, when it's nearer than any wall.
+    private func openSide(at point: CGPoint, _ f: Frame) -> Int? {
+        var best: (Int, CGFloat)? = nil
+        for (i, (a, b)) in openSides.enumerated() {
+            let d = distance(point, f.at(a), f.at(b))
+            if d < 22, d < (best?.1 ?? .infinity) { best = (i, d) }
+        }
+        guard let best else { return nil }
+        let nearestWall = room.walls.map { distance(point, f.at($0.start), f.at($0.end)) }.min() ?? .infinity
+        return best.1 <= nearestWall ? best.0 : nil
     }
 
     private func wall(at point: CGPoint, _ f: Frame) -> UUID? {
@@ -1332,6 +1426,28 @@ struct WallElevation: View {
                 let left = min(max(0, snapped(start + v.translation.width / scale, to: [0, wall.lengthFt - width])), wall.lengthFt - width)
                 onDoor(moved(d, left: left, right: left + width))
             }.onEnded { _ in doorDragStart = nil })
+        // How far the opening is from each end of the wall.
+        let dimY = origin.y - 14
+        ForEach([(0.0, s.lowerBound), (s.upperBound, wall.lengthFt)], id: \.0) { from, to in
+            if to - from > 0.01 {
+                let a = at(from, 0).x, b = at(to, 0).x
+                Path { p in
+                    p.move(to: CGPoint(x: a + 2, y: dimY)); p.addLine(to: CGPoint(x: b - 2, y: dimY))
+                    p.move(to: CGPoint(x: a + 2, y: dimY - 5)); p.addLine(to: CGPoint(x: a + 2, y: dimY + 5))
+                    p.move(to: CGPoint(x: b - 2, y: dimY - 5)); p.addLine(to: CGPoint(x: b - 2, y: dimY + 5))
+                }
+                .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                .allowsHitTesting(false)
+                Text(feetAndInches(to - from))
+                    .font(.system(size: 11, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color.black.opacity(0.75), in: Capsule())
+                    .fixedSize()
+                    .position(x: (a + b) / 2, y: dimY - 12)
+                    .allowsHitTesting(false)
+            }
+        }
         if header {
             Rectangle().fill(Self.stone).frame(width: max(r.width, 1), height: 4)
                 .position(x: r.midX, y: r.minY - 2)
@@ -1339,13 +1455,13 @@ struct WallElevation: View {
         }
         // Left and right sides.
         DoorHandle(vertical: true)
-            .position(x: r.minX, y: r.midY + min(30, r.height / 4))
+            .position(x: r.minX, y: r.minY + r.height * 0.3)
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
                 let left = snapped((v.location.x - origin.x) / scale, to: [0])
                 onDoor(moved(d, left: min(max(0, left), s.upperBound - 1), right: s.upperBound))
             })
         DoorHandle(vertical: true)
-            .position(x: r.maxX, y: r.midY + min(30, r.height / 4))
+            .position(x: r.maxX, y: r.minY + r.height * 0.3)
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
                 let right = snapped((v.location.x - origin.x) / scale, to: [wall.lengthFt])
                 onDoor(moved(d, left: s.lowerBound, right: max(min(wall.lengthFt, right), s.lowerBound + 1)))

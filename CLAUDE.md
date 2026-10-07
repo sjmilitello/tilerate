@@ -241,9 +241,15 @@ walls) is dashed and as thick as it will be; it is saved with the scan, so
 every area sees it. It has two faces (`Piece.face`, named by the wall each
 looks toward). A planned wall as high as the ceiling is a full wall ("New
 wall F", `isKneeWall` false), with no cap. A wall drawn in a shower along an open
-side of its floor (roughly parallel, within 2′) snaps just outside it, its
-inside face on the floor's edge where the curb is (`snappedNewWall`,
-`newWallLines`; owner asked 2026-10-07). A selected planned wall has a move
+side of its floor (roughly parallel, within 2′) snaps onto the curb line
+(`snappedNewWall`, `newWallLines`; owner asked 2026-10-07). Tapping the curb
+on the plan, or "Add a wall on the curb" under Shower entry, adds one with no
+drawing (`closeSide`): a full wall with a door in its middle, or a knee wall
+from the side's end against a wall, leaving a door's width open. Its first
+face looks into the shower and is tiled. The floor's open sides
+(`openSides`) are each edge less the stretches walls run along, so a knee
+wall across part of the front leaves the rest as the entry, with its curb
+and jambs. A selected planned wall has a move
 handle in its middle (`movePlannedWall`): whole inches, its line snapping
 within 3″ to those lines and to other walls' ends, an end onto a wall it
 nearly touches. Its ends drag on the plan; height, thickness and
@@ -260,7 +266,7 @@ which also takes headers (owner's call) and is named "Stone wall cap",
 "Stone header" or "Stone wall cap & header". The lines have fixed ids per
 area and kind (`stoneLineID`), so measuring again keeps a price changed on
 the estimate. For a shower with its floor drawn: the curb runs along the
-floor's open sides; a jamb at each end of the entry runs from the curb to the
+floor's open sides (`openSides`); a jamb at each end of the entry runs from the curb to the
 top of the tile against a full wall, or splits at a knee wall into a lower
 (curb to cap) and an upper jamb (cap to the top of the tile); each knee wall
 gets a cap. The top of the tile is the area's tallest piece on a scanned

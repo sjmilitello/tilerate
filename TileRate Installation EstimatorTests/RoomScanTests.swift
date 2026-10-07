@@ -382,11 +382,10 @@ struct RoomScanTests {
         t.pieces = [piece(r.walls[0], 5, 9, 96), piece(r.walls[1], 0, 3, 96)]
         t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
                                             widthFt: 4, depthFt: 3)
-        // Drawn roughly, 9″ out and a little short: it takes the front's place,
-        // its inside face on the floor's edge.
+        // Drawn roughly, 9″ out and a little short: it lands on the curb.
         let (a, b) = t.snappedNewWall(.init(x: 5.3, y: 3.75), .init(x: 8.7, y: 3.75), in: r, thicknessIn: 4.5)
         #expect(abs(a.x - 5) < 1e-9 && abs(b.x - 9) < 1e-9)
-        #expect(abs(a.y - (3 + 2.25 / 12)) < 1e-9 && abs(b.y - a.y) < 1e-9)
+        #expect(abs(a.y - 3) < 1e-9 && abs(b.y - 3) < 1e-9)
         // Far from the shower, it's left where it was drawn.
         let away = t.snappedNewWall(.init(x: 1, y: 6), .init(x: 4, y: 6), in: r, thicknessIn: 4.5)
         #expect(away.0.y == 6 && away.1.x == 4)
@@ -394,6 +393,30 @@ struct RoomScanTests {
         _ = r.addPlannedWall(from: a, to: b, heightIn: 96, thicknessIn: 4.5)
         let curb = try #require(t.trimPieces(in: r, area: .shower, curbHeightIn: 4).first { $0.key == "curb" })
         #expect(abs(curb.lengthFt - 3) < 1e-9)
+    }
+
+    @Test func aKneeWallAcrossPartOfTheFrontLeavesTheRestAsTheEntry() throws {
+        // Three-wall shower across the top of the room (walls D, A, B), 9′ × 3′,
+        // open along y = 3. A 42″ knee wall covers the front's first 5′ from wall B.
+        var r = room
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(D, 5, 8, 96), piece(A, 0, 9, 96), piece(B, 0, 3, 96)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 9, depthFt: 3)
+        #expect(t.openSides(in: r).count == 1)
+        let knee = r.addPlannedWall(from: .init(x: 9, y: 3), to: .init(x: 4, y: 3), heightIn: 42, thicknessIn: 4.5)
+        t.pieces.append(.init(wallID: knee.id, fromFt: 0, toFt: 5, heightIn: 42, face: 0))
+        let sides = t.openSides(in: r)
+        #expect(sides.count == 1 && abs(sides[0].lengthFt - 4) < 1e-9)
+        let trim = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
+        let byName = Dictionary(uniqueKeysWithValues: trim.map { ($0.name, $0.lengthFt) })
+        // Facing in (up) from y = 3: wall D (x = 0) on the left, the knee wall's end on the right.
+        #expect(abs(byName["Curb"]! - 4) < 1e-9)
+        #expect(abs(byName["Left jamb"]! - (8 - 4.0 / 12)) < 1e-9)
+        #expect(abs(byName["Right lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)
+        #expect(abs(byName["Right upper jamb"]! - 4.5) < 1e-9)
+        #expect(abs(byName["Wall cap (knee wall E)"]! - 5) < 1e-9)
     }
 
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {

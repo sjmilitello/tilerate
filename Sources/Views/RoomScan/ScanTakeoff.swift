@@ -577,34 +577,24 @@ extension AreaTakeoff {
 
         if area == .shower, floor == .drawn, let r = floorRect {
             let c = r.corners
-            func against(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point) -> ScannedRoom.Wall? {
-                let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-                let dx = b.x - a.x, dy = b.y - a.y, l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
-                return room.walls.first { w in
-                    let wx = w.end.x - w.start.x, wy = w.end.y - w.start.y
-                    let wl = max((wx * wx + wy * wy).squareRoot(), 1e-9)
-                    let parallel = abs((dx * wx + dy * wy) / (l * wl)) > 0.95
-                    return parallel && room.distanceToWall(mid, w) < 0.4
-                }
-            }
-            let edges = (0..<4).map { (c[$0], c[($0 + 1) % 4], against(c[$0], c[($0 + 1) % 4])) }
-            let open = edges.indices.filter { edges[$0].2 == nil }
-            let width = open.reduce(0.0) { t, i in
-                let (a, b, _) = edges[i]
-                return t + ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot()
-            }
+            let sides = openSides(in: room)
+            let width = sides.reduce(0.0) { $0 + $1.lengthFt }
             if width > 0 { out.append(("curb", .curb, "Curb", width)) }
-            // The entry's two ends: where an open edge meets a closed one.
+            // The entry's ends: a jamb wherever an open side meets a wall.
             let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
-            for i in open {
-                for (corner, neighbor) in [(edges[i].0, (i + 3) % 4), (edges[i].1, (i + 1) % 4)] {
-                    guard let wall = edges[neighbor].2 else { continue }
-                    let side = sideName(corner, entry: (edges[i].0, edges[i].1), center: center)
+            var used = Set<String>()
+            for side in sides {
+                for (corner, wall) in [(side.a, side.startWall), (side.b, side.endWall)] {
+                    guard let wall else { continue }
+                    let name = sideName(corner, entry: (side.a, side.b), center: center)
+                    var key = "jamb:\(name)", n = 2
+                    while used.contains(key) { key = "jamb:\(name):\(n)"; n += 1 }
+                    used.insert(key)
                     if room.isKneeWall(wall) {
-                        out.append(("jamb:\(side):lower", .jamb, "\(side.capitalized) lower jamb", max(0, wall.heightFt - curb)))
-                        out.append(("jamb:\(side):upper", .jamb, "\(side.capitalized) upper jamb", max(0, top - wall.heightFt)))
+                        out.append(("\(key):lower", .jamb, "\(name.capitalized) lower jamb", max(0, wall.heightFt - curb)))
+                        out.append(("\(key):upper", .jamb, "\(name.capitalized) upper jamb", max(0, top - wall.heightFt)))
                     } else {
-                        out.append(("jamb:\(side)", .jamb, "\(side.capitalized) jamb", max(0, top - curb)))
+                        out.append((key, .jamb, "\(name.capitalized) jamb", max(0, top - curb)))
                     }
                 }
             }
@@ -644,29 +634,71 @@ extension AreaTakeoff {
         }
     }
 
-    /// Where a new wall goes to close the shower floor's open sides: each
-    /// open side's line moved out by half the wall's thickness, so the
-    /// wall's inside face is the floor's edge (where the curb is).
-    func newWallLines(in room: ScannedRoom, thicknessIn: Double) -> [(ScannedRoom.Point, ScannedRoom.Point)] {
+    /// A stretch of the shower floor's edge with no wall along it: where
+    /// the curb goes. Its ends' walls (nil for an open corner) get jambs.
+    struct OpenSide {
+        var a: ScannedRoom.Point
+        var b: ScannedRoom.Point
+        var startWall: ScannedRoom.Wall?
+        var endWall: ScannedRoom.Wall?
+        var lengthFt: Double { ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot() }
+    }
+
+    /// The shower floor's open sides: each edge less the stretches a wall
+    /// runs along (parallel, within 0.4′), so a knee wall across part of
+    /// the front leaves the rest open.
+    func openSides(in room: ScannedRoom) -> [OpenSide] {
         guard floor == .drawn, let r = floorRect else { return [] }
         let c = r.corners
-        let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
-        let half = thicknessIn / 24
-        return curbEdges(in: room).filter { e in
-            // Only the floor's sides, not doors already in walls.
-            c.contains { abs($0.x - e.0.x) < 1e-9 && abs($0.y - e.0.y) < 1e-9 }
-        }.map { a, b in
-            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-            let dx = b.x - a.x, dy = b.y - a.y, l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
-            var n = ScannedRoom.Point(x: -dy / l, y: dx / l)
-            if (mid.x - center.x) * n.x + (mid.y - center.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
-            return (.init(x: a.x + n.x * half, y: a.y + n.y * half), .init(x: b.x + n.x * half, y: b.y + n.y * half))
+        var out: [OpenSide] = []
+        for i in 0..<4 {
+            let a = c[i], b = c[(i + 1) % 4]
+            let ex = b.x - a.x, ey = b.y - a.y, length = (ex * ex + ey * ey).squareRoot()
+            guard length > 1.0 / 12 else { continue }
+            let u = ScannedRoom.Point(x: ex / length, y: ey / length)
+            func at(_ t: Double) -> ScannedRoom.Point { .init(x: a.x + u.x * t, y: a.y + u.y * t) }
+            // Walls along this edge, as stretches of it.
+            var cover: [(lo: Double, hi: Double, wall: ScannedRoom.Wall)] = room.walls.compactMap { w in
+                func off(_ p: ScannedRoom.Point) -> Double { abs((p.x - a.x) * -u.y + (p.y - a.y) * u.x) }
+                guard off(w.start) < 0.4, off(w.end) < 0.4 else { return nil }
+                let t0 = (w.start.x - a.x) * u.x + (w.start.y - a.y) * u.y
+                let t1 = (w.end.x - a.x) * u.x + (w.end.y - a.y) * u.y
+                let lo = max(0, min(t0, t1)), hi = min(length, max(t0, t1))
+                return hi - lo > 1.0 / 12 ? (lo, hi, w) : nil
+            }
+            cover.sort { $0.lo < $1.lo }
+            // The wall at a corner of the floor: one across this edge's end.
+            func cornerWall(_ p: ScannedRoom.Point) -> ScannedRoom.Wall? {
+                room.walls.filter { w in
+                    let wx = w.end.x - w.start.x, wy = w.end.y - w.start.y
+                    let wl = max((wx * wx + wy * wy).squareRoot(), 1e-9)
+                    return abs((wx * u.x + wy * u.y) / wl) < 0.5 && room.distanceToWall(p, w) < 0.4
+                }.min { room.distanceToWall(p, $0) < room.distanceToWall(p, $1) }
+            }
+            var cursor = 0.0
+            var last: ScannedRoom.Wall? = nil
+            for k in cover {
+                if k.lo - cursor > 1.0 / 12 {
+                    out.append(OpenSide(a: at(cursor), b: at(k.lo), startWall: cursor == 0 ? cornerWall(a) : last, endWall: k.wall))
+                }
+                if k.hi >= cursor { cursor = k.hi; last = k.wall }
+            }
+            if length - cursor > 1.0 / 12 {
+                out.append(OpenSide(a: at(cursor), b: b, startWall: cursor == 0 ? cornerWall(a) : last, endWall: cornerWall(b)))
+            }
         }
+        return out
+    }
+
+    /// Where a new wall goes to close the shower: on the curb, along each
+    /// open side.
+    func newWallLines(in room: ScannedRoom, thicknessIn: Double = 0) -> [(ScannedRoom.Point, ScannedRoom.Point)] {
+        openSides(in: room).map { ($0.a, $0.b) }
     }
 
     /// A wall being drawn from `a` to `b`: when it runs along an open side of
     /// the shower floor (roughly parallel, within 2′), it takes that side's
-    /// place just outside the floor (`newWallLines`).
+    /// place, on the curb (`newWallLines`).
     func snappedNewWall(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point, in room: ScannedRoom,
                         thicknessIn: Double) -> (ScannedRoom.Point, ScannedRoom.Point) {
         let dx = b.x - a.x, dy = b.y - a.y, l = (dx * dx + dy * dy).squareRoot()
@@ -700,19 +732,7 @@ extension AreaTakeoff {
             let s = room.span(of: d)
             return (room.point(on: w, along: s.lowerBound), room.point(on: w, along: s.upperBound))
         }
-        guard floor == .drawn, let r = floorRect else { return doors }
-        let c = r.corners
-        return doors + (0..<4).compactMap { i in
-            let a = c[i], b = c[(i + 1) % 4]
-            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-            let dx = b.x - a.x, dy = b.y - a.y, l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
-            let closed = room.walls.contains { w in
-                let wx = w.end.x - w.start.x, wy = w.end.y - w.start.y
-                let wl = max((wx * wx + wy * wy).squareRoot(), 1e-9)
-                return abs((dx * wx + dy * wy) / (l * wl)) > 0.95 && room.distanceToWall(mid, w) < 0.4
-            }
-            return closed ? nil : (a, b)
-        }
+        return doors + openSides(in: room).map { ($0.a, $0.b) }
     }
 
     /// "left" or "right", as you stand outside the shower facing in.
