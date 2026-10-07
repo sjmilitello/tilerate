@@ -68,6 +68,13 @@ struct ScanEditor: View {
                            onMovePlannedEnd: { id, start, p in
                                room.movePlannedEnd(id, start: start, to: p)
                                clampPieces(on: id)
+                           },
+                           onMovePlannedWall: { original, d in
+                               let guides = takeoff.newWallLines(in: room, thicknessIn: original.thicknessIn).flatMap { [$0.0, $0.1] }
+                               room.movePlannedWall(original, by: d, guides: guides)
+                           },
+                           snapNewWall: { a, b in
+                               area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
                            }) { wallID in
                     tapWall(wallID)
                 }
@@ -286,7 +293,7 @@ struct ScanEditor: View {
         let index = room.walls.firstIndex { $0.id == wall.id }!
         let roomHeight = ((room.walls.filter { !$0.planned }.map(\.heightFt).max() ?? 8) * 12).rounded(.down)
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Not built yet: drawn on the plan. Drag its ends on the plan to move them.")
+            Text("Not built yet: drawn on the plan. Drag the handle in its middle to move it, or its ends to change its length.")
                 .font(.footnote).foregroundStyle(.secondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -683,10 +690,16 @@ struct PlanCanvas: View {
     var onAddWall: (ScannedRoom.Point, ScannedRoom.Point) -> Void = { _, _ in }
     /// Dragging an end of a planned wall (its id, which end, where to).
     var onMovePlannedEnd: (UUID, Bool, ScannedRoom.Point) -> Void = { _, _, _ in }
+    /// Dragging a whole planned wall: where it started, and how far, in plan feet.
+    var onMovePlannedWall: (ScannedRoom.Wall, ScannedRoom.Point) -> Void = { _, _ in }
+    /// Where a wall being drawn lands (e.g. just outside the shower floor).
+    var snapNewWall: (ScannedRoom.Point, ScannedRoom.Point) -> (ScannedRoom.Point, ScannedRoom.Point) = { ($0, $1) }
     var onTapWall: (UUID) -> Void = { _ in }
 
     @State private var zoom: CGFloat = 1
     @State private var dragStart: AreaTakeoff.FloorRect? = nil
+    /// The planned wall being dragged whole, as it was when the drag began.
+    @State private var wallDragStart: ScannedRoom.Wall? = nil
     /// The shower floor's edges are being resized.
     @State private var editingFloor = false
     /// The wall being drawn, start and end, while dragging.
@@ -772,7 +785,7 @@ struct PlanCanvas: View {
                             Color.clear.contentShape(Rectangle())
                                 .gesture(DragGesture(minimumDistance: 4).onChanged { v in
                                     let a = room.snappedToWall(f.point(at: v.startLocation))
-                                    drawing = (a, room.plannedEnd(from: a, toward: f.point(at: v.location)))
+                                    drawing = snapNewWall(a, room.plannedEnd(from: a, toward: f.point(at: v.location)))
                                 }.onEnded { _ in
                                     if let (a, b) = drawing,
                                        ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot() >= 1 {
@@ -1013,11 +1026,21 @@ struct PlanCanvas: View {
         return path
     }
 
-    /// Grab handles on the ends of the chosen planned wall.
+    /// Grab handles on the ends of the chosen planned wall, and one in its
+    /// middle to move it whole.
     @ViewBuilder
     private func plannedEndHandles(_ f: Frame) -> some View {
         if !addingWall, let id = selectedWall, let w = room.wall(id), w.planned {
             ZStack {
+                FloorHandle(symbol: "arrow.up.and.down.and.arrow.left.and.right")
+                    .scaleEffect(0.85)
+                    .position(midpoint(w.start, w.end, f))
+                    .highPriorityGesture(DragGesture(minimumDistance: 2).onChanged { v in
+                        let start = wallDragStart ?? w
+                        if wallDragStart == nil { wallDragStart = w }
+                        let (x, y) = f.feet(v.translation)
+                        onMovePlannedWall(start, .init(x: x, y: y))
+                    }.onEnded { _ in wallDragStart = nil })
                 ForEach([true, false], id: \.self) { isStart in
                     let p = isStart ? w.start : w.end
                     Circle().fill(Color.white).overlay(Circle().stroke(Color.green, lineWidth: 3))

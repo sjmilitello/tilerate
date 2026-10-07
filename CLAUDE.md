@@ -240,7 +240,13 @@ length rounds to the inch and stops on a wall it nearly reaches
 walls) is dashed and as thick as it will be; it is saved with the scan, so
 every area sees it. It has two faces (`Piece.face`, named by the wall each
 looks toward). A planned wall as high as the ceiling is a full wall ("New
-wall F", `isKneeWall` false), with no cap. Its ends drag on the plan; height, thickness and
+wall F", `isKneeWall` false), with no cap. A wall drawn in a shower along an open
+side of its floor (roughly parallel, within 2′) snaps just outside it, its
+inside face on the floor's edge where the curb is (`snappedNewWall`,
+`newWallLines`; owner asked 2026-10-07). A selected planned wall has a move
+handle in its middle (`movePlannedWall`): whole inches, its line snapping
+within 3″ to those lines and to other walls' ends, an end onto a wall it
+nearly touches. Its ends drag on the plan; height, thickness and
 length can be typed; it can be deleted.
 
 Shower entry trim (owner's rules, 2026-10-07): curbs, wall caps, jambs and

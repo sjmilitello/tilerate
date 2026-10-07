@@ -138,6 +138,46 @@ extension ScannedRoom {
         walls[i].lengthFt = ((w.end.x - w.start.x) * (w.end.x - w.start.x) + (w.end.y - w.start.y) * (w.end.y - w.start.y)).squareRoot()
     }
 
+    /// A planned wall moved whole, by `d` feet from where it was
+    /// (`original`), keeping its length, tile and door. Each way rounds to
+    /// the inch; across, its line snaps within 3″ to `guides` (e.g. the
+    /// shower floor's corners) and other walls' ends; along, an end snaps
+    /// onto a wall within 3″.
+    mutating func movePlannedWall(_ original: Wall, by d: Point, guides: [Point] = []) {
+        guard let i = walls.firstIndex(where: { $0.id == original.id }), walls[i].planned else { return }
+        let dx = original.end.x - original.start.x, dy = original.end.y - original.start.y
+        let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+        let u = Point(x: dx / l, y: dy / l), n = Point(x: -u.y, y: u.x)
+        var along = ((d.x * u.x + d.y * u.y) * 12).rounded() / 12
+        var across = ((d.x * n.x + d.y * n.y) * 12).rounded() / 12
+        // Across: line up with a guide or another wall's end.
+        let raw = d.x * n.x + d.y * n.y
+        var best = 0.25
+        for p in guides + walls.filter({ $0.id != original.id }).flatMap({ [$0.start, $0.end] }) {
+            let c = (p.x - original.start.x) * n.x + (p.y - original.start.y) * n.y
+            if abs(c - raw) < best { best = abs(c - raw); across = c }
+        }
+        // Along: an end onto a wall it nearly touches.
+        let rawAlong = d.x * u.x + d.y * u.y
+        let base = Point(x: original.start.x + n.x * across, y: original.start.y + n.y * across)
+        best = 0.25
+        for w in walls where w.id != original.id {
+            let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+            let den = u.x * ey - u.y * ex
+            guard abs(den) > 1e-6 else { continue }
+            let t = ((w.start.x - base.x) * ey - (w.start.y - base.y) * ex) / den
+            let s = ((w.start.x - base.x) * u.y - (w.start.y - base.y) * u.x) / den
+            guard s >= -0.05, s <= 1.05 else { continue }
+            for shift in [t, t - original.lengthFt] where abs(shift - rawAlong) < best {
+                best = abs(shift - rawAlong)
+                along = shift
+            }
+        }
+        let move = Point(x: u.x * along + n.x * across, y: u.y * along + n.y * across)
+        walls[i].start = Point(x: original.start.x + move.x, y: original.start.y + move.y)
+        walls[i].end = Point(x: original.end.x + move.x, y: original.end.y + move.y)
+    }
+
     /// True when a wall's end isn't against another wall: an exposed end.
     func isFreeEnd(of wall: Wall, start: Bool) -> Bool {
         let p = start ? wall.start : wall.end
@@ -602,6 +642,49 @@ extension AreaTakeoff {
             return TrimPiece(key: key, kind: kind, name: name, measuredFt: ft,
                              lengthFt: choice?.lengthFt ?? ft, stone: choice?.stone ?? false)
         }
+    }
+
+    /// Where a new wall goes to close the shower floor's open sides: each
+    /// open side's line moved out by half the wall's thickness, so the
+    /// wall's inside face is the floor's edge (where the curb is).
+    func newWallLines(in room: ScannedRoom, thicknessIn: Double) -> [(ScannedRoom.Point, ScannedRoom.Point)] {
+        guard floor == .drawn, let r = floorRect else { return [] }
+        let c = r.corners
+        let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+        let half = thicknessIn / 24
+        return curbEdges(in: room).filter { e in
+            // Only the floor's sides, not doors already in walls.
+            c.contains { abs($0.x - e.0.x) < 1e-9 && abs($0.y - e.0.y) < 1e-9 }
+        }.map { a, b in
+            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            let dx = b.x - a.x, dy = b.y - a.y, l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+            var n = ScannedRoom.Point(x: -dy / l, y: dx / l)
+            if (mid.x - center.x) * n.x + (mid.y - center.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+            return (.init(x: a.x + n.x * half, y: a.y + n.y * half), .init(x: b.x + n.x * half, y: b.y + n.y * half))
+        }
+    }
+
+    /// A wall being drawn from `a` to `b`: when it runs along an open side of
+    /// the shower floor (roughly parallel, within 2′), it takes that side's
+    /// place just outside the floor (`newWallLines`).
+    func snappedNewWall(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point, in room: ScannedRoom,
+                        thicknessIn: Double) -> (ScannedRoom.Point, ScannedRoom.Point) {
+        let dx = b.x - a.x, dy = b.y - a.y, l = (dx * dx + dy * dy).squareRoot()
+        guard l > 0.5 else { return (a, b) }
+        let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        var best: ((ScannedRoom.Point, ScannedRoom.Point), Double)? = nil
+        for (p, q) in newWallLines(in: room, thicknessIn: thicknessIn) {
+            let ex = q.x - p.x, ey = q.y - p.y, el = max((ex * ex + ey * ey).squareRoot(), 1e-9)
+            guard abs((dx * ex + dy * ey) / (l * el)) > 0.9 else { continue }
+            // Distance from the drawn line's middle to the side, across and along.
+            let across = abs((mid.x - p.x) * -ey / el + (mid.y - p.y) * ex / el)
+            let along = ((mid.x - p.x) * ex + (mid.y - p.y) * ey) / el
+            guard across < 2, along > -1, along < el + 1, across < (best?.1 ?? .infinity) else { continue }
+            // Keep the direction it was drawn in.
+            let same = dx * ex + dy * ey > 0
+            best = (same ? (p, q) : (q, p), across)
+        }
+        return best?.0 ?? (a, b)
     }
 
     /// Shower door openings in walls this area tiles.

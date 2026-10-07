@@ -358,6 +358,44 @@ struct RoomScanTests {
         #expect(back.openings.first { $0.id == door.id }?.kind == .showerDoor)
     }
 
+    @Test func aPlannedWallMovesWholeAndSnapsToTheShowerFloor() throws {
+        // A new wall drawn a foot short of the shower floor's front (y = 3).
+        var r = room
+        let w = r.addPlannedWall(from: .init(x: 5, y: 4), to: .init(x: 9, y: 4), heightIn: 96, thicknessIn: 4.5)
+        let floor = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                          widthFt: 4, depthFt: 3)
+        // Dragged up most of a foot: it lines up with the floor's side and stays against wall B.
+        r.movePlannedWall(w, by: .init(x: 0.1, y: -0.9), guides: floor.corners)
+        let moved = try #require(r.wall(w.id))
+        #expect(abs(moved.start.y - 3) < 1e-9 && abs(moved.end.y - 3) < 1e-9)
+        #expect(abs(moved.end.x - 9) < 1e-9 && abs(moved.lengthFt - 4) < 1e-9)
+        // Away from anything to snap to, it moves to the inch.
+        r.movePlannedWall(moved, by: .init(x: 0, y: 1.52))
+        #expect(abs(r.wall(w.id)!.start.y - (3 + 18.0 / 12)) < 1e-9)
+    }
+
+    @Test func aNewWallDrawnNearTheShowerSnapsJustOutsideItsFloor() throws {
+        // Shower in the A/B corner, 4′ × 3′; open on its left (x = 5) and front (y = 3).
+        var r = room
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(r.walls[0], 5, 9, 96), piece(r.walls[1], 0, 3, 96)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 4, depthFt: 3)
+        // Drawn roughly, 9″ out and a little short: it takes the front's place,
+        // its inside face on the floor's edge.
+        let (a, b) = t.snappedNewWall(.init(x: 5.3, y: 3.75), .init(x: 8.7, y: 3.75), in: r, thicknessIn: 4.5)
+        #expect(abs(a.x - 5) < 1e-9 && abs(b.x - 9) < 1e-9)
+        #expect(abs(a.y - (3 + 2.25 / 12)) < 1e-9 && abs(b.y - a.y) < 1e-9)
+        // Far from the shower, it's left where it was drawn.
+        let away = t.snappedNewWall(.init(x: 1, y: 6), .init(x: 4, y: 6), in: r, thicknessIn: 4.5)
+        #expect(away.0.y == 6 && away.1.x == 4)
+        // Built there, the front is closed: no curb along it, only the left side's.
+        _ = r.addPlannedWall(from: a, to: b, heightIn: 96, thicknessIn: 4.5)
+        let curb = try #require(t.trimPieces(in: r, area: .shower, curbHeightIn: 4).first { $0.key == "curb" })
+        #expect(abs(curb.lengthFt - 3) < 1e-9)
+    }
+
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {
         var r = EstimateRoom(name: "Bath")
         r.scan = room
