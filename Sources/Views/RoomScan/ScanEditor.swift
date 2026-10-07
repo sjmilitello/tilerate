@@ -335,8 +335,7 @@ struct ScanEditor: View {
 
     /// A corner shelf, footrest or seat in a corner of the wall; another
     /// shelf in the same corner goes 12″ above the last.
-    private func addCorner(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall) {
-        let atStart = takeoff.cornerEnd(of: wall, in: room)
+    private func addCorner(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall, atStart: Bool) {
         let (size, height): (Double, Double) = switch kind {
         case .cornerShelf: (defaults.cornerShelfIn, defaults.cornerShelfHeightIn)
         case .cornerFootrest: (defaults.cornerFootrestIn, defaults.cornerFootrestHeightIn)
@@ -367,9 +366,15 @@ struct ScanEditor: View {
         Button { addOpening(.window, on: wall) } label: { Label("Add window", systemImage: "window.horizontal") }
         Button { addOpening(.niche, on: wall) } label: { Label("Add niche", systemImage: "square.split.1x2") }
         Menu {
-            Button("Corner shelf") { addCorner(.cornerShelf, on: wall) }
-            Button("Corner seat") { addCorner(.cornerSeat, on: wall) }
-            Button("Corner footrest") { addCorner(.cornerFootrest, on: wall) }
+            // One section per corner of this wall (an end that meets another wall).
+            let ends = [true, false].filter { !room.isFreeEnd(of: wall, start: $0) }
+            ForEach(ends.isEmpty ? [true, false] : ends, id: \.self) { atStart in
+                Section("In the \(cornerName(wall, atStart: atStart)) corner") {
+                    Button("Corner shelf") { addCorner(.cornerShelf, on: wall, atStart: atStart) }
+                    Button("Corner seat") { addCorner(.cornerSeat, on: wall, atStart: atStart) }
+                    Button("Corner footrest") { addCorner(.cornerFootrest, on: wall, atStart: atStart) }
+                }
+            }
         } label: { Label("Add corner shelf / seat / footrest", systemImage: "triangle") }
         Button { addBench(on: wall, floating: true) } label: { Label("Add floating bench", systemImage: "rectangle.split.1x2") }
     }
@@ -577,7 +582,7 @@ struct ScanEditor: View {
                 if let pieceIndex = takeoff.pieces.firstIndex(where: { $0.id == selectedPiece && $0.wallID == wallID && $0.face == face }) {
                     pieceControls(pieceIndex, wall: wall)
                 } else {
-                    Text("Tap the blue tile on the wall to adjust it, or add a piece.")
+                    Text("Tap the blue tile on the wall to adjust it, or add tile.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
 
@@ -586,7 +591,7 @@ struct ScanEditor: View {
                     HStack(spacing: 10) {
                         Button {
                             if let p = takeoff.addPiece(on: wall, area: area, others: otherPieces, face: face) { selectedPiece = p.id }
-                        } label: { Label("Add piece", systemImage: "plus") }
+                        } label: { Label("Add tile", systemImage: "plus") }
                         if let id = selectedPiece, let p = takeoff.pieces.first(where: { $0.id == id }), p.toFt - p.fromFt > 1 {
                             Button { split(id) } label: { Label("Split", systemImage: "scissors") }
                         }
@@ -594,7 +599,7 @@ struct ScanEditor: View {
                             Button(role: .destructive) {
                                 takeoff.pieces.removeAll { $0.id == id }
                                 selectedPiece = takeoff.pieces.first { $0.wallID == wallID && $0.face == face }?.id
-                            } label: { Label("Remove piece", systemImage: "trash") }
+                            } label: { Label("Remove tile", systemImage: "trash") }
                         }
                     }
                     .fixedSize()
@@ -1885,7 +1890,7 @@ struct WallElevation: View {
         .frame(width: rect.width, height: rect.height)
         .overlay(alignment: .top) {
             if item.kind.isCorner {
-                Text(item.kind.name.replacingOccurrences(of: "Corner ", with: ""))
+                Text(item.kind.name.replacingOccurrences(of: "Corner ", with: "").capitalized)
                     .font(.system(size: 9, weight: .semibold)).foregroundStyle(stoneColor).fixedSize()
                     .offset(y: -12)
             }

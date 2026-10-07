@@ -268,7 +268,7 @@ bench) or Add a Wall → Framed Bench (then tap the wall it's against), and
 dragged on the wall face-on. Starting sizes are Admin settings
 (`Rates.scanDefaults`, `ScanItemDefaults`): benches 20″ high and 15″ deep;
 niche 13″ × 24″, 48″ up; window 36″ × 24″, 48″ up; corner shelf 9″ at 48″
-(another in the same corner 12″ higher), footrest 10″ at 18″, seat 18″ at
+(another in the same corner 12″ higher; the Add corner menu has a section per corner, named by the wall meeting it), footrest 10″ at 18″, seat 18″ at
 20″. A bench runs along the shower floor's side against its wall
 (`benchSpan`): wall to wall, or a framed bench to flush with the outside of
 the curb (the curb stone's width past the floor); a floating bench needs a
@@ -339,8 +339,8 @@ pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
 this area's tile blue, other areas' orange), the chosen wall face-on below
 (`WallElevation`: drag a piece's sides and top; ends snap to the inch and to
 corners, openings, the tub and other areas' ends; tap a door or window to
-take it off), height chips, From/To/Height typed in inches, Add piece,
-Split, Remove. A new piece takes the wall's longest free stretch at a
+take it off), height chips, From/To/Height typed in inches, Add tile,
+Split, Remove tile. A new piece takes the wall's longest free stretch at a
 starting height (backsplash 18″, tub 84″, else full height). The scanner
 only runs on a real LiDAR iPhone; in DEBUG builds without LiDAR a "Use a
 sample room" button loads `ScannedRoom.sample` to try the editor.
