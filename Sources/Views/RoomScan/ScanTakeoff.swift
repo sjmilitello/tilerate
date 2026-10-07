@@ -46,6 +46,125 @@ extension ScannedRoom {
         return atan2(sy, sx) / 4
     }
 
+    // MARK: Planned walls
+
+    /// The ceiling: the tallest scanned wall.
+    var ceilingFt: Double { walls.filter { !$0.planned }.map(\.heightFt).max() ?? 8 }
+
+    /// A planned wall lower than the ceiling: it has a cap. A planned wall
+    /// to the ceiling is a full wall (e.g. one with a shower door in it).
+    func isKneeWall(_ w: Wall) -> Bool { w.planned && w.heightFt < ceilingFt - 0.5 / 12 }
+
+    /// "Knee wall E", "New wall E" or "Wall A".
+    func name(of w: Wall) -> String {
+        isKneeWall(w) ? "Knee wall \(w.label)" : w.planned ? "New wall \(w.label)" : "Wall \(w.label)"
+    }
+
+    /// True when a shower door has a header over it: its top is below the
+    /// wall's top. Dragged up to the ceiling, it has none.
+    func hasHeader(_ door: Opening) -> Bool {
+        guard let w = door.wallID.flatMap({ wall($0) }) else { return false }
+        return door.bottomFt + door.heightFt < w.heightFt - 0.5 / 12
+    }
+
+    /// A shower door opening on a wall, centred at `along` and kept on the wall.
+    mutating func addShowerDoor(on w: Wall, along: Double, widthIn: Double, heightIn: Double) -> Opening {
+        let width = min(widthIn / 12, w.lengthFt)
+        let mid = min(max(along, width / 2), w.lengthFt - width / 2)
+        let o = Opening(kind: .showerDoor, wallID: w.id, widthFt: width, heightFt: min(heightIn / 12, w.heightFt),
+                        bottomFt: 0, alongFt: mid)
+        openings.append(o)
+        return o
+    }
+
+    /// The next free wall letter after the scanned ones.
+    var nextWallLabel: String {
+        let used = Set(walls.map(\.label))
+        for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" where !used.contains(String(ch)) { return String(ch) }
+        return "\(walls.count + 1)"
+    }
+
+    /// A point moved onto a nearby wall (within `pull` feet), else left alone.
+    func snappedToWall(_ p: Point, pull: Double = 0.6, except: UUID? = nil) -> Point {
+        var best = p, bestGap = pull
+        for w in walls where w.id != except {
+            let q = point(on: w, along: along(p, on: w))
+            let gap = ((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y)).squareRoot()
+            if gap < bestGap { best = q; bestGap = gap }
+        }
+        return best
+    }
+
+    /// The end of a new or moved planned wall: straightened to run square
+    /// with the room, its length rounded to the inch, and onto a wall it
+    /// nearly reaches.
+    func plannedEnd(from a: Point, toward b: Point, except: UUID? = nil) -> Point {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let length = (dx * dx + dy * dy).squareRoot()
+        guard length > 0.01 else { return b }
+        // Nearest of the room's four square directions.
+        let base = squaringAngle
+        let raw = atan2(dy, dx)
+        let step = Double.pi / 2
+        let a0 = base + ((raw - base) / step).rounded() * step
+        var len = (length * 12).rounded() / 12
+        // Stop on a wall it nearly reaches.
+        let dir = Point(x: cos(a0), y: sin(a0))
+        for w in walls where w.id != except {
+            let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+            let den = dir.x * ey - dir.y * ex
+            guard abs(den) > 1e-6 else { continue }
+            let t = ((w.start.x - a.x) * ey - (w.start.y - a.y) * ex) / den
+            let s = ((w.start.x - a.x) * dir.y - (w.start.y - a.y) * dir.x) / den
+            if t > 0.5, s >= -0.05, s <= 1.05, abs(t - len) < 0.5 { len = t }
+        }
+        return Point(x: a.x + dir.x * len, y: a.y + dir.y * len)
+    }
+
+    /// A planned wall from `a` to `b`, `heightIn` high and `thicknessIn` thick.
+    mutating func addPlannedWall(from a: Point, to b: Point, heightIn: Double, thicknessIn: Double) -> Wall {
+        let length = ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot()
+        let w = Wall(label: nextWallLabel, lengthFt: length, heightFt: heightIn / 12, start: a, end: b,
+                     planned: true, thicknessIn: thicknessIn)
+        walls.append(w)
+        return w
+    }
+
+    /// Moves one end of a planned wall, keeping its length up to date.
+    mutating func movePlannedEnd(_ id: UUID, start: Bool, to p: Point) {
+        guard let i = walls.firstIndex(where: { $0.id == id }), walls[i].planned else { return }
+        if start { walls[i].start = p } else { walls[i].end = p }
+        let w = walls[i]
+        walls[i].lengthFt = ((w.end.x - w.start.x) * (w.end.x - w.start.x) + (w.end.y - w.start.y) * (w.end.y - w.start.y)).squareRoot()
+    }
+
+    /// True when a wall's end isn't against another wall: an exposed end.
+    func isFreeEnd(of wall: Wall, start: Bool) -> Bool {
+        let p = start ? wall.start : wall.end
+        return !walls.contains { w in
+            w.id != wall.id && distanceToWall(p, w) < 0.3
+        }
+    }
+
+    /// "facing wall B": which wall a face of a planned wall looks toward.
+    func faceName(of wall: Wall, face: Int) -> String {
+        let dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y
+        let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+        var n = Point(x: -dy / l, y: dx / l)
+        if face == 1 { n = Point(x: -n.x, y: -n.y) }
+        let mid = Point(x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2)
+        var best: (String, Double)? = nil
+        for w in walls where w.id != wall.id {
+            let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+            let den = n.x * ey - n.y * ex
+            guard abs(den) > 1e-6 else { continue }
+            let t = ((w.start.x - mid.x) * ey - (w.start.y - mid.y) * ex) / den
+            let s = ((w.start.x - mid.x) * n.y - (w.start.y - mid.y) * n.x) / den
+            if t > 0.05, s >= 0, s <= 1, t < (best?.1 ?? .infinity) { best = (w.label, t) }
+        }
+        return best.map { "Side facing wall \($0.0)" } ?? (face == 0 ? "Side 1" : "Side 2")
+    }
+
     /// The bathtub's footprint, in square feet.
     var tubSqft: Double { ScannedRoom.area(tubOutline) }
 
@@ -85,7 +204,7 @@ extension AreaTakeoff {
     func sqft(of piece: Piece, in room: ScannedRoom) -> Double {
         let height = piece.heightIn / 12
         var area = max(0, piece.toFt - piece.fromFt) * height
-        for o in room.openings where o.wallID == piece.wallID && subtracted.contains(o.id) {
+        for o in room.openings where o.wallID == piece.wallID && (subtracted.contains(o.id) || o.kind == .showerDoor) {
             let s = room.span(of: o)
             let width = max(0, min(s.upperBound, piece.toFt) - max(s.lowerBound, piece.fromFt))
             let tall = max(0, min(o.bottomFt + o.heightFt, height) - max(o.bottomFt, 0))
@@ -122,6 +241,7 @@ extension AreaTakeoff {
     /// Openings that fall in one of this area's pieces: the ones to ask about.
     func openingsInPieces(of room: ScannedRoom) -> [ScannedRoom.Opening] {
         room.openings.filter { o in
+            guard o.kind != .showerDoor else { return false }
             let s = room.span(of: o)
             return pieces.contains { p in
                 p.wallID == o.wallID && s.upperBound > p.fromFt + 0.01 && s.lowerBound < p.toFt - 0.01
@@ -165,8 +285,9 @@ extension AreaTakeoff {
 
     /// A new piece on a wall: its longest stretch not already used by this
     /// area or another, at the starting height.
-    mutating func addPiece(on wall: ScannedRoom.Wall, area: Area?, others: [Piece]) -> Piece? {
-        let taken = (pieces + others).filter { $0.wallID == wall.id }.map { $0.fromFt...$0.toFt }.sorted { $0.lowerBound < $1.lowerBound }
+    mutating func addPiece(on wall: ScannedRoom.Wall, area: Area?, others: [Piece], face: Int = 0) -> Piece? {
+        let taken = (pieces + others).filter { $0.wallID == wall.id && $0.face == face }
+            .map { $0.fromFt...$0.toFt }.sorted { $0.lowerBound < $1.lowerBound }
         var gaps: [ClosedRange<Double>] = []
         var cursor = 0.0
         for r in taken {
@@ -176,7 +297,7 @@ extension AreaTakeoff {
         if wall.lengthFt - cursor > 0.25 { gaps.append(cursor...wall.lengthFt) }
         guard let gap = gaps.max(by: { ($0.upperBound - $0.lowerBound) < ($1.upperBound - $1.lowerBound) }) else { return nil }
         let piece = Piece(wallID: wall.id, fromFt: gap.lowerBound, toFt: gap.upperBound,
-                          heightIn: Self.startingHeight(for: area, wall: wall))
+                          heightIn: Self.startingHeight(for: area, wall: wall), face: face)
         pieces.append(piece)
         return piece
     }
@@ -250,8 +371,9 @@ extension AreaTakeoff {
         return n
     }
 
-    /// Puts the takeoff's square feet into the area.
-    func apply(_ room: ScannedRoom, to section: inout EstimateSection) {
+    /// Puts the takeoff's square feet into the area, and stone curbs, caps
+    /// and jambs on their own lines (`stoneLines`).
+    func apply(_ room: ScannedRoom, to section: inout EstimateSection, prices: StonePrices = .init()) {
         section.scanTakeoff = self
         func r2(_ v: Double) -> Double { (v * 100).rounded() / 100 }
         let walls = r2(wallsSqft(in: room))
@@ -270,6 +392,41 @@ extension AreaTakeoff {
         case nil:
             break
         }
+        let pieces = trimPieces(in: room, area: section.area, curbHeightIn: prices.curbHeightIn)
+        for kind in TrimKind.allCases {
+            let id = Self.stoneLineID(section.id, kind)
+            let stone = pieces.filter { $0.kind == kind && $0.stone }
+            let lf = (stone.reduce(0) { $0 + $1.lengthFt } * 100).rounded() / 100
+            // Caps and headers share a price; the line says which it has.
+            let headers = stone.contains { $0.key.hasPrefix("header:") }
+            let caps = stone.contains { !$0.key.hasPrefix("header:") }
+            let name = kind != .cap ? kind.stoneLine
+                : headers && caps ? "Stone wall cap & header" : headers ? "Stone header" : kind.stoneLine
+            if lf > 0 {
+                if let i = section.additionsLabor.firstIndex(where: { $0.id == id }) {
+                    section.additionsLabor[i].qty = lf
+                    // Renamed only while it still has a name the app gave it.
+                    if TrimKind.capLineNames.contains(section.additionsLabor[i].activity) {
+                        section.additionsLabor[i].activity = name
+                    }
+                } else {
+                    section.additionsLabor.append(AdditionItem(id: id, activity: name, qty: lf,
+                                                               rate: prices.rate(kind), unit: "lin ft"))
+                }
+            } else {
+                section.additionsLabor.removeAll { $0.id == id }
+            }
+        }
+    }
+
+    /// A stone line's id, the same every time for an area and kind, so
+    /// re-measuring updates it instead of adding another (its price, once
+    /// changed on the estimate, is kept).
+    static func stoneLineID(_ sectionID: UUID, _ kind: TrimKind) -> UUID {
+        var bytes = sectionID.uuid
+        bytes.14 ^= 0x5A
+        bytes.13 ^= UInt8(kind.salt)
+        return UUID(uuid: bytes)
     }
 
     /// One total when the walls share a tile; otherwise a wall each, named
@@ -285,7 +442,7 @@ extension AreaTakeoff {
         for wall in room.walls {
             let mine = pieces.filter { $0.wallID == wall.id }
             guard !mine.isEmpty else { continue }
-            let name = "Wall \(wall.label)"
+            let name = room.name(of: wall)
             let sq = (mine.reduce(0) { $0 + sqft(of: $1, in: room) } * 100).rounded() / 100
             let existing = section.walls.first { $0.name == name }
             named.append(TiledWall(id: existing?.id ?? UUID(), name: name, sqft: sq, tile: existing?.tile ?? fallback))
@@ -307,4 +464,188 @@ func feetAndInches(_ feet: Double) -> String {
     let ft = totalIn / 12, inch = totalIn % 12
     if ft == 0 { return "\(inch)″" }
     return inch == 0 ? "\(ft)′" : "\(ft)′ \(inch)″"
+}
+
+// MARK: - Curbs, wall caps and jambs
+
+/// What frames a shower or a knee wall: tile by default (part of the wall
+/// square feet), or stone, charged per linear foot on its own line.
+enum TrimKind: String, CaseIterable {
+    case curb, cap, jamb
+    var salt: Int { switch self { case .curb: 1; case .cap: 2; case .jamb: 3 } }
+    var stoneLine: String {
+        switch self {
+        case .curb: "Stone curb"
+        case .cap: "Stone wall cap"
+        case .jamb: "Stone jambs"
+        }
+    }
+    /// Names the app gives the cap line (headers are priced as caps).
+    static let capLineNames: Set<String> = ["Stone wall cap", "Stone header", "Stone wall cap & header"]
+}
+
+/// Stone prices per linear foot and the curb height, from Admin.
+struct StonePrices {
+    var curb: Double = 0
+    var cap: Double = 0
+    var jamb: Double = 0
+    var curbHeightIn: Double = 4
+    /// A new shower door opening's width and height (inches).
+    var doorWidthIn: Double = 30
+    var doorHeightIn: Double = 80
+    func rate(_ k: TrimKind) -> Double {
+        switch k { case .curb: curb; case .cap: cap; case .jamb: jamb }
+    }
+}
+
+extension StonePrices {
+    init(rates r: Rates) {
+        self.init(curb: r.stoneCurbPerLinFt, cap: r.stoneCapPerLinFt, jamb: r.stoneJambPerLinFt, curbHeightIn: r.curbHeightIn,
+                  doorWidthIn: r.showerDoorWidthIn, doorHeightIn: r.showerDoorHeightIn)
+    }
+}
+
+/// One curb, wall cap or jamb, worked out from the plan, with the owner's
+/// choice applied.
+struct TrimPiece: Identifiable, Equatable {
+    let key: String
+    let kind: TrimKind
+    let name: String
+    /// As measured from the plan.
+    let measuredFt: Double
+    var lengthFt: Double
+    var stone: Bool
+    var id: String { key }
+}
+
+extension AreaTakeoff {
+    /// The curb, wall caps and jambs this area has.
+    /// - Shower with its floor drawn on the plan: the curb along the floor's
+    ///   open sides (not against a wall or knee wall); a jamb at each end of
+    ///   the entry — from the curb to the top of the tile against a full
+    ///   wall, or a lower jamb (curb to cap) and an upper jamb (cap to the
+    ///   top of the tile) against a knee wall; and a cap on each knee wall.
+    /// - Other areas: a cap on each knee wall they tile, and a jamb on each
+    ///   of its open ends, floor to cap.
+    func trimPieces(in room: ScannedRoom, area: Area?, curbHeightIn: Double) -> [TrimPiece] {
+        var out: [(String, TrimKind, String, Double)] = []
+        let curb = (self.curbHeightIn ?? curbHeightIn) / 12
+        let ceiling = room.ceilingFt
+        // The top of the tile: this area's tallest tile on full walls, else the ceiling.
+        let top = pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? ceiling
+        let kneeWalls = room.walls.filter { w in room.isKneeWall(w) && pieces.contains { $0.wallID == w.id } }
+
+        if area == .shower, floor == .drawn, let r = floorRect {
+            let c = r.corners
+            func against(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point) -> ScannedRoom.Wall? {
+                let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+                let dx = b.x - a.x, dy = b.y - a.y, l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+                return room.walls.first { w in
+                    let wx = w.end.x - w.start.x, wy = w.end.y - w.start.y
+                    let wl = max((wx * wx + wy * wy).squareRoot(), 1e-9)
+                    let parallel = abs((dx * wx + dy * wy) / (l * wl)) > 0.95
+                    return parallel && room.distanceToWall(mid, w) < 0.4
+                }
+            }
+            let edges = (0..<4).map { (c[$0], c[($0 + 1) % 4], against(c[$0], c[($0 + 1) % 4])) }
+            let open = edges.indices.filter { edges[$0].2 == nil }
+            let width = open.reduce(0.0) { t, i in
+                let (a, b, _) = edges[i]
+                return t + ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot()
+            }
+            if width > 0 { out.append(("curb", .curb, "Curb", width)) }
+            // The entry's two ends: where an open edge meets a closed one.
+            let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+            for i in open {
+                for (corner, neighbor) in [(edges[i].0, (i + 3) % 4), (edges[i].1, (i + 1) % 4)] {
+                    guard let wall = edges[neighbor].2 else { continue }
+                    let side = sideName(corner, entry: (edges[i].0, edges[i].1), center: center)
+                    if room.isKneeWall(wall) {
+                        out.append(("jamb:\(side):lower", .jamb, "\(side.capitalized) lower jamb", max(0, wall.heightFt - curb)))
+                        out.append(("jamb:\(side):upper", .jamb, "\(side.capitalized) upper jamb", max(0, top - wall.heightFt)))
+                    } else {
+                        out.append(("jamb:\(side)", .jamb, "\(side.capitalized) jamb", max(0, top - curb)))
+                    }
+                }
+            }
+            for w in kneeWalls { out.append(("cap:\(w.id)", .cap, "Wall cap (knee wall \(w.label))", w.lengthFt)) }
+        }
+        if area == .shower {
+            // Each door opening in a wall this shower tiles: a curb across
+            // it, a jamb each side up to the header (or the top of the tile
+            // without one), and the header.
+            for d in showerDoors(in: room) {
+                guard let w = d.wallID.flatMap({ room.wall($0) }) else { continue }
+                let s = room.span(of: d)
+                let width = s.upperBound - s.lowerBound
+                let wallName = room.name(of: w)
+                let label = "door in " + wallName.prefix(1).lowercased() + wallName.dropFirst()
+                let wallTop = pieces.filter { $0.wallID == w.id }.map { $0.heightIn / 12 }.max() ?? top
+                let header = room.hasHeader(d)
+                let jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
+                out.append(("curb:\(d.id)", .curb, "Curb (\(label))", width))
+                for side in ["left", "right"] {
+                    out.append(("jamb:\(d.id):\(side)", .jamb, "\(side.capitalized) jamb (\(label))", max(0, jambTop - curb)))
+                }
+                if header { out.append(("header:\(d.id)", .cap, "Header (\(label))", width)) }
+            }
+        } else {
+            for w in kneeWalls {
+                out.append(("cap:\(w.id)", .cap, "Wall cap (knee wall \(w.label))", w.lengthFt))
+                for start in [true, false] where room.isFreeEnd(of: w, start: start) {
+                    out.append(("jamb:\(w.id):\(start ? "start" : "end")", .jamb, "Knee wall \(w.label) end jamb", w.heightFt))
+                }
+            }
+        }
+        return out.map { key, kind, name, ft in
+            let choice = trim.first { $0.key == key }
+            return TrimPiece(key: key, kind: kind, name: name, measuredFt: ft,
+                             lengthFt: choice?.lengthFt ?? ft, stone: choice?.stone ?? false)
+        }
+    }
+
+    /// Shower door openings in walls this area tiles.
+    func showerDoors(in room: ScannedRoom) -> [ScannedRoom.Opening] {
+        room.openings.filter { o in o.kind == .showerDoor && pieces.contains { $0.wallID == o.wallID } }
+    }
+
+    /// Where the curb goes: the shower floor's open sides, and across each
+    /// shower door.
+    func curbEdges(in room: ScannedRoom) -> [(ScannedRoom.Point, ScannedRoom.Point)] {
+        let doors: [(ScannedRoom.Point, ScannedRoom.Point)] = showerDoors(in: room).compactMap { d in
+            guard let w = d.wallID.flatMap({ room.wall($0) }) else { return nil }
+            let s = room.span(of: d)
+            return (room.point(on: w, along: s.lowerBound), room.point(on: w, along: s.upperBound))
+        }
+        guard floor == .drawn, let r = floorRect else { return doors }
+        let c = r.corners
+        return doors + (0..<4).compactMap { i in
+            let a = c[i], b = c[(i + 1) % 4]
+            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            let dx = b.x - a.x, dy = b.y - a.y, l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+            let closed = room.walls.contains { w in
+                let wx = w.end.x - w.start.x, wy = w.end.y - w.start.y
+                let wl = max((wx * wx + wy * wy).squareRoot(), 1e-9)
+                return abs((dx * wx + dy * wy) / (l * wl)) > 0.95 && room.distanceToWall(mid, w) < 0.4
+            }
+            return closed ? nil : (a, b)
+        }
+    }
+
+    /// "left" or "right", as you stand outside the shower facing in.
+    private func sideName(_ corner: ScannedRoom.Point, entry: (ScannedRoom.Point, ScannedRoom.Point),
+                          center: ScannedRoom.Point) -> String {
+        let mid = ScannedRoom.Point(x: (entry.0.x + entry.1.x) / 2, y: (entry.0.y + entry.1.y) / 2)
+        // Facing in: from the entry toward the middle of the floor.
+        let fx = center.x - mid.x, fy = center.y - mid.y
+        // Your right hand (the plan reads like a map, y down the screen).
+        let rx = -fy, ry = fx
+        return (corner.x - mid.x) * rx + (corner.y - mid.y) * ry > 0 ? "right" : "left"
+    }
+
+    /// Linear feet of stone of one kind.
+    func stoneFt(_ kind: TrimKind, in room: ScannedRoom, area: Area?, curbHeightIn: Double) -> Double {
+        trimPieces(in: room, area: area, curbHeightIn: curbHeightIn).filter { $0.kind == kind && $0.stone }
+            .reduce(0) { $0 + $1.lengthFt }
+    }
 }

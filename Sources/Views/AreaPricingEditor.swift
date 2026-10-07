@@ -45,6 +45,27 @@ struct AreaPricingSection: View {
     }
 }
 
+/// Admin → Curbs, caps, jambs & knee walls.
+struct KneeWallSection: View {
+    @Binding var rates: Rates
+
+    var body: some View {
+        Section {
+            AmountRow(title: "Stone curb, per linear ft", value: $rates.stoneCurbPerLinFt, prefix: "$")
+            AmountRow(title: "Stone wall cap or header, per linear ft", value: $rates.stoneCapPerLinFt, prefix: "$")
+            AmountRow(title: "Stone jambs, per linear ft", value: $rates.stoneJambPerLinFt, prefix: "$")
+            AmountRow(title: "Curb height", value: $rates.curbHeightIn, suffix: "in")
+            AmountRow(title: "Knee wall thickness", value: $rates.kneeWallThicknessIn, suffix: "in")
+            AmountRow(title: "Shower door width", value: $rates.showerDoorWidthIn, suffix: "in")
+            AmountRow(title: "Shower door height (to header)", value: $rates.showerDoorHeightIn, suffix: "in")
+        } header: {
+            Text("Curbs, caps, headers, jambs & new walls")
+        } footer: {
+            Text("Measured from a room scan. Curbs, wall caps and jambs are tile unless switched to stone on the plan; tile is part of the wall square feet, stone goes on its own line at these prices (still changeable on an estimate). Jambs run from the curb to the top of the tile, or to the header over a shower door. A shower door drawn on a wall starts at the door size here; drag it on the wall to change it, or to the ceiling for no header. A knee wall drawn on the plan starts at this thickness (4½″ is a 2×4 with backer board both sides).")
+        }
+    }
+}
+
 /// "$22/sq ft · min $1,500 · $14/sq ft from 50 to 99 sq ft"
 func ruleSummary(_ rule: SurfaceRule) -> String {
     func money(_ v: Double) -> String { v.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD").precision(.fractionLength(0...2))) }
@@ -216,6 +237,7 @@ private struct AmountRow: View {
     let title: String
     @Binding var value: Double
     var prefix: String = ""
+    var suffix: String = ""
     var wholeNumber: Bool = false
     @State private var text = ""
 
@@ -227,6 +249,7 @@ private struct AmountRow: View {
                     .keyboardType(wholeNumber ? .numberPad : .decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(minWidth: 70, maxWidth: 110)
+                if !suffix.isEmpty { Text(suffix).foregroundStyle(.secondary) }
             }
         }
         .onAppear { text = value == 0 ? "" : value.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) }

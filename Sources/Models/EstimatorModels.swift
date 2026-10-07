@@ -279,6 +279,20 @@ struct Rates: Codable, Equatable {
     /// surface priced the usual way has no entry: its numbers stay in `base`,
     /// `minimum` and the escalator fields. Read with `rule(for:)`.
     var surfaceRules: [PricedSurface: SurfaceRule] = [:]
+
+    /// A knee wall drawn on a room scan starts this thick (inches).
+    var kneeWallThicknessIn: Double = 4.5
+    /// Stone curbs, wall caps and jambs, per linear foot, each on its own
+    /// estimate line. Tile ones are part of the wall square feet.
+    var stoneCurbPerLinFt: Double = 0
+    var stoneCapPerLinFt: Double = 0
+    var stoneJambPerLinFt: Double = 0
+    /// A shower curb's height, for measuring jambs (inches).
+    var curbHeightIn: Double = 4
+    /// A shower door opening drawn on a wall starts this wide and this high
+    /// (inches); the header's underside is at its height.
+    var showerDoorWidthIn: Double = 30
+    var showerDoorHeightIn: Double = 80
     var defaultTemplateID: UUID = EstimateTemplate.classicID
 
     /// The layout with this id, else the default, else Classic.
@@ -476,6 +490,13 @@ extension Rates {
         c.read(.wording, into: &wording)
         c.read(.estimateTemplates, into: &estimateTemplates)
         c.read(.surfaceRules, into: &surfaceRules)
+        c.read(.kneeWallThicknessIn, into: &kneeWallThicknessIn)
+        c.read(.stoneCurbPerLinFt, into: &stoneCurbPerLinFt)
+        c.read(.stoneCapPerLinFt, into: &stoneCapPerLinFt)
+        c.read(.stoneJambPerLinFt, into: &stoneJambPerLinFt)
+        c.read(.curbHeightIn, into: &curbHeightIn)
+        c.read(.showerDoorWidthIn, into: &showerDoorWidthIn)
+        c.read(.showerDoorHeightIn, into: &showerDoorHeightIn)
         c.read(.defaultTemplateID, into: &defaultTemplateID)
         // The first starting list had one "Demolition" item; it became one
         // item per thing torn out. Its per-sq-ft price carries over to the
@@ -672,9 +693,20 @@ struct ScannedRoom: Codable, Hashable, Equatable {
         var heightFt: Double = 0
         var start = Point()
         var end = Point()
+        /// A wall that isn't built yet (a knee wall), drawn on the plan by
+        /// the owner. It has two faces, a top and two ends.
+        var planned: Bool = false
+        /// A planned wall's thickness, in inches.
+        var thicknessIn: Double = 0
     }
 
-    enum OpeningKind: String, Codable, CaseIterable { case door = "Door", window = "Window", opening = "Opening" }
+    enum OpeningKind: String, Codable, CaseIterable {
+        case door = "Door", window = "Window", opening = "Opening"
+        /// A shower's door opening, drawn by the owner: never tiled, with a
+        /// curb across its bottom, a jamb each side and a header over it
+        /// (none when it reaches the ceiling).
+        case showerDoor = "Shower door"
+    }
 
     struct Opening: Identifiable, Codable, Hashable, Equatable {
         var id = UUID()
@@ -711,6 +743,19 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
         var fromFt: Double
         var toFt: Double
         var heightIn: Double
+        /// Which face of the wall: 0, or 1 for the other face of a planned wall.
+        var face: Int = 0
+    }
+
+    /// The owner's choice for one curb, wall cap or jamb (worked out from
+    /// the plan, `TrimPiece`): tile, the default and part of the wall square
+    /// feet, or stone, charged per linear foot; and a length typed over the
+    /// measured one.
+    struct TrimChoice: Codable, Hashable, Equatable {
+        /// Which piece: "curb", "cap:<wall id>", "jamb:left", …
+        var key: String
+        var stone: Bool = false
+        var lengthFt: Double? = nil
     }
 
     /// A rectangle drawn on the plan: a corner, the two directions its
@@ -741,6 +786,10 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
     }
 
     var pieces: [Piece] = []
+    /// Choices for the area's curb, wall caps and jambs.
+    var trim: [TrimChoice] = []
+    /// The shower's curb height, in inches (nil: Admin's default).
+    var curbHeightIn: Double? = nil
     /// Openings taken off the pieces they fall in.
     var subtracted: [UUID] = []
     var floor: FloorSource = .none
@@ -1255,6 +1304,8 @@ extension ScannedRoom.Wall {
         c.read(.heightFt, into: &heightFt)
         c.read(.start, into: &start)
         c.read(.end, into: &end)
+        c.read(.planned, into: &planned)
+        c.read(.thicknessIn, into: &thicknessIn)
     }
 }
 
@@ -1277,6 +1328,8 @@ extension AreaTakeoff {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         c.read(.pieces, into: &pieces)
+        c.read(.trim, into: &trim)
+        c.read(.curbHeightIn, into: &curbHeightIn)
         c.read(.subtracted, into: &subtracted)
         c.read(.floor, into: &floor)
         c.read(.excludeTub, into: &excludeTub)
@@ -1298,6 +1351,18 @@ extension AreaTakeoff.Piece {
         c.read(.toFt, into: &to)
         c.read(.heightIn, into: &height)
         self.init(id: id, wallID: wallID, fromFt: from, toFt: to, heightIn: height)
+        c.read(.face, into: &face)
+    }
+}
+
+extension AreaTakeoff.TrimChoice {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var key = ""
+        c.read(.key, into: &key)
+        self.init(key: key)
+        c.read(.stone, into: &stone)
+        c.read(.lengthFt, into: &lengthFt)
     }
 }
 

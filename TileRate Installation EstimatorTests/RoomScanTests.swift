@@ -192,6 +192,172 @@ struct RoomScanTests {
         }
     }
 
+    @Test func aKneeWallDrawnFromAWallSnapsSquareAndCountsItsFacesAndCap() throws {
+        var r = room
+        // Drawn from wall C (bottom, y = 8) up toward the middle, a little crooked.
+        let start = r.snappedToWall(.init(x: 6, y: 7.8))
+        #expect(abs(start.y - 8) < 1e-9 && abs(start.x - 6) < 1e-9)
+        let end = r.plannedEnd(from: start, toward: .init(x: 6.3, y: 4.04))
+        #expect(abs(end.x - 6) < 1e-9 && abs(end.y - 4) < 1e-9)          // straightened, 4′ to the inch
+        let wall = r.addPlannedWall(from: start, to: end, heightIn: 42, thicknessIn: 4.5)
+        #expect(wall.label == "E" && wall.planned && abs(wall.lengthFt - 4) < 1e-9)
+        // Against wall C at its start; its far end is open.
+        #expect(!r.isFreeEnd(of: wall, start: true))
+        #expect(r.isFreeEnd(of: wall, start: false))
+        #expect(r.faceName(of: wall, face: 0).hasPrefix("Side facing wall") )
+        #expect(r.faceName(of: wall, face: 0) != r.faceName(of: wall, face: 1))
+
+        // The shower side and the room side, each 4′ × 42″, and the cap.
+        var t = AreaTakeoff()
+        let showerPiece = t.addPiece(on: wall, area: .shower, others: [], face: 0)
+        let shower = try #require(showerPiece)
+        #expect(shower.heightIn == 42)
+        let roomPiece = t.addPiece(on: wall, area: .shower, others: [], face: 1)
+        let roomSide = try #require(roomPiece)
+        #expect(roomSide.fromFt == 0 && roomSide.toFt == 4)
+        let none = t.addPiece(on: wall, area: .shower, others: [], face: 0)
+        #expect(none == nil)   // that face is full
+        #expect(abs(t.wallsSqft(in: r) - 28) < 1e-9)
+
+        // Outside a shower: a cap and a jamb at the open end, tile until switched to stone.
+        let trim = t.trimPieces(in: r, area: .wall, curbHeightIn: 4)
+        #expect(trim.map(\.name) == ["Wall cap (knee wall E)", "Knee wall E end jamb"])
+        #expect(abs(trim[0].lengthFt - 4) < 1e-9 && abs(trim[1].lengthFt - 3.5) < 1e-9)
+        #expect(trim.allSatisfy { !$0.stone })
+        var s = PricingCases.section(.wall, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
+        let prices = StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4)
+        t.apply(r, to: &s, prices: prices)
+        #expect(s.additionsLabor.isEmpty)                                // tile: no line
+        t.trim = [.init(key: trim[0].key, stone: true)]
+        t.apply(r, to: &s, prices: prices)
+        let cap = try #require(s.additionsLabor.first)
+        #expect(cap.activity == "Stone wall cap" && cap.qty == 4 && cap.rate == 25 && cap.unit == "lin ft")
+        s.additionsLabor[0].rate = 28                                    // changed on the estimate
+        t.trim[0].lengthFt = 4.5
+        t.apply(r, to: &s, prices: prices)
+        #expect(s.additionsLabor.count == 1 && s.additionsLabor[0].qty == 4.5 && s.additionsLabor[0].rate == 28)
+        t.trim = []
+        t.apply(r, to: &s, prices: prices)
+        #expect(s.additionsLabor.isEmpty)
+
+        // Moving its open end keeps its length right.
+        r.movePlannedEnd(wall.id, start: false, to: .init(x: 6, y: 5))
+        #expect(abs(r.wall(wall.id)!.lengthFt - 3) < 1e-9)
+        // It's saved with the room.
+        let back = try JSONDecoder().decode(ScannedRoom.self, from: JSONEncoder().encode(r))
+        #expect(back.wall(wall.id)?.planned == true && back.wall(wall.id)?.thicknessIn == 4.5)
+    }
+
+    @Test func anOpenThreeSidedShowerHasACurbAndTwoFullJambs() throws {
+        // Shower across the room's top end: walls D (left), A (back), B (right); open at y = 3.
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(D, 5, 8, 96), piece(A, 0, 9, 96), piece(B, 0, 3, 96)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 9, depthFt: 3)
+        let trim = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
+        #expect(Set(trim.map(\.name)) == ["Curb", "Left jamb", "Right jamb"])
+        #expect(abs(trim.first { $0.name == "Curb" }!.lengthFt - 9) < 1e-9)
+        #expect(trim.filter { $0.kind == .jamb }.allSatisfy { abs($0.lengthFt - (8 - 4.0 / 12)) < 1e-9 })
+        // Facing in (up the screen) from y = 3, x = 0 is on the left.
+        let left = try #require(trim.first { $0.name == "Left jamb" })
+        #expect(left.key == "jamb:left")
+    }
+
+    @Test func aShowerWithAKneeWallOnTheRightHasACapAndSplitJamb() throws {
+        // Shower in the A/B corner, 4′ along A and 3′ deep; a 42″ knee wall
+        // closes its left side (x = 5, from A down 3′). Entry: the bottom, y = 3.
+        var r = room
+        let knee = r.addPlannedWall(from: .init(x: 5, y: 0), to: .init(x: 5, y: 3), heightIn: 42, thicknessIn: 4.5)
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(r.walls[0], 5, 9, 96), piece(r.walls[1], 0, 3, 96),
+                    .init(wallID: knee.id, fromFt: 0, toFt: 3, heightIn: 42, face: 0)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 4, depthFt: 3)
+        let trim = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
+        let byName = Dictionary(uniqueKeysWithValues: trim.map { ($0.name, $0.lengthFt) })
+        // Standing outside (below) facing in (up): wall B (x = 9) is on the right, the knee wall on the left.
+        #expect(abs(byName["Curb"]! - 4) < 1e-9)
+        #expect(abs(byName["Right jamb"]! - (8 - 4.0 / 12)) < 1e-9)          // curb to the top of the tile
+        #expect(abs(byName["Left lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)   // curb to cap
+        #expect(abs(byName["Left upper jamb"]! - 4.5) < 1e-9)                // cap to the top of the tile
+        #expect(abs(byName["Wall cap (knee wall E)"]! - 3) < 1e-9)
+        #expect(trim.count == 5)
+
+        // Tile stops at 84″: the jambs follow; a 6″ curb shortens them.
+        t.pieces[0].heightIn = 84
+        t.pieces[1].heightIn = 84
+        t.curbHeightIn = 6
+        let lower = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
+        #expect(abs(lower.first { $0.name == "Right jamb" }!.lengthFt - 6.5) < 1e-9)
+        #expect(abs(lower.first { $0.name == "Left upper jamb" }!.lengthFt - 3.5) < 1e-9)
+
+        // Stone curb and cap, tile jambs: two lines.
+        t.trim = [.init(key: "curb", stone: true), .init(key: "cap:\(knee.id)", stone: true)]
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
+        t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
+        #expect(s.additionsLabor.map(\.activity) == ["Stone curb", "Stone wall cap"])
+        #expect(s.additionsLabor.map(\.qty) == [4, 3])
+        // Stone jambs: one line for all of them.
+        t.trim.append(.init(key: "jamb:right", stone: true))
+        t.trim.append(.init(key: "jamb:left:lower", stone: true))
+        t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
+        let jambs = try #require(s.additionsLabor.first { $0.activity == "Stone jambs" })
+        #expect(abs(jambs.qty - (6.5 + 3)) < 0.01 && jambs.rate == 20)
+    }
+
+    @Test func aFourWallShowerWithANewWallAndDoorHasACurbJambsAndHeader() throws {
+        // Shower in the A/B corner, 4′ along A and 3′ deep, closed by two new
+        // full walls: E on its left (x = 5) and F across its front (y = 3),
+        // with a 30″ × 80″ door in the middle of F.
+        var r = room
+        let left = r.addPlannedWall(from: .init(x: 5, y: 0), to: .init(x: 5, y: 3), heightIn: 96, thicknessIn: 4.5)
+        let front = r.addPlannedWall(from: .init(x: 5, y: 3), to: .init(x: 9, y: 3), heightIn: 96, thicknessIn: 4.5)
+        #expect(!r.isKneeWall(left) && !r.isKneeWall(front) && r.name(of: front) == "New wall F")
+        let door = r.addShowerDoor(on: front, along: 2, widthIn: 30, heightIn: 80)
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(r.walls[0], 5, 9, 96), piece(r.walls[1], 0, 3, 96),
+                    .init(wallID: left.id, fromFt: 0, toFt: 3, heightIn: 96, face: 0),
+                    .init(wallID: front.id, fromFt: 0, toFt: 4, heightIn: 96, face: 1)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 4, depthFt: 3)
+        let trim = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
+        let byName = Dictionary(uniqueKeysWithValues: trim.map { ($0.name, $0.lengthFt) })
+        // Every side of the floor is closed: the only curb is the door's. No caps on full walls.
+        #expect(Set(byName.keys) == ["Curb (door in new wall F)", "Left jamb (door in new wall F)",
+                                     "Right jamb (door in new wall F)", "Header (door in new wall F)"])
+        #expect(abs(byName["Curb (door in new wall F)"]! - 2.5) < 1e-9)
+        #expect(abs(byName["Left jamb (door in new wall F)"]! - (80.0 - 4) / 12) < 1e-9)
+        #expect(abs(byName["Header (door in new wall F)"]! - 2.5) < 1e-9)
+        #expect(t.curbEdges(in: r).count == 1)
+        // The door is never tiled: 4′ × 8′ less 2½′ × 6′ 8″.
+        #expect(abs(t.sqft(of: t.pieces[3], in: r) - (32 - 2.5 * 80 / 12)) < 1e-9)
+        #expect(t.openingsInPieces(of: r).allSatisfy { $0.kind != .showerDoor })
+
+        // A stone header is priced as a wall cap, on a line named for it.
+        t.trim = [.init(key: "header:\(door.id)", stone: true)]
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
+        t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
+        #expect(s.additionsLabor.map(\.activity) == ["Stone header"] && s.additionsLabor[0].qty == 2.5
+                && s.additionsLabor[0].rate == 25)
+
+        // Dragged to the ceiling: no header, and the jambs run to the top of the tile.
+        let i = r.openings.firstIndex { $0.id == door.id }!
+        r.openings[i].heightFt = 8
+        #expect(!r.hasHeader(r.openings[i]))
+        let open = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
+        #expect(!open.contains { $0.kind == .cap })
+        #expect(open.filter { $0.kind == .jamb }.allSatisfy { abs($0.lengthFt - (8 - 4.0 / 12)) < 1e-9 })
+        t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
+        #expect(s.additionsLabor.isEmpty)
+
+        // The door is saved with the room.
+        let back = try JSONDecoder().decode(ScannedRoom.self, from: JSONEncoder().encode(r))
+        #expect(back.openings.first { $0.id == door.id }?.kind == .showerDoor)
+    }
+
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {
         var r = EstimateRoom(name: "Bath")
         r.scan = room

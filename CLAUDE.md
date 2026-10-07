@@ -231,6 +231,47 @@ turns, never the saved points. Scan controls sit at the top of the screen so
 RoomPlan's 3D model at the bottom stays visible. While scanning, the screen stays awake at full
 brightness. Zooming the camera out isn't possible: RoomPlan always shows the
 1× camera and apps can't change it.
+Walls that aren't built yet (knee walls, owner asked 2026-10-07) are drawn
+on the plan from the editor's menu: drag from start to end; the start snaps
+onto a wall, the line straightens to the room's square directions, its
+length rounds to the inch and stops on a wall it nearly reaches
+(`snappedToWall`, `plannedEnd`). A planned wall (`Wall.planned`,
+`thicknessIn`, starting from `Rates.kneeWallThicknessIn`, 4½″, Admin → Knee
+walls) is dashed and as thick as it will be; it is saved with the scan, so
+every area sees it. It has two faces (`Piece.face`, named by the wall each
+looks toward). A planned wall as high as the ceiling is a full wall ("New
+wall F", `isKneeWall` false), with no cap. Its ends drag on the plan; height, thickness and
+length can be typed; it can be deleted.
+
+Shower entry trim (owner's rules, 2026-10-07): curbs, wall caps, jambs and
+headers (`TrimPiece`, from `AreaTakeoff.trimPieces`) are tile by default —
+part of the wall square feet, no adder — and each can be switched to stone
+(`AreaTakeoff.trim`, `TrimChoice`, with a length typed over the measured
+one). Stone goes on one estimate line per kind, per linear foot at Admin's
+prices: "Stone curb" (`stoneCurbPerLinFt`), "Stone jambs" — every jamb on
+one line (`stoneJambPerLinFt`) — and the wall cap line (`stoneCapPerLinFt`),
+which also takes headers (owner's call) and is named "Stone wall cap",
+"Stone header" or "Stone wall cap & header". The lines have fixed ids per
+area and kind (`stoneLineID`), so measuring again keeps a price changed on
+the estimate. For a shower with its floor drawn: the curb runs along the
+floor's open sides; a jamb at each end of the entry runs from the curb to the
+top of the tile against a full wall, or splits at a knee wall into a lower
+(curb to cap) and an upper jamb (cap to the top of the tile); each knee wall
+gets a cap. The top of the tile is the area's tallest piece on a scanned
+wall, else the ceiling. Left and right are as you stand outside facing in.
+Curb height: Admin (4″), per shower in the editor. A knee wall outside a
+shower: a cap and a jamb on each exposed end.
+
+A shower door (`OpeningKind.showerDoor`, saved with the scan) goes in any
+full wall a shower tiles — "Add a full wall with a shower door" draws a new
+full-height wall with one in its middle, or Door on a wall's panel. It
+starts at Admin's size (30″ × 80″, `showerDoorWidthIn`, `showerDoorHeightIn`)
+and is dragged on the wall face-on (sides, top, or along) or typed. It is
+never tiled — always taken off, no tick — and gives a curb across it, a left
+and right jamb from the curb to the header (to the top of the tile with no
+header), and a header as wide as the door. Dragged to the ceiling, it has no
+header (`hasHeader`). Pricing is per linear foot only; wall thickness and
+overhangs don't change it.
 `AreaTakeoff.apply` fills in the area's measurements; a shower or tub with a
 tile per wall gets a wall each named "Wall A"… keeping its tile.
 

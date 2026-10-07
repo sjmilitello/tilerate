@@ -161,6 +161,7 @@ struct AdminSheet: View {
                 }
 
                 AreaPricingSection(rates: $rates)
+                KneeWallSection(rates: $rates)
 
                 Section("Tile Type Adders ($/sqft)") {
                     typeRow(.ceramic, "Ceramic")

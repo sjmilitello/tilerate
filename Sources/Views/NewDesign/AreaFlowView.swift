@@ -369,9 +369,19 @@ struct AreaFlowView: View {
                 ScanEditor(room: scan, area: section.area,
                            title: "\(roomName.isEmpty ? "" : roomName + " · ")\(section.area?.rawValue ?? "Area")",
                            takeoff: takeoffForEditor(scan), others: otherScanAreas,
-                           onUse: { t in
+                           kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
+                           stone: StonePrices(rates: store.pricingRates),
+                           onUse: { t, room in
+                               // Walls drawn in belong to the scan, for every area using it.
+                               if room != scan {
+                                   if section.roomScan != nil {
+                                       sec.wrappedValue.roomScan = room
+                                   } else if let r = roomIndex {
+                                       store.doc.rooms[r].scan = room
+                                   }
+                               }
                                var s = section
-                               t.apply(scan, to: &s)
+                               t.apply(room, to: &s, prices: StonePrices(rates: store.pricingRates))
                                sec.wrappedValue = s
                            },
                            onRescan: {
