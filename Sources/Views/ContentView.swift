@@ -1749,7 +1749,8 @@ struct ContentView: View {
             forceSinglePage: exportForceSinglePage,
             document: store.doc,
             rates: store.pricingRates,
-            total: estimateTotals().grandTotal
+            total: estimateTotals().grandTotal,
+            templateID: EstimateTemplate.chosenID
         )
         
         saved.add(e)
@@ -2108,14 +2109,13 @@ struct ContentView: View {
         // 5) Build and render the PDF
         do {
             let (data, url) = try EstimatePDF.make(
-                document: store.doc,
                 totals: totals,
+                template: store.pricingRates.template(EstimateTemplate.chosenID),
                 biz: biz,
                 cust: cust,
                 logo: dynamicLogo,
                 estimateNumber: nextNumber,
-                forceSinglePage: exportForceSinglePage,
-                fallbackDescription: buildDescription(fromState: store.state)
+                forceSinglePage: exportForceSinglePage
             )
 
             self.showExportForm = false

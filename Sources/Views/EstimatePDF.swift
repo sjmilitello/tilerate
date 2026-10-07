@@ -1,7 +1,9 @@
 import UIKit
 
 /// Builds the estimate PDF. Both designs call this, so they produce the same
-/// document from the same estimate.
+/// document from the same estimate. `blocks` feeds `ExportedFormPDFView`, the
+/// PDF as drawn before layouts, kept only as the reference the Classic layout
+/// is checked against (EstimateLayoutTests).
 enum EstimatePDF {
     /// One block per section: its sentence, its installation price and its
     /// labor and material lines.
@@ -14,39 +16,27 @@ enum EstimatePDF {
         }
     }
 
-    /// Renders the PDF and writes it to a temporary file for sharing.
-    /// `fallbackDescription` is used when the estimate has no sections.
-    static func make(document: EstimateDocument,
-                     totals: EstimateTotals,
+    /// The PDF's view for a layout.
+    static func view(totals: EstimateTotals, template: EstimateTemplate, biz: PartyInfo, cust: PartyInfo,
+                     logo: UIImage?, estimateNumber: Int, date: Date = Date()) -> TemplatePDFView {
+        TemplatePDFView(template: template, biz: biz, cust: cust, estimateNumber: estimateNumber, date: date,
+                        logo: logo, rows: estimateRows(totals, template: template),
+                        subtotal: totals.subtotal, shipping: totals.shipping,
+                        taxPercent: totals.taxPercent, taxBase: totals.taxableBase)
+    }
+
+    /// Renders the PDF in the given layout and writes it to a temporary file
+    /// for sharing.
+    static func make(totals: EstimateTotals,
+                     template: EstimateTemplate,
                      biz: PartyInfo,
                      cust: PartyInfo,
                      logo: UIImage?,
                      estimateNumber: Int,
-                     forceSinglePage: Bool,
-                     fallbackDescription: String) throws -> (data: Data, url: URL) {
-        let blocks = blocks(totals)
-        let sentences = totals.sections.map(\.sentence)
-        let description = sentences.isEmpty ? fallbackDescription : sentences.joined(separator: "  •  ")
-
-        let pdfRoot = ExportedFormPDFView(
-            biz: biz,
-            cust: cust,
-            estimateNumber: estimateNumber,
-            date: Date(),
-            descriptionLine: description,
-            forceSinglePage: forceSinglePage,
-            logo: logo,
-            subtotal: totals.subtotal,
-            shipping: totals.shipping,
-            taxPercent: totals.taxPercent,
-            taxBase: totals.taxableBase,
-            additionalLabor: totals.sections.flatMap(\.laborItems),
-            materials: totals.sections.flatMap(\.materialItems),
-            blocks: blocks
-        )
-
+                     forceSinglePage: Bool) throws -> (data: Data, url: URL) {
         let data = try PDFGenerator.render(
-            view: pdfRoot,
+            view: view(totals: totals, template: template, biz: biz, cust: cust, logo: logo,
+                       estimateNumber: estimateNumber),
             pageSize: CGSize(width: 612, height: 792),
             forceSinglePage: forceSinglePage
         )

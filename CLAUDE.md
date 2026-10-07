@@ -216,6 +216,29 @@ description has its own Reset to standard, besides "Back to the standard
 wording" for all of it. An edit inside the tile description can't become a
 sentence template; that is changed under Each tile.
 
+## Estimate layouts (roadmap Phase 4)
+
+From 2026-10-07 the PDF is drawn in a layout (`EstimateTemplate`, kept in
+`Rates.estimateTemplates` with `defaultTemplateID`, so a saved estimate keeps
+its layouts; `SavedEstimate.templateID` and `EstimateTemplate.chosenID`
+(UserDefaults "export.templateID") record which one an estimate uses). A
+layout sets the title, the detail (every line / labor and materials per area
+/ one price per area), the QTY and RATE columns, grouping of price list items
+named "Group: name" into one line per group (taxable and untaxed never share
+a line; a group of one stays as the item), the accent colour, a "valid until"
+date, text sections after the totals, and the signature lines. Starters:
+Classic (the old PDF, unchanged and not grouped), Summary, Labor & Materials,
+Proposal (its scope/not included/payment wording is placeholder for the owner
+to edit). Admin → Estimate layouts edits them, with a preview; the new
+design's review screen picks one per estimate; the classic design uses the
+chosen or default layout.
+
+`estimateRows` (EstimateLayout.swift) builds the rows from `EstimateTotals`;
+every layout's rows add up to the same subtotal (a test checks).
+`TemplatePDFView` draws them. `ExportedFormPDFView` is the PDF as drawn
+before layouts, kept only so `EstimateLayoutTests` can check page by page that
+Classic is pixel-identical to it.
+
 ## The floor escalator
 
 Owner's rule: a floor of 50 sq ft or less is the floor minimum ($1,500). From

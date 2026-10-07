@@ -285,6 +285,8 @@ struct AdminSheet: View {
 
                 WordingSection(wording: $rates.wording)
 
+                EstimateLayoutsSection(rates: $rates)
+
                 PricingEngineSection()
             }
             .scrollDismissesKeyboard(.immediately)

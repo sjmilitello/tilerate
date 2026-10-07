@@ -31,6 +31,7 @@ struct EstimateReviewView: View {
     @State private var pdf: NDPDF? = nil
     @State private var notice: String? = nil
     @State private var editingWording: EstimateSection? = nil
+    @AppStorage(EstimateTemplate.chosenKey) private var chosenLayout: String = ""
 
     private struct NDPDF: Identifiable {
         let id = UUID()
@@ -245,6 +246,22 @@ struct EstimateReviewView: View {
         NDCard {
             VStack(alignment: .leading, spacing: 12) {
                 NDLabel("Charges")
+                let layouts = store.pricingRates.estimateTemplates
+                let current = store.pricingRates.template(UUID(uuidString: chosenLayout))
+                LabeledContent("PDF layout") {
+                    Menu {
+                        ForEach(layouts) { t in
+                            Button(t.id == current.id ? "✓ \(t.name)" : t.name) { chosenLayout = t.id.uuidString }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(current.name)
+                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 12))
+                        }
+                        .foregroundStyle(ND.link)
+                    }
+                }
+                .font(.system(size: 15))
                 LabeledContent("Tax on taxable materials (%)") {
                     NDNumberField(placeholder: "0", value: $taxPercent, alignment: .trailing).frame(width: 100)
                 }
@@ -325,14 +342,13 @@ struct EstimateReviewView: View {
         let number = estimateCounter + 1
         do {
             let (data, url) = try EstimatePDF.make(
-                document: store.doc,
                 totals: totals,
+                template: store.pricingRates.template(EstimateTemplate.chosenID),
                 biz: biz,
                 cust: cust,
                 logo: decodeBase64Image(bizLogoBase64),
                 estimateNumber: number,
-                forceSinglePage: forceSinglePage,
-                fallbackDescription: ""
+                forceSinglePage: forceSinglePage
             )
             estimateCounter = number
             pdf = NDPDF(data: data, url: url)

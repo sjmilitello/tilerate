@@ -269,6 +269,95 @@ struct Rates: Codable, Equatable {
     /// How each area is worded on the estimate. Kept with the rates so a
     /// saved estimate keeps the wording it was sent with.
     var wording = WordingTemplates()
+
+    /// The estimate layouts (roadmap Phase 4), and the one new estimates use.
+    /// Kept with the rates so a saved estimate keeps the layout it was sent in.
+    var estimateTemplates: [EstimateTemplate] = EstimateTemplate.starters
+    var defaultTemplateID: UUID = EstimateTemplate.classicID
+
+    /// The layout with this id, else the default, else Classic.
+    func template(_ id: UUID?) -> EstimateTemplate {
+        estimateTemplates.first { $0.id == id }
+            ?? estimateTemplates.first { $0.id == defaultTemplateID }
+            ?? estimateTemplates.first
+            ?? .classic
+    }
+}
+
+/// How an estimate is laid out as a PDF (roadmap Phase 4). Classic is the
+/// layout the app always used; the owner can change it or add others.
+struct EstimateTemplate: Identifiable, Codable, Equatable, Hashable {
+    enum Detail: String, Codable, CaseIterable, Identifiable {
+        case everyLine = "Every line"
+        case laborAndMaterials = "Labor and materials per area"
+        case areaTotals = "One price per area"
+        var id: String { rawValue }
+    }
+
+    enum Accent: String, Codable, CaseIterable, Identifiable {
+        case blue = "Blue", teal = "Teal", green = "Green", slate = "Slate", burgundy = "Burgundy", black = "Black"
+        var id: String { rawValue }
+    }
+
+    /// A titled block of text printed after the totals: terms, exclusions,
+    /// warranty, notes.
+    struct TextSection: Identifiable, Codable, Equatable, Hashable {
+        var id = UUID()
+        var heading: String = ""
+        var body: String = ""
+    }
+
+    var id = UUID()
+    var name: String = "New layout"
+    /// The big word at the top: "Estimate", "Proposal", "Quote".
+    var title: String = "Estimate"
+    var detail: Detail = .everyLine
+    /// The QTY and RATE columns.
+    var showQuantities: Bool = true
+    /// Price list items named "Group: name" (such as "Demo: Tile walls") as
+    /// one line per group instead of one line each. The total is the same.
+    var groupPriceList: Bool = false
+    /// Under a grouped line, the items in it.
+    var listGroupedItems: Bool = true
+    var accent: Accent = .blue
+    /// "Valid until …", this many days after the estimate's date; 0 = not shown.
+    var validForDays: Int = 0
+    var sections: [TextSection] = []
+    var showSignature: Bool = true
+
+    static let classicID = UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1A01")!
+
+    /// The layout chosen for the estimate being worked on (nil: the default).
+    /// Saved with it as `SavedEstimate.templateID`.
+    static let chosenKey = "export.templateID"
+    static var chosenID: UUID? {
+        get { UserDefaults.standard.string(forKey: chosenKey).flatMap(UUID.init(uuidString:)) }
+        set { UserDefaults.standard.set(newValue?.uuidString, forKey: chosenKey) }
+    }
+
+    /// Today's layout, unchanged.
+    static let classic = EstimateTemplate(id: classicID, name: "Classic")
+
+    static let starters: [EstimateTemplate] = [
+        classic,
+        EstimateTemplate(id: UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1A02")!, name: "Summary",
+                         detail: .areaTotals, showQuantities: false, groupPriceList: true),
+        EstimateTemplate(id: UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1A03")!, name: "Labor & Materials",
+                         detail: .laborAndMaterials, showQuantities: false, groupPriceList: true),
+        EstimateTemplate(id: UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1A04")!, name: "Proposal",
+                         title: "Proposal", detail: .areaTotals, showQuantities: false, groupPriceList: true,
+                         accent: .slate, validForDays: 30, sections: [
+                            TextSection(id: UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1B01")!,
+                                        heading: "Scope of work",
+                                        body: "Tile installation as described above, including surface preparation, setting, grouting and cleanup."),
+                            TextSection(id: UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1B02")!,
+                                        heading: "Not included",
+                                        body: "Plumbing, electrical, drywall repair, painting and permits, unless listed above."),
+                            TextSection(id: UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1B03")!,
+                                        heading: "Payment",
+                                        body: "50% deposit to schedule the work; balance due on completion."),
+                         ]),
+    ]
 }
 
 /// The estimate's wording, as templates the owner can edit (roadmap Phase 3).
@@ -379,6 +468,8 @@ extension Rates {
         c.read(.heatingSystems, into: &heatingSystems)
         c.read(.priceList, into: &priceList)
         c.read(.wording, into: &wording)
+        c.read(.estimateTemplates, into: &estimateTemplates)
+        c.read(.defaultTemplateID, into: &defaultTemplateID)
         // The first starting list had one "Demolition" item; it became one
         // item per thing torn out. Its per-sq-ft price carries over to the
         // per-sq-ft ones; fixtures priced each start at $0.
@@ -620,6 +711,9 @@ struct SavedEstimate: Identifiable, Codable, Equatable {
     var rates: Rates? = nil
     /// The grand total when it was saved; nil before 2026-10-05.
     var total: Double? = nil
+    /// The layout it was sent in (one of its rates' `estimateTemplates`);
+    /// nil for estimates saved before 2026-10-07, which used Classic.
+    var templateID: UUID? = nil
 }
 
 /// Where the estimate being worked on is priced from, when it was opened
@@ -952,6 +1046,7 @@ extension SavedEstimate {
                   forceSinglePage: forceSinglePage, document: document)
         c.read(.rates, into: &rates)
         c.read(.total, into: &total)
+        c.read(.templateID, into: &templateID)
     }
 }
 
@@ -981,5 +1076,33 @@ extension CustomWording {
         c.read(.text, into: &text)
         c.read(.generatedFrom, into: &generatedFrom)
         self.init(text: text, generatedFrom: generatedFrom)
+    }
+}
+
+extension EstimateTemplate {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.name, into: &name)
+        c.read(.title, into: &title)
+        c.read(.detail, into: &detail)
+        c.read(.showQuantities, into: &showQuantities)
+        c.read(.groupPriceList, into: &groupPriceList)
+        c.read(.listGroupedItems, into: &listGroupedItems)
+        c.read(.accent, into: &accent)
+        c.read(.validForDays, into: &validForDays)
+        c.read(.sections, into: &sections)
+        c.read(.showSignature, into: &showSignature)
+    }
+}
+
+extension EstimateTemplate.TextSection {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.heading, into: &heading)
+        c.read(.body, into: &body)
     }
 }

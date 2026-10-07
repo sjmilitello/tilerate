@@ -424,7 +424,8 @@ enum NDEstimateActions {
             forceSinglePage: d.bool(forKey: "export.forceSinglePage"),
             document: store.doc,
             rates: store.pricingRates,
-            total: totals.grandTotal
+            total: totals.grandTotal,
+            templateID: EstimateTemplate.chosenID
         ))
     }
 

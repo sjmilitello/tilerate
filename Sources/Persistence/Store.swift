@@ -166,12 +166,14 @@ final class Store: ObservableObject {
         state  = EstimatorState()
         doc    = EstimateDocument()
         opened = nil
+        EstimateTemplate.chosenID = nil
     }
 
     /// Puts a saved estimate's document in place, priced as it was saved.
     func open(_ e: SavedEstimate) {
         doc = e.document
         opened = OpenedEstimatePricing(savedAt: e.createdAt, rates: e.rates)
+        EstimateTemplate.chosenID = e.templateID
     }
 
     /// From now on the estimate is priced with the current rates.
