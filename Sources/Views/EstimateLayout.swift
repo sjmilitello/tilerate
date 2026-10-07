@@ -20,6 +20,8 @@ struct EstimateRow: Identifiable {
     let description: String
     /// Smaller lines under the description: the items in a grouped line.
     var details: [String] = []
+    /// The area whose wording `description` is, so a preview can edit it.
+    var sectionID: UUID? = nil
     let qty: String
     let rate: Double
     let amount: Double
@@ -81,13 +83,14 @@ func estimateRows(_ totals: EstimateTotals, template: EstimateTemplate) -> [Esti
         switch template.detail {
         case .everyLine:
             rows.append(EstimateRow(style: .block, title: "Installation", description: item.sentence,
-                                    qty: "1", rate: item.core.total, amount: item.core.total))
+                                    sectionID: item.section.id, qty: "1", rate: item.core.total, amount: item.core.total))
             rows += labor
             rows += materials
         case .laborAndMaterials:
             let laborTotal = item.core.total + item.labor
             rows.append(EstimateRow(style: .block, title: "Installation", description: item.sentence,
-                                    details: labor.map(\.description), qty: "1", rate: laborTotal, amount: laborTotal))
+                                    details: labor.map(\.description), sectionID: item.section.id,
+                                    qty: "1", rate: laborTotal, amount: laborTotal))
             if !item.materialItems.isEmpty {
                 rows.append(EstimateRow(style: .block, title: "Materials", description: "",
                                         details: materials.map(\.description), qty: "1", rate: item.mats,
@@ -95,7 +98,7 @@ func estimateRows(_ totals: EstimateTotals, template: EstimateTemplate) -> [Esti
             }
         case .areaTotals:
             rows.append(EstimateRow(style: .block, title: "Installation", description: item.sentence,
-                                    details: (labor + materials).map(\.description),
+                                    details: (labor + materials).map(\.description), sectionID: item.section.id,
                                     qty: "1", rate: item.subtotal, amount: item.subtotal))
         }
     }

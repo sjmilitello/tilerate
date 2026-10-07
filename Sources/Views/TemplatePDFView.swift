@@ -34,6 +34,9 @@ struct TemplatePDFView: View {
     let taxBase: Double
 
     var style: PDFStyle = .standard
+    /// On screen only: tapping an area's description edits its wording.
+    /// Nil when drawing the PDF itself.
+    var onEditWording: ((UUID) -> Void)? = nil
 
     private var taxAmount: Double { taxBase * (taxPercent / 100.0) }
     private var grandTotal: Double { subtotal + shipping + taxAmount }
@@ -190,10 +193,24 @@ struct TemplatePDFView: View {
             VStack(alignment: .leading, spacing: style.spacing.innerDescriptionSpacing) {
                 Text(row.title).font(style.fonts.rowTitle)
                 if !row.description.isEmpty {
-                    Text(row.description)
-                        .font(style.fonts.rowBody)
-                        .foregroundStyle(style.colors.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let onEditWording, let id = row.sectionID {
+                        Button { onEditWording(id) } label: {
+                            (Text(row.description) + Text("  ") + Text(Image(systemName: "pencil")).foregroundColor(.blue))
+                                .font(style.fonts.rowBody)
+                                .foregroundStyle(style.colors.textPrimary)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(4)
+                                .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+                                .padding(-4)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text(row.description)
+                            .font(style.fonts.rowBody)
+                            .foregroundStyle(style.colors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 if !row.details.isEmpty { details(row) }
             }

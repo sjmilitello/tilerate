@@ -18,11 +18,13 @@ enum EstimatePDF {
 
     /// The PDF's view for a layout.
     static func view(totals: EstimateTotals, template: EstimateTemplate, biz: PartyInfo, cust: PartyInfo,
-                     logo: UIImage?, estimateNumber: Int, date: Date = Date()) -> TemplatePDFView {
+                     logo: UIImage?, estimateNumber: Int, date: Date = Date(),
+                     onEditWording: ((UUID) -> Void)? = nil) -> TemplatePDFView {
         TemplatePDFView(template: template, biz: biz, cust: cust, estimateNumber: estimateNumber, date: date,
                         logo: logo, rows: estimateRows(totals, template: template),
                         subtotal: totals.subtotal, shipping: totals.shipping,
-                        taxPercent: totals.taxPercent, taxBase: totals.taxableBase)
+                        taxPercent: totals.taxPercent, taxBase: totals.taxableBase,
+                        onEditWording: onEditWording)
     }
 
     /// Renders the PDF in the given layout and writes it to a temporary file

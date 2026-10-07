@@ -30,8 +30,7 @@ struct EstimateReviewView: View {
     @State private var askForCustomer = false
     @State private var pdf: NDPDF? = nil
     @State private var notice: String? = nil
-    @State private var editingWording: EstimateSection? = nil
-    @AppStorage(EstimateTemplate.chosenKey) private var chosenLayout: String = ""
+    @State private var showPreview = false
 
     private struct NDPDF: Identifiable {
         let id = UUID()
@@ -80,12 +79,13 @@ struct EstimateReviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(ND.ground, for: .navigationBar)
         .sheet(isPresented: $showCustomer) { NDCustomerSheet() }
-        .sheet(item: $editingWording) { section in
-            NDWordingSheet(section: section, wording: store.pricingRates.wording,
-                           onSave: { text in
-                               updateSection(section.id) { $0.setWording(text, wording: store.pricingRates.wording) }
-                           },
-                           onUseGenerated: { updateSection(section.id) { $0.customWording = nil } })
+        .fullScreenCover(isPresented: $showPreview) {
+            NDEstimatePreview(store: store, totals: { totals }, biz: business, cust: customer,
+                              logo: decodeBase64Image(bizLogoBase64), estimateNumber: estimateCounter + 1,
+                              forceSinglePage: forceSinglePage) { data, url in
+                estimateCounter += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { presentPDFShareSheet(url: url) }
+            }
         }
         .sheet(item: $pdf) { p in
             NavigationStack {
@@ -189,13 +189,10 @@ struct EstimateReviewView: View {
                 }
                 .font(.system(size: 14, weight: .semibold))
             }
-            Button {
-                editingWording = section
-            } label: {
-                Label(w.isCustom ? "Edit wording (your own)" : "Edit wording", systemImage: "pencil")
-                    .font(.system(size: 14, weight: .semibold))
+            if w.isCustom {
+                Label("Your own wording · change it on the preview", systemImage: "pencil")
+                    .font(.system(size: 13)).foregroundStyle(ND.secondary)
             }
-            .foregroundStyle(ND.link)
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 14)
@@ -246,22 +243,6 @@ struct EstimateReviewView: View {
         NDCard {
             VStack(alignment: .leading, spacing: 12) {
                 NDLabel("Charges")
-                let layouts = store.pricingRates.estimateTemplates
-                let current = store.pricingRates.template(UUID(uuidString: chosenLayout))
-                LabeledContent("PDF layout") {
-                    Menu {
-                        ForEach(layouts) { t in
-                            Button(t.id == current.id ? "✓ \(t.name)" : t.name) { chosenLayout = t.id.uuidString }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(current.name)
-                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 12))
-                        }
-                        .foregroundStyle(ND.link)
-                    }
-                }
-                .font(.system(size: 15))
                 LabeledContent("Tax on taxable materials (%)") {
                     NDNumberField(placeholder: "0", value: $taxPercent, alignment: .trailing).frame(width: 100)
                 }
@@ -334,26 +315,18 @@ struct EstimateReviewView: View {
 
     // MARK: PDF
 
+    private var business: PartyInfo {
+        PartyInfo(name: bizName, address: bizAddress, address2: bizAddress2,
+                  cityStateZip: bizCityStateZip, phone: bizPhone, email: bizEmail)
+    }
+
+    private var customer: PartyInfo {
+        PartyInfo(name: custName, address: custAddress, address2: custAddress2,
+                  cityStateZip: custCityStateZip, phone: custPhone, email: custEmail)
+    }
+
+    /// Opens the finished estimate, in each layout, to choose one and share it.
     private func createPDF() {
-        let biz = PartyInfo(name: bizName, address: bizAddress, address2: bizAddress2,
-                            cityStateZip: bizCityStateZip, phone: bizPhone, email: bizEmail)
-        let cust = PartyInfo(name: custName, address: custAddress, address2: custAddress2,
-                             cityStateZip: custCityStateZip, phone: custPhone, email: custEmail)
-        let number = estimateCounter + 1
-        do {
-            let (data, url) = try EstimatePDF.make(
-                totals: totals,
-                template: store.pricingRates.template(EstimateTemplate.chosenID),
-                biz: biz,
-                cust: cust,
-                logo: decodeBase64Image(bizLogoBase64),
-                estimateNumber: number,
-                forceSinglePage: forceSinglePage
-            )
-            estimateCounter = number
-            pdf = NDPDF(data: data, url: url)
-        } catch {
-            notice = "The PDF couldn't be created: \(error.localizedDescription)"
-        }
+        showPreview = true
     }
 }

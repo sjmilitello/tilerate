@@ -252,6 +252,14 @@ to edit). Admin → Estimate layouts edits them, with a preview; the new
 design's review screen picks one per estimate; the classic design uses the
 chosen or default layout.
 
+In the new design, Create PDF opens `NDEstimatePreview`: the estimate drawn
+live in each layout, swiped through left and right, starting on the one
+chosen for the estimate. Tapping an area's description (`EstimateRow.sectionID`,
+`TemplatePDFView.onEditWording`, nil when drawing the PDF) opens the Edit
+wording sheet; per-estimate wording is edited there, not on the review
+screen. "Use this layout" chooses it for this estimate; "Make default" sets
+`Rates.defaultTemplateID` (★); Share makes the PDF in the layout on screen.
+
 `estimateRows` (EstimateLayout.swift) builds the rows from `EstimateTotals`;
 every layout's rows add up to the same subtotal (a test checks).
 `TemplatePDFView` draws them. `ExportedFormPDFView` is the PDF as drawn
