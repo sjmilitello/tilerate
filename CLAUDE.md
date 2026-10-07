@@ -133,6 +133,7 @@ then `-p com.apple.BiometricKit.enrollmentChanged` to enrol, and
 | Concern | Place |
 |---|---|
 | Pricing — every charge on an estimate | `Sources/Pricing/Pricing.swift` |
+| The pricing scheme engine (roadmap Phase 2) | `Sources/Pricing/PricingScheme.swift` |
 | Radiant heat systems, and their Admin editor | `Sources/Models/HeatingSystems.swift`, `Sources/Views/HeatingSystemEditor.swift` |
 | Rates, measurements, estimate model | `Sources/Models/EstimatorModels.swift` |
 | Saving and loading | `Sources/Persistence/Store.swift` |
@@ -150,6 +151,32 @@ The scheme is **TileRate Installation Estimator**. The second scheme,
 `Integrity Tile Estimator`, and `Integrity Tile Estimator 2.xcodeproj` are the
 app's earlier names. `Backups/` holds two February 2026 snapshots and is
 git-ignored.
+
+## The pricing scheme engine (roadmap Phase 2)
+
+From 2026-10-06 there are two ways to price an area's tile work.
+`legacySummary` is the pricing written area by area in code. `schemeSummary`
+prices from a `PricingScheme`: per area, its surfaces (label, which square
+feet, which tile, and a rule — rate with minimum, or the escalator window),
+whether features are charged, the ceiling, the tile adders, feature and
+decorative prices. Today the scheme is built from the Admin rates
+(`PricingScheme(rates:)`); Phase 5 will let users build their own. Radiant
+heat and the price list are untouched.
+
+`computeSummary` is what everything calls. With Admin → Pricing engine
+switched off (the default) it returns `legacySummary`. Switched on, it prices
+both ways and uses the scheme's result only when it matches line for line
+(`PricingEngine.same`); otherwise it uses today's price and records the
+difference, shown in Admin. The old path is retired only after the owner has
+used the switch on real jobs with no differences.
+
+`PricingGoldenTests` holds both engines to 1,380 areas recorded on 2026-10-06
+(`PricingCases.swift`, `PricingGolden.swift`): every line, label and amount.
+Never regenerate the recording to make a test pass — a difference is a
+change in what customers pay. Add cases under new names instead. Both
+engines also matched every area of the phone's saved estimates at the
+owner's real rates. A change to pricing must be made in both engines while
+both exist.
 
 ## The floor escalator
 

@@ -11,6 +11,7 @@
 		8CE7D4672F425291005C2965 /* EstimatorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4662F425291005C2965 /* EstimatorModels.swift */; };
 		8CE7D4692F42529E005C2965 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4682F42529E005C2965 /* Store.swift */; };
 		8CE7D46B2F4252C8005C2965 /* Pricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D46A2F4252C8005C2965 /* Pricing.swift */; };
+		8CE7D4782F4253B0005C2965 /* PricingScheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4772F4253B0005C2965 /* PricingScheme.swift */; };
 		8CE7D46D2F4252E1005C2965 /* AdminAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D46C2F4252E1005C2965 /* AdminAuthManager.swift */; };
 		8CE7D46F2F425342005C2965 /* AdminViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D46E2F425342005C2965 /* AdminViews.swift */; };
 		8CE7D4712F425385005C2965 /* PDFViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE7D4702F425385005C2965 /* PDFViews.swift */; };
@@ -43,6 +44,7 @@
 		8CE7D4662F425291005C2965 /* EstimatorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EstimatorModels.swift; sourceTree = "<group>"; };
 		8CE7D4682F42529E005C2965 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		8CE7D46A2F4252C8005C2965 /* Pricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pricing.swift; sourceTree = "<group>"; };
+		8CE7D4772F4253B0005C2965 /* PricingScheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PricingScheme.swift; sourceTree = "<group>"; };
 		8CE7D46C2F4252E1005C2965 /* AdminAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthManager.swift; sourceTree = "<group>"; };
 		8CE7D46E2F425342005C2965 /* AdminViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminViews.swift; sourceTree = "<group>"; };
 		8CE7D4702F425385005C2965 /* PDFViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFViews.swift; sourceTree = "<group>"; };
@@ -154,6 +156,7 @@
 			isa = PBXGroup;
 			children = (
 				8CE7D46A2F4252C8005C2965 /* Pricing.swift */,
+				8CE7D4772F4253B0005C2965 /* PricingScheme.swift */,
 			);
 			path = Pricing;
 			sourceTree = "<group>";
@@ -322,6 +325,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8CE7D46B2F4252C8005C2965 /* Pricing.swift in Sources */,
+				8CE7D4782F4253B0005C2965 /* PricingScheme.swift in Sources */,
 				8CE7D46F2F425342005C2965 /* AdminViews.swift in Sources */,
 				8CE7D4692F42529E005C2965 /* Store.swift in Sources */,
 				8CE7D46D2F4252E1005C2965 /* AdminAuthManager.swift in Sources */,

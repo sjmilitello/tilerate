@@ -85,7 +85,60 @@ private func escalatorAdjPerSqft(rates: Rates) -> Double {
     rates.floorEscAdjPerSqft
 }
 
+/// One area's tile work: what every screen and the PDF show. With the new
+/// engine switched on in Admin (roadmap Phase 2) the area is priced both ways;
+/// the scheme's price is used only when it matches today's line for line,
+/// otherwise today's price is used and the difference is noted in Admin.
 func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
+    let current = legacySummary(state: state, rates: rates)
+    guard PricingEngine.useScheme else { return current }
+    let scheme = schemeSummary(state: state, scheme: PricingScheme(rates: rates))
+    return PricingEngine.check(current: current, scheme: scheme, area: state.area)
+}
+
+/// The side-by-side check between today's pricing and the scheme.
+enum PricingEngine {
+    static let key = "pricing.schemeEngine"
+    private static let differencesKey = "pricing.schemeEngine.differences"
+    private static let lastDifferenceKey = "pricing.schemeEngine.lastDifference"
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var checkedThisRun = 0
+
+    static var useScheme: Bool { UserDefaults.standard.bool(forKey: key) }
+
+    /// True when two summaries have the same lines, labels and amounts.
+    static func same(_ a: Summary, _ b: Summary) -> Bool {
+        guard a.lines.count == b.lines.count, abs(a.total - b.total) < 0.005 else { return false }
+        return zip(a.lines, b.lines).allSatisfy { $0.label == $1.label && abs($0.amount - $1.amount) < 0.005 }
+    }
+
+    static func check(current: Summary, scheme: Summary, area: Area?) -> Summary {
+        lock.lock(); defer { lock.unlock() }
+        checkedThisRun += 1
+        if same(current, scheme) { return scheme }
+        let d = UserDefaults.standard
+        d.set(d.integer(forKey: differencesKey) + 1, forKey: differencesKey)
+        d.set("\(area?.rawValue ?? "Area"): today \(currencyString(current.total)), new engine \(currencyString(scheme.total)) "
+              + "(\(Date().formatted(date: .abbreviated, time: .shortened)))", forKey: lastDifferenceKey)
+        return current
+    }
+
+    /// For Admin: areas compared since the app opened, and differences found.
+    static var status: (checked: Int, differences: Int, last: String?) {
+        lock.lock(); defer { lock.unlock() }
+        let d = UserDefaults.standard
+        return (checkedThisRun, d.integer(forKey: differencesKey), d.string(forKey: lastDifferenceKey))
+    }
+
+    static func clearDifferences() {
+        UserDefaults.standard.removeObject(forKey: differencesKey)
+        UserDefaults.standard.removeObject(forKey: lastDifferenceKey)
+    }
+}
+
+/// Today's pricing, area by area in code: the reference the scheme engine is
+/// checked against until it is retired.
+func legacySummary(state: EstimatorState, rates: Rates) -> Summary {
     var lines: [Line] = []
 
     // A mosaic needs no layout; anything else does.

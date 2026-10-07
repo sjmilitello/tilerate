@@ -282,6 +282,8 @@ struct AdminSheet: View {
                 } footer: {
                     Text("Both designs work on the same estimate, rates and saved estimates, so you can switch back and forth at any time.")
                 }
+
+                PricingEngineSection()
             }
             .scrollDismissesKeyboard(.immediately)
         }
@@ -383,5 +385,37 @@ struct AdminSheet: View {
             get: { rates.layoutAdder[l] ?? 0 },
             set: { rates.layoutAdder[l] = $0 }
         ))
+    }
+}
+
+/// Admin → Pricing engine: the roadmap Phase 2 check. With it on, every area
+/// is priced by today's pricing and by the new scheme engine; the new price is
+/// used only when the two agree line for line.
+private struct PricingEngineSection: View {
+    @AppStorage(PricingEngine.key) private var useScheme = false
+    @State private var status = PricingEngine.status
+
+    var body: some View {
+        Section {
+            Toggle("Use the new pricing engine (testing)", isOn: $useScheme)
+            if useScheme {
+                LabeledContent("Areas checked since opening", value: "\(status.checked)")
+                LabeledContent("Differences found", value: "\(status.differences)")
+                if let last = status.last {
+                    Text("Last: \(last)").font(.footnote).foregroundStyle(.orange)
+                }
+                if status.differences > 0 {
+                    Button("Clear differences") {
+                        PricingEngine.clearDifferences()
+                        status = PricingEngine.status
+                    }
+                }
+            }
+        } header: {
+            Text("Pricing engine")
+        } footer: {
+            Text("The new engine prices from settings, ready for building your own pricing later. While testing, every area is priced both ways; if they ever differ, today's price is used and the difference is listed here. Prices shown never change either way.")
+        }
+        .onAppear { status = PricingEngine.status }
     }
 }
