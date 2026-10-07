@@ -419,6 +419,26 @@ struct RoomScanTests {
         #expect(abs(byName["Wall cap (knee wall E)"]! - 5) < 1e-9)
     }
 
+    @Test func aWallAlreadyDrawnInIsFoundRatherThanStacked() {
+        var r = room
+        let w = r.addPlannedWall(from: .init(x: 5, y: 3), to: .init(x: 9, y: 3), heightIn: 96, thicknessIn: 4.5)
+        // Drawn again over it, a little off and the other way: the same wall.
+        #expect(r.plannedWall(along: .init(x: 8.9, y: 3.1), .init(x: 5.2, y: 3.05))?.id == w.id)
+        // A foot away, or along a different stretch: a new one.
+        #expect(r.plannedWall(along: .init(x: 5, y: 4), .init(x: 9, y: 4)) == nil)
+        #expect(r.plannedWall(along: .init(x: 0, y: 3), .init(x: 4, y: 3)) == nil)
+    }
+
+    @Test func tileOnADeletedWallNoLongerCounts() {
+        var r = room
+        let w = r.addPlannedWall(from: .init(x: 5, y: 3), to: .init(x: 9, y: 3), heightIn: 96, thicknessIn: 4.5)
+        var t = AreaTakeoff()
+        t.pieces = [piece(A, 0, 4, 96), .init(wallID: w.id, fromFt: 0, toFt: 4, heightIn: 96)]
+        #expect(abs(t.wallsSqft(in: r) - 64) < 1e-9)
+        r.walls.removeAll { $0.id == w.id }
+        #expect(abs(t.wallsSqft(in: r) - 32) < 1e-9)
+    }
+
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {
         var r = EstimateRoom(name: "Bath")
         r.scan = room

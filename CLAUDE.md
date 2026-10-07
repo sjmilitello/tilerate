@@ -246,7 +246,12 @@ side of its floor (roughly parallel, within 2′) snaps onto the curb line
 on the plan, or "Add a wall on the curb" under Shower entry, adds one with no
 drawing (`closeSide`): a full wall with a door in its middle, or a knee wall
 from the side's end against a wall, leaving a door's width open. Its first
-face looks into the shower and is tiled. The floor's open sides
+face looks into the shower and is tiled. Adding a wall where a drawn-in one already lies
+uses that one (`plannedWall(along:)`), so two never stack and hide each
+other. ⋯ → "Delete a wall I added" lists them all; in a Floor area they
+can be selected and deleted too. Deleting one re-measures the room's other
+areas that tiled it. Cancel asks before discarding changes; "Use these
+measurements" keeps them and fills in the area. The floor's open sides
 (`openSides`) are each edge less the stretches walls run along, so a knee
 wall across part of the front leaves the rest as the entry, with its curb
 and jambs. A selected planned wall has a move

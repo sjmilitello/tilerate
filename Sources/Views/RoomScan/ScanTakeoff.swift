@@ -130,6 +130,24 @@ extension ScannedRoom {
         return w
     }
 
+    /// A planned wall already lying along `a`–`b` (parallel, within 3″,
+    /// sharing most of its length): adding another there would hide one
+    /// under the other.
+    func plannedWall(along a: Point, _ b: Point) -> Wall? {
+        let dx = b.x - a.x, dy = b.y - a.y, l = (dx * dx + dy * dy).squareRoot()
+        guard l > 0.01 else { return nil }
+        let u = Point(x: dx / l, y: dy / l)
+        return walls.first { w in
+            guard w.planned else { return false }
+            func off(_ p: Point) -> Double { abs((p.x - a.x) * -u.y + (p.y - a.y) * u.x) }
+            guard off(w.start) < 0.25, off(w.end) < 0.25 else { return false }
+            let t0 = (w.start.x - a.x) * u.x + (w.start.y - a.y) * u.y
+            let t1 = (w.end.x - a.x) * u.x + (w.end.y - a.y) * u.y
+            let shared = min(l, max(t0, t1)) - max(0, min(t0, t1))
+            return shared > 0.5 * min(l, w.lengthFt)
+        }
+    }
+
     /// Moves one end of a planned wall, keeping its length up to date.
     mutating func movePlannedEnd(_ id: UUID, start: Bool, to p: Point) {
         guard let i = walls.firstIndex(where: { $0.id == id }), walls[i].planned else { return }
@@ -254,7 +272,8 @@ extension AreaTakeoff {
     }
 
     func wallsSqft(in room: ScannedRoom) -> Double {
-        pieces.reduce(0) { $0 + sqft(of: $1, in: room) }
+        // Tile on a wall that's since been deleted doesn't count.
+        pieces.filter { room.wall($0.wallID) != nil }.reduce(0) { $0 + sqft(of: $1, in: room) }
     }
 
     func floorSqft(in room: ScannedRoom) -> Double {

@@ -378,6 +378,16 @@ struct AreaFlowView: View {
                                        sec.wrappedValue.roomScan = room
                                    } else if let r = roomIndex {
                                        store.doc.rooms[r].scan = room
+                                       // Other areas that tiled a wall deleted here are measured again without it.
+                                       let gone = Set(scan.walls.map(\.id)).subtracting(room.walls.map(\.id))
+                                       for i in store.doc.rooms[r].sections.indices where store.doc.rooms[r].sections[i].id != section.id {
+                                           var other = store.doc.rooms[r].sections[i]
+                                           guard other.roomScan == nil, var ot = other.scanTakeoff,
+                                                 ot.pieces.contains(where: { gone.contains($0.wallID) }) else { continue }
+                                           ot.pieces.removeAll { gone.contains($0.wallID) }
+                                           ot.apply(room, to: &other, prices: StonePrices(rates: store.pricingRates))
+                                           store.doc.rooms[r].sections[i] = other
+                                       }
                                    }
                                }
                                var s = section

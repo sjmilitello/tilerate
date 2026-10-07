@@ -37,12 +37,18 @@ struct ScanEditor: View {
     /// An open side of the shower floor tapped on the plan: offer to close it.
     @State private var closingSide: AreaTakeoff.OpenSide? = nil
     @State private var askClose = false
+    /// As the editor opened: Cancel asks before throwing changes away.
+    private let openedRoom: ScannedRoom
+    private let openedTakeoff: AreaTakeoff
+    @State private var askDiscard = false
     @State private var confirmDeleteWall = false
 
     init(room: ScannedRoom, area: Area?, title: String, takeoff: AreaTakeoff, others: [OtherAreaPieces],
          kneeWallThicknessIn: Double = 4.5, stone: StonePrices = .init(),
          onUse: @escaping (AreaTakeoff, ScannedRoom) -> Void, onRescan: @escaping () -> Void) {
         _room = State(initialValue: room)
+        openedRoom = room
+        openedTakeoff = takeoff
         self.kneeWallThicknessIn = kneeWallThicknessIn
         self.stone = stone
         self.area = area
@@ -109,7 +115,16 @@ struct ScanEditor: View {
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
-                            if usesWalls { wallPanel.id("wall") }
+                            if usesWalls {
+                                wallPanel.id("wall")
+                            } else if let id = selectedWall, let w = room.wall(id), w.planned {
+                                // A floor: walls aren't tiled here, but one drawn in can be changed or deleted.
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(room.name(of: w)).font(.ndTitle(20))
+                                    plannedWallControls(w)
+                                }
+                                .id("wall")
+                            }
                             if area == .floor || area == .shower || area == .tub { floorPanel }
                             trimPanel
                         }
@@ -134,7 +149,17 @@ struct ScanEditor: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        if room != openedRoom || takeoff != openedTakeoff { askDiscard = true } else { dismiss() }
+                    }
+                    .confirmationDialog("Discard your changes?", isPresented: $askDiscard, titleVisibility: .visible) {
+                        Button("Discard changes", role: .destructive) { dismiss() }
+                        Button("Keep editing", role: .cancel) {}
+                    } message: {
+                        Text("Walls added or deleted and tile changed here won't be kept. The area keeps the measurements it had.")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { addingDoorWall = false; addingWall = true } label: {
@@ -144,6 +169,16 @@ struct ScanEditor: View {
                             Button { addingDoorWall = true; addingWall = true } label: {
                                 Label("Add a full wall with a shower door", systemImage: "door.left.hand.open")
                             }
+                        }
+                        let added = room.walls.filter(\.planned)
+                        if !added.isEmpty {
+                            Menu {
+                                ForEach(added) { w in
+                                    Button(role: .destructive) { deleteWall(w.id) } label: {
+                                        Label("Delete \(room.name(of: w))", systemImage: "trash")
+                                    }
+                                }
+                            } label: { Label("Delete a wall I added", systemImage: "trash") }
                         }
                         Button { onRescan() } label: { Label("Scan again", systemImage: "viewfinder") }
                         if !takeoff.pieces.isEmpty {
@@ -163,7 +198,11 @@ struct ScanEditor: View {
     // MARK: Walls
 
     private func tapWall(_ id: UUID) {
-        guard usesWalls, let wall = room.wall(id) else { return }
+        guard let wall = room.wall(id) else { return }
+        guard usesWalls else {
+            if wall.planned { selectedWall = id }
+            return
+        }
         if selectedWall != id { face = 0 }
         selectedWall = id
         if let mine = takeoff.pieces.first(where: { $0.wallID == id && $0.face == face })
@@ -182,10 +221,21 @@ struct ScanEditor: View {
         addingWall = false
         let ceiling = (room.ceilingFt * 12).rounded(.down)
         let height = addingDoorWall ? ceiling : min(42, ceiling)
-        let w = room.addPlannedWall(from: a, to: b, heightIn: height, thicknessIn: kneeWallThicknessIn)
-        if addingDoorWall { _ = room.addShowerDoor(on: w, along: w.lengthFt / 2, widthIn: stone.doorWidthIn, heightIn: stone.doorHeightIn) }
+        let w = placeWall(from: a, to: b, heightIn: height, door: addingDoorWall)
         addingDoorWall = false
         if usesWalls { tapWall(w.id) } else { selectedWall = w.id }
+    }
+
+    /// A new planned wall, with a door in its middle if asked. Where a wall
+    /// drawn in already lies, that one is used instead (given a door if it
+    /// has none), so two never sit one on top of the other.
+    private func placeWall(from a: ScannedRoom.Point, to b: ScannedRoom.Point, heightIn: Double, door: Bool) -> ScannedRoom.Wall {
+        let w = room.plannedWall(along: a, b)
+            ?? room.addPlannedWall(from: a, to: b, heightIn: heightIn, thicknessIn: kneeWallThicknessIn)
+        if door, !room.isKneeWall(w), !room.openings.contains(where: { $0.wallID == w.id && $0.kind == .showerDoor }) {
+            _ = room.addShowerDoor(on: w, along: w.lengthFt / 2, widthIn: stone.doorWidthIn, heightIn: stone.doorHeightIn)
+        }
+        return w
     }
 
     /// A wall added on an open side of the shower floor, on the curb: a
@@ -211,8 +261,7 @@ struct ScanEditor: View {
             if (center.x - a.x) * n.x + (center.y - a.y) * n.y < 0 { swap(&a, &b) }
         }
         let ceiling = (room.ceilingFt * 12).rounded(.down)
-        let w = room.addPlannedWall(from: a, to: b, heightIn: door ? ceiling : min(42, ceiling), thicknessIn: kneeWallThicknessIn)
-        if door { _ = room.addShowerDoor(on: w, along: w.lengthFt / 2, widthIn: stone.doorWidthIn, heightIn: stone.doorHeightIn) }
+        let w = placeWall(from: a, to: b, heightIn: door ? ceiling : min(42, ceiling), door: door)
         face = 0
         tapWall(w.id)
     }
@@ -223,6 +272,17 @@ struct ScanEditor: View {
         let along = mine.isEmpty ? wall.lengthFt / 2
             : (mine.map(\.fromFt).min()! + mine.map(\.toFt).max()!) / 2
         _ = room.addShowerDoor(on: wall, along: along, widthIn: stone.doorWidthIn, heightIn: stone.doorHeightIn)
+    }
+
+    /// A wall drawn in, gone: its door, and this area's tile on it.
+    private func deleteWall(_ id: UUID) {
+        room.walls.removeAll { $0.id == id }
+        room.openings.removeAll { $0.wallID == id }
+        takeoff.pieces.removeAll { $0.wallID == id }
+        if selectedWall == id {
+            selectedWall = nil
+            selectedPiece = nil
+        }
     }
 
     /// Pieces on a wall that changed size stay inside it.
@@ -380,15 +440,9 @@ struct ScanEditor: View {
             }
             .font(.subheadline)
             .confirmationDialog("Delete \(room.name(of: wall))?", isPresented: $confirmDeleteWall, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    room.walls.removeAll { $0.id == wall.id }
-                    room.openings.removeAll { $0.wallID == wall.id }
-                    takeoff.pieces.removeAll { $0.wallID == wall.id }
-                    selectedWall = nil
-                    selectedPiece = nil
-                }
+                Button("Delete", role: .destructive) { deleteWall(wall.id) }
             } message: {
-                Text("Any area tiling it loses those pieces the next time it's measured.")
+                Text("Its door and any tile on it go too, in every area.")
             }
         }
     }
