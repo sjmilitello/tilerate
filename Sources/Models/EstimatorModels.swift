@@ -358,6 +358,9 @@ struct EstimateTemplate: Identifiable, Codable, Equatable, Hashable {
     var validForDays: Int = 0
     var sections: [TextSection] = []
     var showSignature: Bool = true
+    /// Pages of the estimate's chosen 3-D views after it (owner's call: off to start).
+    var include3DViews: Bool = false
+    var picturesPerPage: Int = 2
 
     static let classicID = UUID(uuidString: "7E3A1C55-2B4D-4E6F-8A10-3C5D7E9F1A01")!
 
@@ -1024,6 +1027,23 @@ struct EstimateRoom: Identifiable, Codable, Equatable, Hashable {
 
 struct EstimateDocument: Codable, Equatable {
     var rooms: [EstimateRoom] = []
+    /// 3-D views of the scanned areas for the PDF (layouts with "3-D views"
+    /// on). Only the camera is kept: the picture is drawn from the scan and
+    /// the area's choices when the PDF is made.
+    var pictures: [EstimatePicture] = []
+}
+
+/// One 3-D view for the PDF: which area, the camera, and whether it goes in.
+struct EstimatePicture: Identifiable, Codable, Equatable, Hashable {
+    var id = UUID()
+    var sectionID = UUID()
+    /// "Shower", "Whole room", "View 1"…
+    var name: String = ""
+    /// The camera, in plan feet (x, height, plan y), and what it looks at.
+    var eye: [Double] = [0, 5, 0]
+    var target: [Double] = [0, 3, 0]
+    var fixtures: Bool = true
+    var included: Bool = true
 }
 
 // MARK: - Saved Estimates
@@ -1385,6 +1405,21 @@ extension EstimateDocument {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         c.read(.rooms, into: &rooms)
+        c.read(.pictures, into: &pictures)
+    }
+}
+
+extension EstimatePicture {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.sectionID, into: &sectionID)
+        c.read(.name, into: &name)
+        c.read(.eye, into: &eye)
+        c.read(.target, into: &target)
+        c.read(.fixtures, into: &fixtures)
+        c.read(.included, into: &included)
     }
 }
 
@@ -1478,6 +1513,8 @@ extension EstimateTemplate {
         c.read(.validForDays, into: &validForDays)
         c.read(.sections, into: &sections)
         c.read(.showSignature, into: &showSignature)
+        c.read(.include3DViews, into: &include3DViews)
+        c.read(.picturesPerPage, into: &picturesPerPage)
     }
 }
 

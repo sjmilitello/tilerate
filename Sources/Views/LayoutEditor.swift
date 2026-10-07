@@ -94,6 +94,20 @@ struct LayoutEditor: View {
             }
 
             Section {
+                Toggle("3-D views of the job", isOn: $template.include3DViews)
+                if template.include3DViews {
+                    Picker("Pictures per page", selection: $template.picturesPerPage) {
+                        Text("1").tag(1)
+                        Text("2").tag(2)
+                        Text("4").tag(4)
+                    }
+                    .pickerStyle(.segmented)
+                }
+            } footer: {
+                Text("Pages after the estimate with the 3-D views chosen for it (Preview → 3-D views). Drawn from the room scan, so they match the job.")
+            }
+
+            Section {
                 ForEach($template.sections) { $section in
                     VStack(alignment: .leading, spacing: 6) {
                         TextField("Heading (e.g. Payment terms)", text: $section.heading)

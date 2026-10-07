@@ -28,6 +28,8 @@ struct ScanEditor: View {
     /// This area's tile and floor tile, for the 3-D view.
     let tile: TileChoice?
     let floorTile: TileChoice?
+    /// "Add to estimate" in 3-D: the camera (eye, target) and whether fixtures show.
+    var onAddPicture: (([Double], [Double], Bool) -> Void)? = nil
     /// The area's choices, and the room with any walls drawn in.
     let onUse: (AreaTakeoff, ScannedRoom) -> Void
     let onRescan: () -> Void
@@ -91,6 +93,7 @@ struct ScanEditor: View {
     init(room: ScannedRoom, area: Area?, title: String, takeoff: AreaTakeoff, others: [OtherAreaPieces],
          kneeWallThicknessIn: Double = 4.5, stone: StonePrices = .init(),
          tile: TileChoice? = nil, floorTile: TileChoice? = nil,
+         onAddPicture: (([Double], [Double], Bool) -> Void)? = nil,
          onUse: @escaping (AreaTakeoff, ScannedRoom) -> Void, onRescan: @escaping () -> Void) {
         _room = State(initialValue: room)
         openedRoom = room
@@ -99,6 +102,7 @@ struct ScanEditor: View {
         self.stone = stone
         self.tile = tile
         self.floorTile = floorTile
+        self.onAddPicture = onAddPicture
         self.area = area
         self.title = title
         self.others = others
@@ -125,7 +129,8 @@ struct ScanEditor: View {
             VStack(spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                 if show3D {
-                    Room3DView(content: content3D, showFixtures: $showFixtures) { tap3D($0) }
+                    Room3DView(content: content3D, showFixtures: $showFixtures, onTap: { tap3D($0) },
+                               onCapture: onAddPicture.map { add in { eye, target in add(eye, target, showFixtures) } })
                         .frame(height: 250)
                         .overlay(alignment: .topTrailing) {
                             if area == .shower {

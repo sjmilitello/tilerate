@@ -351,8 +351,21 @@ niche, corner piece or bench, then a tap on a wall puts it there (`tap3D`,
 window centred on the tap, a corner piece in the nearer corner at the tapped
 height, a bench along that wall, a door at that spot (moving the wall's door
 if it has one). Without Place, tapping a wall or item chooses it, and the
-face-on drawing below fine-tunes it; the chosen item is lit up. Still to
-come: pictures of it on the estimate.
+face-on drawing below fine-tunes it; the chosen item is lit up.
+
+Pictures for the PDF (owner's calls, 2026-10-07): the estimate keeps the
+3-D views chosen for it (`EstimateDocument.pictures`, `EstimatePicture`:
+the area, a name, the camera and whether it goes in — never an image; the
+picture is drawn from the saved scan and choices when the PDF is made,
+`Room3DScene.picture`, so a saved estimate draws the same pictures). The
+preview's **3-D views** button lists each scanned area's standard views
+("Shower"/the area, "Whole room") and any added from the 3-D view's
+**Add to estimate**, ticked in or out (`NDPicturesSheet`). Layouts have
+"3-D views of the job" (`EstimateTemplate.include3DViews`, off in every
+starter) and pictures per page (1, 2 or 4; 2 to start): when on, pages headed
+"Your project" follow the estimate (`EstimatePDF.picturePages`, appended
+with PDFKit so the layouts themselves — Classic's pixel check — are
+untouched). The layout preview doesn't show them.
 
 The editor (`ScanEditor`): floor plan on top (`PlanCanvas`: tap a wall,
 pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;

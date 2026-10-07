@@ -275,14 +275,7 @@ struct AreaFlowView: View {
     /// Other areas in the room measured from the same scan, shown faintly.
     private var otherScanAreas: [OtherAreaPieces] {
         guard section.roomScan == nil, let r = roomIndex else { return [] }
-        return store.doc.rooms[r].sections.compactMap { other in
-            guard other.id != section.id, other.roomScan == nil, let t = other.scanTakeoff,
-                  !t.pieces.isEmpty || t.floor == .drawn || (other.area == .floor && t.floor == .room) else { return nil }
-            return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces,
-                                   floor: t.floor == .drawn ? t.floorRect : nil,
-                                   tile: other.mainTile, floorTile: other.showerFloorTile,
-                                   roomFloor: other.area == .floor && t.floor == .room)
-        }
+        return Room3DContent.otherAreas(in: store.doc.rooms[r], except: section.id)
     }
 
     /// This area's choices on the scan, or where it starts the first time.
@@ -374,6 +367,11 @@ struct AreaFlowView: View {
                            kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
                            stone: StonePrices(rates: store.pricingRates),
                            tile: section.mainTile, floorTile: section.showerFloorTile,
+                           onAddPicture: { eye, target, fixtures in
+                               let n = store.doc.pictures.filter { $0.sectionID == section.id }.count + 1
+                               store.doc.pictures.append(EstimatePicture(sectionID: section.id, name: "View \(n)",
+                                                                         eye: eye, target: target, fixtures: fixtures))
+                           },
                            onUse: { t, room in
                                // Walls drawn in belong to the scan, for every area using it.
                                if room != scan {

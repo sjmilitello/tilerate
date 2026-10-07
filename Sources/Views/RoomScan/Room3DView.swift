@@ -1,3 +1,4 @@
+import Metal
 import SceneKit
 import SwiftUI
 import UIKit
@@ -24,6 +25,30 @@ struct Room3DContent: Equatable {
     var selectedItem: UUID? = nil
 }
 
+extension Room3DContent {
+    /// The rest of a room's areas measured from its scan, for drawing alongside one.
+    static func otherAreas(in room: EstimateRoom, except id: UUID) -> [OtherAreaPieces] {
+        room.sections.compactMap { other in
+            guard other.id != id, other.roomScan == nil, let t = other.scanTakeoff,
+                  !t.pieces.isEmpty || t.floor == .drawn || (other.area == .floor && t.floor == .room) else { return nil }
+            return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces,
+                                   floor: t.floor == .drawn ? t.floorRect : nil,
+                                   tile: other.mainTile, floorTile: other.showerFloorTile,
+                                   roomFloor: other.area == .floor && t.floor == .room)
+        }
+    }
+
+    /// An area of the estimate in 3-D, if it was measured from a scan.
+    static func of(room: EstimateRoom, section s: EstimateSection, rates: Rates, fixtures: Bool = true) -> Room3DContent? {
+        guard let scan = s.roomScan ?? room.scan, let t = s.scanTakeoff else { return nil }
+        let curb = t.curbHeightIn ?? rates.curbHeightIn
+        let stone = Set(t.trimPieces(in: scan, area: s.area, curbHeightIn: curb).filter(\.stone).map(\.key))
+        return Room3DContent(room: scan, takeoff: t, area: s.area, tile: s.mainTile, floorTile: s.showerFloorTile,
+                             others: s.roomScan == nil ? otherAreas(in: room, except: s.id) : [],
+                             curbHeightIn: curb, stoneParts: stone, showFixtures: fixtures)
+    }
+}
+
 /// A tap in the 3-D view: a wall (where on it, in the scene) or an item.
 struct Room3DHit {
     enum Target { case wall(UUID), item(UUID) }
@@ -38,10 +63,31 @@ struct Room3DView: View {
     let content: Room3DContent
     @Binding var showFixtures: Bool
     var onTap: (Room3DHit) -> Void = { _ in }
+    /// "Add to estimate": the camera as it is now (eye, target).
+    var onCapture: (([Double], [Double]) -> Void)? = nil
     @State private var view: Room3DScene.Preset = .area
+    @State private var capture = 0
+    @State private var captured = false
 
     var body: some View {
-        Room3DSceneView(content: content, preset: view, onTap: onTap)
+        Room3DSceneView(content: content, preset: view, onTap: onTap, captureToken: capture,
+                        onCapture: { eye, target in
+                            onCapture?(eye, target)
+                            withAnimation { captured = true }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { withAnimation { captured = false } }
+                        })
+            .overlay(alignment: .bottomLeading) {
+                if onCapture != nil {
+                    Button { capture += 1 } label: {
+                        Label(captured ? "Added to the estimate" : "Add to estimate",
+                              systemImage: captured ? "checkmark" : "camera.viewfinder")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    .padding(8)
+                }
+            }
             .overlay(alignment: .topLeading) {
                 HStack(spacing: 8) {
                     Picker("View", selection: $view) {
@@ -67,8 +113,11 @@ struct Room3DSceneView: UIViewRepresentable {
     let content: Room3DContent
     let preset: Room3DScene.Preset
     var onTap: (Room3DHit) -> Void = { _ in }
+    var captureToken = 0
+    var onCapture: ([Double], [Double]) -> Void = { _, _ in }
 
     final class Coordinator: NSObject {
+        var captureToken = 0
         var shown: Room3DContent?
         var preset: Room3DScene.Preset?
         var onTap: (Room3DHit) -> Void = { _ in }
@@ -114,6 +163,21 @@ struct Room3DSceneView: UIViewRepresentable {
     func updateUIView(_ v: SCNView, context: Context) {
         let c = context.coordinator
         c.onTap = onTap
+        if captureToken != c.captureToken {
+            c.captureToken = captureToken
+            if let cam = v.pointOfView {
+                let p = cam.worldPosition
+                // What it looks at: the orbit target, else 8′ ahead.
+                var t = v.defaultCameraController.target
+                if captureToken > 0, t.x == 0, t.y == 0, t.z == 0 {
+                    let f = cam.worldFront
+                    t = SCNVector3(p.x + f.x * 8, p.y + f.y * 8, p.z + f.z * 8)
+                }
+                let eye = [Double(p.x), Double(p.y), Double(p.z)], target = [Double(t.x), Double(t.y), Double(t.z)]
+                let send = onCapture
+                DispatchQueue.main.async { send(eye, target) }
+            }
+        }
         if c.shown != content {
             c.shown = content
             let scene = Room3DScene.build(content)
@@ -353,6 +417,33 @@ enum Room3DScene {
             }
         }
         return scene
+    }
+
+    // MARK: Pictures
+
+    /// The scene drawn from a camera, off screen, on a light background (for the PDF).
+    static func picture(_ c: Room3DContent, eye: [Double], target: [Double], size: CGSize) -> UIImage? {
+        guard eye.count == 3, target.count == 3, let device = MTLCreateSystemDefaultDevice() else { return nil }
+        let scene = build(c)
+        scene.background.contents = UIColor(white: 0.96, alpha: 1)
+        let cam = SCNNode()
+        cam.camera = SCNCamera()
+        cam.camera?.fieldOfView = 60
+        cam.camera?.zNear = 0.1
+        cam.position = SCNVector3(eye[0], eye[1], eye[2])
+        cam.look(at: SCNVector3(target[0], target[1], target[2]))
+        scene.rootNode.addChildNode(cam)
+        let r = SCNRenderer(device: device, options: nil)
+        r.scene = scene
+        r.pointOfView = cam
+        return r.snapshot(atTime: 0, with: size, antialiasingMode: .multisampling4X)
+    }
+
+    /// A standard view's camera as saved with a picture.
+    static func standard(_ preset: Preset, content: Room3DContent) -> (eye: [Double], target: [Double]) {
+        let (cam, t) = camera(for: preset, content: content)
+        return ([Double(cam.position.x), Double(cam.position.y), Double(cam.position.z)],
+                [Double(t.x), Double(t.y), Double(t.z)])
     }
 
     // MARK: Cameras

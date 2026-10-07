@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import UIKit
+import PDFKit
 import CoreGraphics
 @testable import TileRate_Installation_Estimator
 
@@ -549,6 +551,35 @@ struct RoomScanTests {
         let area = cells.reduce(0) { $0 + $1.w * $1.h }
         #expect(abs(area - (64 - 2.5 * 80 / 12)) < 1e-9)
         #expect(cells.contains { abs($0.x0 - 2) < 1e-9 && abs($0.y0 - 80.0 / 12) < 1e-9 })
+    }
+
+    @Test func picturesGoTwoToAPageAndOldEstimatesLoadWithout() throws {
+        let blank = PDFPicture(caption: "Room 1 · Shower · Shower") { size in
+            UIGraphicsImageRenderer(size: size).image { _ in UIColor.gray.setFill(); UIRectFill(CGRect(origin: .zero, size: size)) }
+        }
+        let three = EstimatePDF.picturePages([blank, blank, blank], perPage: 2)
+        #expect(PDFDocument(data: three)?.pageCount == 2)
+        #expect(PDFDocument(data: EstimatePDF.picturePages([blank, blank, blank], perPage: 4))?.pageCount == 1)
+        // A document and a layout saved before pictures: none, and off.
+        let doc = try JSONDecoder().decode(EstimateDocument.self, from: Data(#"{"rooms":[]}"#.utf8))
+        #expect(doc.pictures.isEmpty)
+        let layout = try JSONDecoder().decode(EstimateTemplate.self, from: Data(#"{"name":"Old"}"#.utf8))
+        #expect(!layout.include3DViews && layout.picturesPerPage == 2)
+        #expect(EstimateTemplate.starters.allSatisfy { !$0.include3DViews })
+        // Saved and read back.
+        var d = EstimateDocument()
+        d.pictures = [EstimatePicture(name: "Shower", eye: [1, 5, 2], target: [3, 3, 1])]
+        #expect(try JSONDecoder().decode(EstimateDocument.self, from: JSONEncoder().encode(d)) == d)
+    }
+
+    @Test func aRoomIsDrawnForThePDF() throws {
+        var t = AreaTakeoff()
+        t.pieces = [piece(A, 0, 9, 96), piece(B, 0, 3, 96)]
+        let c = Room3DContent(room: room, takeoff: t, area: .shower, tile: nil, floorTile: nil, others: [],
+                              curbHeightIn: 4, stoneParts: [], showFixtures: true)
+        let cam = Room3DScene.standard(.room, content: c)
+        let image = try #require(Room3DScene.picture(c, eye: cam.eye, target: cam.target, size: CGSize(width: 200, height: 120)))
+        #expect(image.size.width > 0)
     }
 
     @Test func tileSizesComeLongSideFirstWithUsualFallbacks() {
