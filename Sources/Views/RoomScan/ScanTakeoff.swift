@@ -53,11 +53,12 @@ extension ScannedRoom {
 
     /// A planned wall lower than the ceiling: it has a cap. A planned wall
     /// to the ceiling is a full wall (e.g. one with a shower door in it).
-    func isKneeWall(_ w: Wall) -> Bool { w.planned && w.heightFt < ceilingFt - 0.5 / 12 }
+    /// (Within 3″ of the ceiling counts as full: a scan's ceiling is rarely a whole inch.)
+    func isKneeWall(_ w: Wall) -> Bool { w.planned && w.heightFt < ceilingFt - 3.0 / 12 }
 
-    /// "Knee wall E", "New wall E" or "Wall A".
+    /// "Half wall E", "New wall E" or "Wall A".
     func name(of w: Wall) -> String {
-        isKneeWall(w) ? "Knee wall \(w.label)" : w.planned ? "New wall \(w.label)" : "Wall \(w.label)"
+        isKneeWall(w) ? "Half wall \(w.label)" : w.planned ? "New wall \(w.label)" : "Wall \(w.label)"
     }
 
     /// True when a shower door has a header over it: its top is below the
@@ -268,12 +269,32 @@ extension AreaTakeoff {
             let tall = max(0, min(o.bottomFt + o.heightFt, height) - max(o.bottomFt, 0))
             area -= width * tall
         }
+        // A window placed here: never tiled.
+        for w in items where w.kind == .window && w.wallID == piece.wallID {
+            let width = max(0, min(w.toFt, piece.toFt) - max(w.fromFt, piece.fromFt))
+            let tall = max(0, min((w.bottomIn + w.heightIn) / 12, height) - max(w.bottomIn / 12, 0))
+            area -= width * tall
+        }
         return max(0, area)
     }
 
+    /// Tile on benches: a framed bench's top and front, a floating bench's
+    /// top, unless switched to stone.
+    func benchTileSqft(in room: ScannedRoom) -> Double {
+        let parts = trimPieces(in: room, area: .shower, curbHeightIn: 4)
+        return items.filter(\.kind.isBench).reduce(0) { total, b in
+            let top = parts.first { $0.key == "benchTop:\(b.id)" }
+            let front = parts.first { $0.key == "benchFront:\(b.id)" }
+            var sq = 0.0
+            if top?.stone != true { sq += b.widthFt * b.depthIn / 12 }
+            if b.kind == .framedBench, front?.stone != true { sq += b.widthFt * b.heightIn / 12 }
+            return total + sq
+        }
+    }
+
     func wallsSqft(in room: ScannedRoom) -> Double {
-        // Tile on a wall that's since been deleted doesn't count.
-        pieces.filter { room.wall($0.wallID) != nil }.reduce(0) { $0 + sqft(of: $1, in: room) }
+        // Tile on a wall that's since been deleted doesn't count; tile on benches does.
+        pieces.filter { room.wall($0.wallID) != nil }.reduce(0) { $0 + sqft(of: $1, in: room) } + benchTileSqft(in: room)
     }
 
     func floorSqft(in room: ScannedRoom) -> Double {
@@ -455,7 +476,12 @@ extension AreaTakeoff {
         for kind in TrimKind.allCases {
             let id = Self.stoneLineID(section.id, kind)
             let stone = pieces.filter { $0.kind == kind && $0.stone }
-            let lf = (stone.reduce(0) { $0 + $1.lengthFt } * 100).rounded() / 100
+            let rate = prices.rate(kind)
+            let feet = stone.reduce(0) { $0 + $1.lengthFt }
+            // By the square foot once a width is set and chosen in Admin.
+            let lf = ((rate.usesSqft ? rate.sqft(linFt: feet) : feet) * 100).rounded() / 100
+            let unit = rate.usesSqft ? "sq ft" : "lin ft"
+            let price = rate.usesSqft ? rate.perSqft : rate.perLinFt
             // Caps and headers share a price; the line says which it has.
             let headers = stone.contains { $0.key.hasPrefix("header:") }
             let caps = stone.contains { !$0.key.hasPrefix("header:") }
@@ -464,18 +490,121 @@ extension AreaTakeoff {
             if lf > 0 {
                 if let i = section.additionsLabor.firstIndex(where: { $0.id == id }) {
                     section.additionsLabor[i].qty = lf
+                    if section.additionsLabor[i].unit != unit {
+                        section.additionsLabor[i].unit = unit
+                        section.additionsLabor[i].rate = price
+                    }
                     // Renamed only while it still has a name the app gave it.
                     if TrimKind.capLineNames.contains(section.additionsLabor[i].activity) {
                         section.additionsLabor[i].activity = name
                     }
                 } else {
-                    section.additionsLabor.append(AdditionItem(id: id, activity: name, qty: lf,
-                                                               rate: prices.rate(kind), unit: "lin ft"))
+                    section.additionsLabor.append(AdditionItem(id: id, activity: name, qty: lf, rate: price, unit: unit))
                 }
             } else {
                 section.additionsLabor.removeAll { $0.id == id }
             }
         }
+        // What's placed on the walls sets the area's features (owner's call:
+        // "Use these measurements" overrides typed counts).
+        if itemsPlaced, section.area != .floor {
+            section.features = placedFeatures(keeping: section.features)
+        }
+    }
+
+    /// Linear feet of stone in a niche: all around is the top, sides, base
+    /// shelf and dividers; shelves only is the base shelf and dividers.
+    static func nicheStoneFt(_ n: Item) -> Double {
+        let w = n.widthFt, h = n.heightIn / 12
+        switch n.stone {
+        case .tile: return 0
+        case .all: return 2 * (w + h) + Double(n.dividers) * w
+        case .shelves: return Double(1 + n.dividers) * w
+        }
+    }
+
+    /// A stone window wrap: all the way round.
+    static func windowStoneFt(_ w: Item) -> Double {
+        w.stone == .tile ? 0 : 2 * (w.widthFt + w.heightIn / 12)
+    }
+
+    /// The area's features from what's placed: counts of each, and each
+    /// bench, niche and window with its size for pricing.
+    func placedFeatures(keeping old: Features) -> Features {
+        var f = old
+        func count(_ k: Item.Kind) -> Int { items.filter { $0.kind == k }.count }
+        f.niches = count(.niche)
+        f.windows = count(.window)
+        f.shelves = count(.cornerShelf)
+        f.footrests = count(.cornerFootrest)
+        f.seats = count(.cornerSeat)
+        f.benches = count(.framedBench) + count(.floatingBench)
+        func inches(_ v: Double) -> String { "\(Int((v).rounded()))″" }
+        f.sized = items.compactMap { i in
+            switch i.kind {
+            case .framedBench, .floatingBench:
+                return SizedFeature(kind: .bench, label: "\(i.kind.name) \(feetAndInches(i.widthFt))", linFt: i.widthFt)
+            case .niche:
+                let stone = i.stone == .all ? ", stone all around" : i.stone == .shelves ? ", stone shelves" : ""
+                return SizedFeature(kind: .niche, label: "Niche \(inches(i.widthFt * 12)) × \(inches(i.heightIn))\(stone)",
+                                    linFt: Self.nicheStoneFt(i), stone: i.stone != .tile)
+            case .window:
+                return SizedFeature(kind: .window, label: "Window \(inches(i.widthFt * 12)) × \(inches(i.heightIn))\(i.stone == .tile ? "" : ", stone wrap")",
+                                    linFt: Self.windowStoneFt(i), stone: i.stone != .tile)
+            default:
+                return nil
+            }
+        }
+        return f
+    }
+
+    // MARK: Placing items
+
+    /// Where a bench goes along a wall: the shower floor's side against that
+    /// wall — wall to wall, or a framed bench to flush with the outside of the
+    /// curb (`curbWidthFt` past the floor). A floating bench needs a wall at
+    /// both ends: nil without. With no floor drawn: this area's tile on the
+    /// wall, else the whole wall.
+    func benchSpan(on wall: ScannedRoom.Wall, in room: ScannedRoom, floating: Bool, curbWidthFt: Double = 0) -> ClosedRange<Double>? {
+        if floor == .drawn, let r = floorRect {
+            let c = r.corners
+            for i in 0..<4 {
+                let a = c[i], b = c[(i + 1) % 4]
+                guard room.distanceToWall(a, wall) < 0.4, room.distanceToWall(b, wall) < 0.4 else { continue }
+                var lo = room.along(a, on: wall), hi = room.along(b, on: wall)
+                var loPoint = a, hiPoint = b
+                if lo > hi { swap(&lo, &hi); swap(&loPoint, &hiPoint) }
+                let sides = openSides(in: room)
+                func open(_ p: ScannedRoom.Point) -> Bool {
+                    sides.contains { s in
+                        hypot(s.a.x - p.x, s.a.y - p.y) < 0.05 || hypot(s.b.x - p.x, s.b.y - p.y) < 0.05
+                    }
+                }
+                if floating, open(loPoint) || open(hiPoint) { return nil }
+                if !floating {
+                    if open(loPoint) { lo = max(0, lo - curbWidthFt) }
+                    if open(hiPoint) { hi = min(wall.lengthFt, hi + curbWidthFt) }
+                }
+                return hi - lo > 0.5 ? lo...hi : nil
+            }
+        }
+        let mine = pieces.filter { $0.wallID == wall.id }
+        if floating, room.isFreeEnd(of: wall, start: true) || room.isFreeEnd(of: wall, start: false) { return nil }
+        if let lo = mine.map(\.fromFt).min(), let hi = mine.map(\.toFt).max(), hi - lo > 0.5 { return lo...hi }
+        return 0...wall.lengthFt
+    }
+
+    /// A new niche or window in the middle of this area's tile on a wall.
+    func middle(of wall: ScannedRoom.Wall, face: Int) -> Double {
+        let mine = pieces.filter { $0.wallID == wall.id && $0.face == face }
+        guard let lo = mine.map(\.fromFt).min(), let hi = mine.map(\.toFt).max() else { return wall.lengthFt / 2 }
+        return (lo + hi) / 2
+    }
+
+    /// The end of a wall a corner piece starts at: one that meets another
+    /// wall, preferring the start.
+    func cornerEnd(of wall: ScannedRoom.Wall, in room: ScannedRoom) -> Bool {
+        !room.isFreeEnd(of: wall, start: true) || room.isFreeEnd(of: wall, start: false)
     }
 
     /// A stone line's id, the same every time for an area and kind, so
@@ -503,8 +632,13 @@ extension AreaTakeoff {
             guard !mine.isEmpty else { continue }
             let name = room.name(of: wall)
             let sq = (mine.reduce(0) { $0 + sqft(of: $1, in: room) } * 100).rounded() / 100
-            let existing = section.walls.first { $0.name == name }
+            let existing = section.walls.first { $0.name == name || $0.name == "Knee wall \(wall.label)" }
             named.append(TiledWall(id: existing?.id ?? UUID(), name: name, sqft: sq, tile: existing?.tile ?? fallback))
+        }
+        let bench = (benchTileSqft(in: room) * 100).rounded() / 100
+        if bench > 0 {
+            let existing = section.walls.first { $0.name == "Benches" }
+            named.append(TiledWall(id: existing?.id ?? UUID(), name: "Benches", sqft: bench, tile: existing?.tile ?? fallback))
         }
         if !named.isEmpty { section.walls = named }
     }
@@ -530,21 +664,33 @@ func feetAndInches(_ feet: Double) -> String {
 /// What frames a shower or a knee wall: tile by default (part of the wall
 /// square feet), or stone, charged per linear foot on its own line.
 enum TrimKind: String, CaseIterable {
-    case curb, cap, jamb
-    var salt: Int { switch self { case .curb: 1; case .cap: 2; case .jamb: 3 } }
+    case curb, cap, jamb, benchTop, benchFront
+    var salt: Int { switch self { case .curb: 1; case .cap: 2; case .jamb: 3; case .benchTop: 4; case .benchFront: 5 } }
+    var item: StoneItem {
+        switch self {
+        case .curb: .curb
+        case .cap: .cap
+        case .jamb: .jamb
+        case .benchTop: .benchTop
+        case .benchFront: .benchFront
+        }
+    }
     var stoneLine: String {
         switch self {
         case .curb: "Stone curb"
         case .cap: "Stone wall cap"
         case .jamb: "Stone jambs"
+        case .benchTop: "Stone bench top"
+        case .benchFront: "Stone bench front"
         }
     }
     /// Names the app gives the cap line (headers are priced as caps).
     static let capLineNames: Set<String> = ["Stone wall cap", "Stone header", "Stone wall cap & header"]
 }
 
-/// Stone prices per linear foot and the curb height, from Admin.
+/// Stone prices, the curb height and starting sizes, from Admin.
 struct StonePrices {
+    /// Per linear foot, for curb, cap and jamb when `stone` doesn't say.
     var curb: Double = 0
     var cap: Double = 0
     var jamb: Double = 0
@@ -552,15 +698,25 @@ struct StonePrices {
     /// A new shower door opening's width and height (inches).
     var doorWidthIn: Double = 30
     var doorHeightIn: Double = 80
-    func rate(_ k: TrimKind) -> Double {
-        switch k { case .curb: curb; case .cap: cap; case .jamb: jamb }
+    var stone: [StoneItem: StoneRate] = [:]
+    var defaults = ScanItemDefaults()
+    func rate(_ k: TrimKind) -> StoneRate {
+        if let r = stone[k.item] { return r }
+        switch k {
+        case .curb: return StoneRate(perLinFt: curb)
+        case .cap: return StoneRate(perLinFt: cap)
+        case .jamb: return StoneRate(perLinFt: jamb)
+        default: return StoneRate()
+        }
     }
 }
 
 extension StonePrices {
     init(rates r: Rates) {
         self.init(curb: r.stoneCurbPerLinFt, cap: r.stoneCapPerLinFt, jamb: r.stoneJambPerLinFt, curbHeightIn: r.curbHeightIn,
-                  doorWidthIn: r.showerDoorWidthIn, doorHeightIn: r.showerDoorHeightIn)
+                  doorWidthIn: r.showerDoorWidthIn, doorHeightIn: r.showerDoorHeightIn,
+                  stone: Dictionary(uniqueKeysWithValues: StoneItem.allCases.map { ($0, r.stoneRate($0)) }),
+                  defaults: r.scanDefaults)
     }
 }
 
@@ -617,7 +773,7 @@ extension AreaTakeoff {
                     }
                 }
             }
-            for w in kneeWalls { out.append(("cap:\(w.id)", .cap, "Wall cap (knee wall \(w.label))", w.lengthFt)) }
+            for w in kneeWalls { out.append(("cap:\(w.id)", .cap, "Wall cap (half wall \(w.label))", w.lengthFt)) }
         }
         if area == .shower {
             // Each door opening in a wall this shower tiles: a curb across
@@ -640,11 +796,16 @@ extension AreaTakeoff {
             }
         } else {
             for w in kneeWalls {
-                out.append(("cap:\(w.id)", .cap, "Wall cap (knee wall \(w.label))", w.lengthFt))
+                out.append(("cap:\(w.id)", .cap, "Wall cap (half wall \(w.label))", w.lengthFt))
                 for start in [true, false] where room.isFreeEnd(of: w, start: start) {
-                    out.append(("jamb:\(w.id):\(start ? "start" : "end")", .jamb, "Knee wall \(w.label) end jamb", w.heightFt))
+                    out.append(("jamb:\(w.id):\(start ? "start" : "end")", .jamb, "Half wall \(w.label) end jamb", w.heightFt))
                 }
             }
+        }
+        // Each bench's top, and a framed bench's front.
+        for b in items where b.kind.isBench {
+            out.append(("benchTop:\(b.id)", .benchTop, "\(b.kind.name) top", b.widthFt))
+            if b.kind == .framedBench { out.append(("benchFront:\(b.id)", .benchFront, "\(b.kind.name) front", b.widthFt)) }
         }
         return out.map { key, kind, name, ft in
             let choice = trim.first { $0.key == key }

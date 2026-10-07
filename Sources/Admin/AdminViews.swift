@@ -233,9 +233,10 @@ struct AdminSheet: View {
 
                 Section("Features") {
                     baseRow("Shelf (each)", value: $rates.unitShelf)
-                    baseRow("Niche (each)", value: $rates.unitNiche)
+                    baseRow("Niche (each, the minimum)", value: $rates.unitNiche)
                     baseRow("Footrest (each)", value: $rates.unitFootrest)
-                    baseRow("Bench (each)", value: $rates.unitBench)
+                    baseRow("Bench (each, the minimum)", value: $rates.unitBench)
+                    baseRow("Corner seat (each)", value: $rates.unitSeat)
                 }
 
                 Section("Tax Defaults") {

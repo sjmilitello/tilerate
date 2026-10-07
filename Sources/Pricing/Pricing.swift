@@ -237,14 +237,6 @@ func legacySummary(state: EstimatorState, rates: Rates) -> Summary {
 
     var running: Double = 0
 
-    @inline(__always)
-    func addUnits(_ label: String, qty: Int, rate: Double) {
-        guard qty > 0, rate != 0 else { return }
-        let amt = Double(qty) * rate
-        lines.append(Line(label: "\(label) (\(qty)× @ \(currency(rates: rates, value: rate)))", amount: amt))
-        running += amt
-    }
-
     switch area {
     case .shower:
         running += appendWalls(labelPrefix: "Shower walls",
@@ -357,10 +349,11 @@ func legacySummary(state: EstimatorState, rates: Rates) -> Summary {
     // Shelves, niches, footrests and benches don't go on a floor; the Features
     // step greys them out there, and anything left over is not charged.
     if area != .floor {
-        addUnits("Shelves",   qty: state.features.shelves,   rate: rates.unitShelf)
-        addUnits("Niches",    qty: state.features.niches,    rate: rates.unitNiche)
-        addUnits("Footrests", qty: state.features.footrests, rate: rates.unitFootrest)
-        addUnits("Benches",   qty: state.features.benches,   rate: rates.unitBench)
+        for line in featureLines(state.features, prices: FeaturePrices(rates: rates),
+                                 money: { currency(rates: rates, value: $0) }) {
+            lines.append(line)
+            running += line.amount
+        }
     }
 
     // Bands and borders by the linear foot, inlays by the square foot, each

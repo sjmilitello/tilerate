@@ -89,6 +89,63 @@ struct FeaturePrices: Equatable {
     var niche: Double
     var footrest: Double
     var bench: Double
+    var seat: Double = 0
+    var window: Double = 0
+    /// Benches, niches and windows placed on a room scan (`SizedFeature`).
+    var benchPerLinFt: Double = 0
+    var nicheStone = StoneRate()
+    var windowStone = StoneRate()
+}
+
+extension FeaturePrices {
+    init(rates r: Rates) {
+        self.init(shelf: r.unitShelf, niche: r.unitNiche, footrest: r.unitFootrest, bench: r.unitBench,
+                  seat: r.unitSeat, window: r.unitWindow, benchPerLinFt: r.benchPerLinFt,
+                  nicheStone: r.stoneRate(.niche), windowStone: r.stoneRate(.window))
+    }
+}
+
+/// The feature lines both pricing engines give: shelves, niches, footrests,
+/// benches, seats and windows at their per-unit price, except that each
+/// bench, niche or window placed on a scan (`Features.sized`) is the higher
+/// of that price (its minimum) and its size: a bench's length at
+/// `benchPerLinFt`, a stone niche's or window's stone at its stone rate.
+func featureLines(_ f: Features, prices p: FeaturePrices, money: (Double) -> String) -> [Line] {
+    var lines: [Line] = []
+    func feet(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...2))) }
+    let kinds: [(String, Int, Double, SizedFeature.Kind?)] = [
+        ("Shelves", f.shelves, p.shelf, nil), ("Niches", f.niches, p.niche, .niche),
+        ("Footrests", f.footrests, p.footrest, nil), ("Benches", f.benches, p.bench, .bench),
+        ("Seats", f.seats, p.seat, nil), ("Windows", f.windows, p.window, .window),
+    ]
+    for (label, count, unit, kind) in kinds {
+        let sized = kind.map { k in f.sized.filter { $0.kind == k } } ?? []
+        let rest = max(0, count - sized.count)
+        if rest > 0, unit != 0 {
+            lines.append(Line(label: "\(label) (\(rest)× @ \(money(unit)))", amount: Double(rest) * unit))
+        }
+        for item in sized.prefix(count) {
+            let stone: StoneRate? = item.kind == .niche ? p.nicheStone : item.kind == .window ? p.windowStone : nil
+            let linear: Double
+            let how: String
+            if item.kind == .bench {
+                linear = item.linFt * p.benchPerLinFt
+                how = "@ \(money(p.benchPerLinFt))/lin ft × \(feet(item.linFt))"
+            } else if item.stone, let stone {
+                linear = stone.amount(linFt: item.linFt)
+                how = stone.usesSqft ? "@ \(money(stone.perSqft))/sq ft × \(feet(stone.sqft(linFt: item.linFt)))"
+                                     : "@ \(money(stone.perLinFt))/lin ft × \(feet(item.linFt))"
+            } else {
+                linear = 0
+                how = ""
+            }
+            let amount = max(unit, linear)
+            guard amount != 0 else { continue }
+            let name = item.label.isEmpty ? String(label.dropLast(label.hasSuffix("ches") ? 2 : 1)) : item.label
+            lines.append(Line(label: linear > unit ? "\(name) \(how)" : "\(name) (minimum \(money(unit)))", amount: amount))
+        }
+    }
+    return lines
 }
 
 // MARK: - Surfaces whose rule can be chosen (roadmap Phase 5)
@@ -314,7 +371,7 @@ extension PricingScheme {
                             layout: r.layoutAdder, layoutUnit: r.layoutAdderUnit,
                             standardTileSqIn: r.sizeBaseAreaSqIn,
                             perDoubling: r.sizeAdderPerDoubling, perHalving: r.sizeAdderPerHalving)
-        features = FeaturePrices(shelf: r.unitShelf, niche: r.unitNiche, footrest: r.unitFootrest, bench: r.unitBench)
+        features = FeaturePrices(rates: r)
         decoratives = [.band: r.bandRatePerLinFt, .border: r.borderRatePerLinFt, .inlay: r.mosaicInlayRate]
     }
 }
@@ -517,14 +574,9 @@ func schemeSummary(state: EstimatorState, scheme: PricingScheme) -> Summary {
     if state.measurements.ceilingSqft > 0 { total += price(scheme.ceiling) }
 
     if pricing.chargesFeatures {
-        let f = state.features
-        for (label, qty, rate) in [("Shelves", f.shelves, scheme.features.shelf),
-                                   ("Niches", f.niches, scheme.features.niche),
-                                   ("Footrests", f.footrests, scheme.features.footrest),
-                                   ("Benches", f.benches, scheme.features.bench)] where qty > 0 && rate != 0 {
-            let amount = Double(qty) * rate
-            lines.append(Line(label: "\(label) (\(qty)× @ \(money(rate)))", amount: amount))
-            total += amount
+        for line in featureLines(state.features, prices: scheme.features, money: money) {
+            lines.append(line)
+            total += line.amount
         }
     }
 

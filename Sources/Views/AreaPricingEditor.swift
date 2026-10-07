@@ -45,24 +45,116 @@ struct AreaPricingSection: View {
     }
 }
 
-/// Admin → Curbs, caps, jambs & knee walls.
+/// Admin → Stone pieces, new walls and shower doors, and what's placed on a
+/// scan: benches, niches, windows and corner pieces.
 struct KneeWallSection: View {
     @Binding var rates: Rates
 
+    private func stone(_ item: StoneItem) -> Binding<StoneRate> {
+        Binding(get: { rates.stoneRate(item) }, set: { rates.setStoneRate($0, for: item) })
+    }
+
+    private var defaults: Binding<ScanItemDefaults> { $rates.scanDefaults }
+
     var body: some View {
         Section {
-            AmountRow(title: "Stone curb, per linear ft", value: $rates.stoneCurbPerLinFt, prefix: "$")
-            AmountRow(title: "Stone wall cap or header, per linear ft", value: $rates.stoneCapPerLinFt, prefix: "$")
-            AmountRow(title: "Stone jambs, per linear ft", value: $rates.stoneJambPerLinFt, prefix: "$")
+            ForEach(StoneItem.allCases, id: \.self) { item in
+                NavigationLink {
+                    StoneRateEditor(title: item.title, rate: stone(item))
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                        Text(stoneSummary(rates.stoneRate(item))).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Stone pieces")
+        } footer: {
+            Text("Curbs, caps, headers, jambs and bench tops and fronts are tile unless switched to stone on the plan; stone goes on its own line (still changeable on an estimate). Set a piece's usual width to price it by the square foot instead. A niche's or window's stone counts toward its own charge (below).")
+        }
+
+        Section {
+            AmountRow(title: "Bench minimum (each)", value: $rates.unitBench, prefix: "$")
+            AmountRow(title: "Bench, per linear ft", value: $rates.benchPerLinFt, prefix: "$")
+            AmountRow(title: "Niche minimum (each)", value: $rates.unitNiche, prefix: "$")
+            AmountRow(title: "Window minimum (each)", value: $rates.unitWindow, prefix: "$")
+            AmountRow(title: "Corner shelf (each)", value: $rates.unitShelf, prefix: "$")
+            AmountRow(title: "Corner footrest (each)", value: $rates.unitFootrest, prefix: "$")
+            AmountRow(title: "Corner seat (each)", value: $rates.unitSeat, prefix: "$")
+        } header: {
+            Text("Benches, niches, windows & corner pieces")
+        } footer: {
+            Text("A bench placed on a scan is its length at the per-foot price, or the minimum if that's more. A stone niche or window is its stone at the niche or window stone price, or the minimum if that's more; in tile, the minimum. Corner shelves, footrests and seats are stone, each at their price.")
+        }
+
+        Section {
+            AmountRow(title: "Framed bench height", value: defaults.framedBenchHeightIn, suffix: "in")
+            AmountRow(title: "Framed bench depth", value: defaults.framedBenchDepthIn, suffix: "in")
+            AmountRow(title: "Floating bench height", value: defaults.floatingBenchHeightIn, suffix: "in")
+            AmountRow(title: "Floating bench depth", value: defaults.floatingBenchDepthIn, suffix: "in")
+            AmountRow(title: "Niche width", value: defaults.nicheWidthIn, suffix: "in")
+            AmountRow(title: "Niche height", value: defaults.nicheHeightIn, suffix: "in")
+            AmountRow(title: "Niche off the floor", value: defaults.nicheBottomIn, suffix: "in")
+            AmountRow(title: "Window width", value: defaults.windowWidthIn, suffix: "in")
+            AmountRow(title: "Window height", value: defaults.windowHeightIn, suffix: "in")
+            AmountRow(title: "Window off the floor", value: defaults.windowBottomIn, suffix: "in")
+            AmountRow(title: "Corner shelf size", value: defaults.cornerShelfIn, suffix: "in")
+            AmountRow(title: "Corner shelf height", value: defaults.cornerShelfHeightIn, suffix: "in")
+            AmountRow(title: "Corner footrest size", value: defaults.cornerFootrestIn, suffix: "in")
+            AmountRow(title: "Corner footrest height", value: defaults.cornerFootrestHeightIn, suffix: "in")
+            AmountRow(title: "Corner seat size", value: defaults.cornerSeatIn, suffix: "in")
+            AmountRow(title: "Corner seat height", value: defaults.cornerSeatHeightIn, suffix: "in")
+        } header: {
+            Text("Starting sizes on a scan")
+        } footer: {
+            Text("What each starts at when placed on a room scan; drag or type to change it there.")
+        }
+
+        Section {
             AmountRow(title: "Curb height", value: $rates.curbHeightIn, suffix: "in")
-            AmountRow(title: "Knee wall thickness", value: $rates.kneeWallThicknessIn, suffix: "in")
+            AmountRow(title: "New wall thickness", value: $rates.kneeWallThicknessIn, suffix: "in")
             AmountRow(title: "Shower door width", value: $rates.showerDoorWidthIn, suffix: "in")
             AmountRow(title: "Shower door height (to header)", value: $rates.showerDoorHeightIn, suffix: "in")
         } header: {
-            Text("Curbs, caps, headers, jambs & new walls")
+            Text("Curbs, new walls & shower doors")
         } footer: {
-            Text("Measured from a room scan. Curbs, wall caps and jambs are tile unless switched to stone on the plan; tile is part of the wall square feet, stone goes on its own line at these prices (still changeable on an estimate). Jambs run from the curb to the top of the tile, or to the header over a shower door. A shower door drawn on a wall starts at the door size here; drag it on the wall to change it, or to the ceiling for no header. A knee wall drawn on the plan starts at this thickness (4½″ is a 2×4 with backer board both sides).")
+            Text("Jambs run from the curb to the top of the tile, or to the header over a shower door. A shower door starts at this size; drag it on the wall to change it, or to the ceiling for no header. A wall added on the plan starts at this thickness (4½″ is a 2×4 with backer board both sides).")
         }
+    }
+}
+
+/// "$30/lin ft" or "4″ wide · $45/sq ft"
+func stoneSummary(_ r: StoneRate) -> String {
+    func money(_ v: Double) -> String { v.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD").precision(.fractionLength(0...2))) }
+    if r.usesSqft { return "\(InchField.format(r.widthIn))″ wide · \(money(r.perSqft))/sq ft" }
+    return "\(money(r.perLinFt))/lin ft" + (r.widthIn > 0 ? " · \(InchField.format(r.widthIn))″ wide" : "")
+}
+
+/// One stone piece's price: per linear foot, a usual width, and — with a
+/// width — per square foot instead.
+struct StoneRateEditor: View {
+    let title: String
+    @Binding var rate: StoneRate
+
+    var body: some View {
+        Form {
+            Section {
+                AmountRow(title: "Per linear ft", value: $rate.perLinFt, prefix: "$")
+                AmountRow(title: "Usual width", value: $rate.widthIn, suffix: "in")
+                if rate.widthIn > 0 {
+                    Toggle("Price by the square foot", isOn: $rate.bySqft)
+                    if rate.bySqft {
+                        AmountRow(title: "Per sq ft", value: $rate.perSqft, prefix: "$")
+                    }
+                }
+            } footer: {
+                Text(rate.widthIn > 0
+                     ? "Square feet are the length × \(InchField.format(rate.widthIn))″."
+                     : "Enter its usual width to be able to price it by the square foot.")
+            }
+        }
+        .navigationTitle(title)
     }
 }
 

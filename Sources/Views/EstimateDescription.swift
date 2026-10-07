@@ -183,6 +183,8 @@ private func sentenceParts(_ section: EstimateSection, wording: WordingTemplates
         if section.features.niches    > 0 { features.append(section.features.niches    == 1 ? "Niche"    : "\(section.features.niches) Niches") }
         if section.features.footrests > 0 { features.append(section.features.footrests == 1 ? "Footrest" : "\(section.features.footrests) Footrests") }
         if section.features.benches   > 0 { features.append(section.features.benches   == 1 ? "Bench"    : "\(section.features.benches) Benches") }
+        if section.features.seats     > 0 { features.append(section.features.seats     == 1 ? "Corner Seat" : "\(section.features.seats) Corner Seats") }
+        if section.features.windows   > 0 { features.append(section.features.windows   == 1 ? "Window"   : "\(section.features.windows) Windows") }
     }
     for item in section.decoratives where item.quantity > 0 {
         features.append(decorativePhrase(item, in: section))

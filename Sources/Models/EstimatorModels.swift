@@ -293,6 +293,20 @@ struct Rates: Codable, Equatable {
     /// (inches); the header's underside is at its height.
     var showerDoorWidthIn: Double = 30
     var showerDoorHeightIn: Double = 80
+    /// Each stone piece's price: per linear foot, or per square foot once a
+    /// default width is set. Keyed by `StoneItem.rawValue`; read with
+    /// `stoneRate(_:)` (curb, cap and jamb fall back to the per-foot fields above).
+    var stoneRates: [String: StoneRate] = [:]
+    /// A bench placed on a scan: the higher of `unitBench` (its minimum) and
+    /// its length at this price.
+    var benchPerLinFt: Double = 0
+    /// A corner seat, each (always stone).
+    var unitSeat: Double = 0
+    /// A window placed on a scan: its minimum; a stone wrap is priced by the
+    /// window stone rate when that comes to more.
+    var unitWindow: Double = 0
+    /// Starting sizes for benches, niches, windows and corner pieces placed on a scan.
+    var scanDefaults = ScanItemDefaults()
     var defaultTemplateID: UUID = EstimateTemplate.classicID
 
     /// The layout with this id, else the default, else Classic.
@@ -497,6 +511,11 @@ extension Rates {
         c.read(.curbHeightIn, into: &curbHeightIn)
         c.read(.showerDoorWidthIn, into: &showerDoorWidthIn)
         c.read(.showerDoorHeightIn, into: &showerDoorHeightIn)
+        c.read(.stoneRates, into: &stoneRates)
+        c.read(.benchPerLinFt, into: &benchPerLinFt)
+        c.read(.unitSeat, into: &unitSeat)
+        c.read(.unitWindow, into: &unitWindow)
+        c.read(.scanDefaults, into: &scanDefaults)
         c.read(.defaultTemplateID, into: &defaultTemplateID)
         // The first starting list had one "Demolition" item; it became one
         // item per thing torn out. Its per-sq-ft price carries over to the
@@ -543,6 +562,98 @@ struct Features: Codable, Equatable, Hashable {
     var niches: Int = 0
     var footrests: Int = 0
     var benches: Int = 0
+    /// Corner seats (always stone), each at `Rates.unitSeat`.
+    var seats: Int = 0
+    var windows: Int = 0
+    /// Benches, niches and windows placed on a room scan, with their sizes:
+    /// each is priced at the higher of its minimum and its size
+    /// (`featureLines`); the rest of the count at the per-unit price.
+    var sized: [SizedFeature] = []
+}
+
+/// A bench, niche or window placed on a room scan.
+struct SizedFeature: Codable, Equatable, Hashable {
+    enum Kind: String, Codable { case bench, niche, window }
+    var kind: Kind = .bench
+    /// "Framed bench 5′ 0″", "Niche 13″ × 24″ (stone all around)".
+    var label: String = ""
+    /// A bench's length; a stone niche's or window's stone, in linear feet.
+    var linFt: Double = 0
+    /// A niche or window with stone: priced by the stone when that's more
+    /// than its minimum. Without stone it's the minimum.
+    var stone: Bool = false
+}
+
+/// A stone piece's price: per linear foot, or per square foot once a
+/// default width is set and chosen.
+struct StoneRate: Codable, Equatable, Hashable {
+    var perLinFt: Double = 0
+    /// The piece's usual width, inches (0: not set).
+    var widthIn: Double = 0
+    var bySqft: Bool = false
+    var perSqft: Double = 0
+    var usesSqft: Bool { bySqft && widthIn > 0 }
+    /// Square feet for a run of this piece.
+    func sqft(linFt: Double) -> Double { linFt * widthIn / 12 }
+    func amount(linFt: Double) -> Double { usesSqft ? sqft(linFt: linFt) * perSqft : linFt * perLinFt }
+}
+
+/// Every stone piece with a price in Admin.
+enum StoneItem: String, CaseIterable, Codable {
+    case curb, cap, jamb, benchTop, benchFront, niche, window
+    var title: String {
+        switch self {
+        case .curb: "Curb"
+        case .cap: "Wall cap & header"
+        case .jamb: "Jambs"
+        case .benchTop: "Bench top"
+        case .benchFront: "Bench front"
+        case .niche: "Niche"
+        case .window: "Window"
+        }
+    }
+}
+
+extension Rates {
+    func stoneRate(_ item: StoneItem) -> StoneRate {
+        if let r = stoneRates[item.rawValue] { return r }
+        switch item {
+        case .curb: return StoneRate(perLinFt: stoneCurbPerLinFt)
+        case .cap: return StoneRate(perLinFt: stoneCapPerLinFt)
+        case .jamb: return StoneRate(perLinFt: stoneJambPerLinFt)
+        default: return StoneRate()
+        }
+    }
+
+    mutating func setStoneRate(_ r: StoneRate, for item: StoneItem) {
+        stoneRates[item.rawValue] = r
+        switch item {
+        case .curb: stoneCurbPerLinFt = r.perLinFt
+        case .cap: stoneCapPerLinFt = r.perLinFt
+        case .jamb: stoneJambPerLinFt = r.perLinFt
+        default: break
+        }
+    }
+}
+
+/// Starting sizes (inches) for what's placed on a room scan; all editable in Admin.
+struct ScanItemDefaults: Codable, Equatable, Hashable {
+    var framedBenchHeightIn: Double = 20
+    var framedBenchDepthIn: Double = 15
+    var floatingBenchHeightIn: Double = 20
+    var floatingBenchDepthIn: Double = 15
+    var windowWidthIn: Double = 36
+    var windowHeightIn: Double = 24
+    var windowBottomIn: Double = 48
+    var nicheWidthIn: Double = 13
+    var nicheHeightIn: Double = 24
+    var nicheBottomIn: Double = 48
+    var cornerShelfIn: Double = 9
+    var cornerShelfHeightIn: Double = 48
+    var cornerFootrestIn: Double = 10
+    var cornerFootrestHeightIn: Double = 18
+    var cornerSeatIn: Double = 18
+    var cornerSeatHeightIn: Double = 20
 }
 
 /// A decorative band, border or inlay. Bands and borders are measured and
@@ -785,7 +896,57 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
         case none
     }
 
+    /// Something placed on a wall of the scan: a bench along it, a niche or
+    /// window in it, or a corner shelf, footrest or seat at one of its ends.
+    struct Item: Identifiable, Codable, Hashable, Equatable {
+        enum Kind: String, Codable, CaseIterable {
+            case niche, window, cornerShelf, cornerFootrest, cornerSeat, floatingBench, framedBench
+            var name: String {
+                switch self {
+                case .niche: "Niche"
+                case .window: "Window"
+                case .cornerShelf: "Corner shelf"
+                case .cornerFootrest: "Corner footrest"
+                case .cornerSeat: "Corner seat"
+                case .floatingBench: "Floating bench"
+                case .framedBench: "Framed bench"
+                }
+            }
+            var isBench: Bool { self == .floatingBench || self == .framedBench }
+            var isCorner: Bool { self == .cornerShelf || self == .cornerFootrest || self == .cornerSeat }
+        }
+        /// A niche: tile, stone all around (top, sides, base shelf and
+        /// dividers) or stone shelves only (base shelf and dividers). A
+        /// window: tile or stone all around.
+        enum Stone: String, Codable, CaseIterable { case tile, all, shelves }
+
+        var id = UUID()
+        var kind: Kind = .niche
+        var wallID = UUID()
+        /// Which face of a planned wall.
+        var face: Int = 0
+        /// Along the wall, from its start: a niche's, window's or bench's sides.
+        var fromFt: Double = 0
+        var toFt: Double = 0
+        /// A niche's or window's bottom edge; a corner piece's top, off the floor.
+        var bottomIn: Double = 0
+        /// A niche's or window's height; a bench's top.
+        var heightIn: Double = 0
+        var depthIn: Double = 0
+        /// A corner piece: how far it comes out along each wall.
+        var sizeIn: Double = 0
+        /// A corner piece: at the wall's start (else its end).
+        var atStart: Bool = true
+        var dividers: Int = 0
+        var stone: Stone = .tile
+        var widthFt: Double { max(0, toFt - fromFt) }
+    }
+
     var pieces: [Piece] = []
+    var items: [Item] = []
+    /// Items have been placed here, so "Use these measurements" sets the
+    /// area's niches, shelves, footrests, seats, benches and windows.
+    var itemsPlaced: Bool = false
     /// Choices for the area's curb, wall caps and jambs.
     var trim: [TrimChoice] = []
     /// The shower's curb height, in inches (nil: Admin's default).
@@ -1026,6 +1187,54 @@ extension Features {
         c.read(.niches, into: &niches)
         c.read(.footrests, into: &footrests)
         c.read(.benches, into: &benches)
+        c.read(.seats, into: &seats)
+        c.read(.windows, into: &windows)
+        c.read(.sized, into: &sized)
+    }
+}
+
+extension SizedFeature {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.kind, into: &kind)
+        c.read(.label, into: &label)
+        c.read(.linFt, into: &linFt)
+        c.read(.stone, into: &stone)
+    }
+}
+
+extension StoneRate {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.perLinFt, into: &perLinFt)
+        c.read(.widthIn, into: &widthIn)
+        c.read(.bySqft, into: &bySqft)
+        c.read(.perSqft, into: &perSqft)
+    }
+}
+
+extension ScanItemDefaults {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.framedBenchHeightIn, into: &framedBenchHeightIn)
+        c.read(.framedBenchDepthIn, into: &framedBenchDepthIn)
+        c.read(.floatingBenchHeightIn, into: &floatingBenchHeightIn)
+        c.read(.floatingBenchDepthIn, into: &floatingBenchDepthIn)
+        c.read(.windowWidthIn, into: &windowWidthIn)
+        c.read(.windowHeightIn, into: &windowHeightIn)
+        c.read(.windowBottomIn, into: &windowBottomIn)
+        c.read(.nicheWidthIn, into: &nicheWidthIn)
+        c.read(.nicheHeightIn, into: &nicheHeightIn)
+        c.read(.nicheBottomIn, into: &nicheBottomIn)
+        c.read(.cornerShelfIn, into: &cornerShelfIn)
+        c.read(.cornerShelfHeightIn, into: &cornerShelfHeightIn)
+        c.read(.cornerFootrestIn, into: &cornerFootrestIn)
+        c.read(.cornerFootrestHeightIn, into: &cornerFootrestHeightIn)
+        c.read(.cornerSeatIn, into: &cornerSeatIn)
+        c.read(.cornerSeatHeightIn, into: &cornerSeatHeightIn)
     }
 }
 
@@ -1328,6 +1537,8 @@ extension AreaTakeoff {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         c.read(.pieces, into: &pieces)
+        c.read(.items, into: &items)
+        c.read(.itemsPlaced, into: &itemsPlaced)
         c.read(.trim, into: &trim)
         c.read(.curbHeightIn, into: &curbHeightIn)
         c.read(.subtracted, into: &subtracted)
@@ -1352,6 +1563,26 @@ extension AreaTakeoff.Piece {
         c.read(.heightIn, into: &height)
         self.init(id: id, wallID: wallID, fromFt: from, toFt: to, heightIn: height)
         c.read(.face, into: &face)
+    }
+}
+
+extension AreaTakeoff.Item {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.kind, into: &kind)
+        c.read(.wallID, into: &wallID)
+        c.read(.face, into: &face)
+        c.read(.fromFt, into: &fromFt)
+        c.read(.toFt, into: &toFt)
+        c.read(.bottomIn, into: &bottomIn)
+        c.read(.heightIn, into: &heightIn)
+        c.read(.depthIn, into: &depthIn)
+        c.read(.sizeIn, into: &sizeIn)
+        c.read(.atStart, into: &atStart)
+        c.read(.dividers, into: &dividers)
+        c.read(.stone, into: &stone)
     }
 }
 

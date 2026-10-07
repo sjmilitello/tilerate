@@ -221,7 +221,7 @@ struct RoomScanTests {
 
         // Outside a shower: a cap and a jamb at the open end, tile until switched to stone.
         let trim = t.trimPieces(in: r, area: .wall, curbHeightIn: 4)
-        #expect(trim.map(\.name) == ["Wall cap (knee wall E)", "Knee wall E end jamb"])
+        #expect(trim.map(\.name) == ["Wall cap (half wall E)", "Half wall E end jamb"])
         #expect(abs(trim[0].lengthFt - 4) < 1e-9 && abs(trim[1].lengthFt - 3.5) < 1e-9)
         #expect(trim.allSatisfy { !$0.stone })
         var s = PricingCases.section(.wall, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
@@ -282,7 +282,7 @@ struct RoomScanTests {
         #expect(abs(byName["Right jamb"]! - (8 - 4.0 / 12)) < 1e-9)          // curb to the top of the tile
         #expect(abs(byName["Left lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)   // curb to cap
         #expect(abs(byName["Left upper jamb"]! - 4.5) < 1e-9)                // cap to the top of the tile
-        #expect(abs(byName["Wall cap (knee wall E)"]! - 3) < 1e-9)
+        #expect(abs(byName["Wall cap (half wall E)"]! - 3) < 1e-9)
         #expect(trim.count == 5)
 
         // Tile stops at 84″: the jambs follow; a 6″ curb shortens them.
@@ -416,7 +416,17 @@ struct RoomScanTests {
         #expect(abs(byName["Left jamb"]! - (8 - 4.0 / 12)) < 1e-9)
         #expect(abs(byName["Right lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)
         #expect(abs(byName["Right upper jamb"]! - 4.5) < 1e-9)
-        #expect(abs(byName["Wall cap (knee wall E)"]! - 5) < 1e-9)
+        #expect(abs(byName["Wall cap (half wall E)"]! - 5) < 1e-9)
+    }
+
+    @Test func aFullWallJustUnderAnOddCeilingIsStillFull() {
+        // Scans come back with ceilings like 8′ 0.7″; a wall rounded down to 8′ is still full.
+        var r = room
+        for i in r.walls.indices { r.walls[i].heightFt = 96.7 / 12 }
+        let full = r.addPlannedWall(from: .init(x: 5, y: 3), to: .init(x: 9, y: 3), heightIn: 96, thicknessIn: 4.5)
+        let half = r.addPlannedWall(from: .init(x: 5, y: 0), to: .init(x: 5, y: 3), heightIn: 42, thicknessIn: 4.5)
+        #expect(!r.isKneeWall(full) && r.name(of: full) == "New wall E")
+        #expect(r.isKneeWall(half) && r.name(of: half) == "Half wall F")
     }
 
     @Test func aWallAlreadyDrawnInIsFoundRatherThanStacked() {
@@ -437,6 +447,94 @@ struct RoomScanTests {
         #expect(abs(t.wallsSqft(in: r) - 64) < 1e-9)
         r.walls.removeAll { $0.id == w.id }
         #expect(abs(t.wallsSqft(in: r) - 32) < 1e-9)
+    }
+
+    // MARK: Benches, niches, windows and corner pieces
+
+    @Test func placedBenchesNichesAndWindowsAreTheHigherOfMinimumAndSize() {
+        var r = Rates()
+        r.unitBench = 200; r.benchPerLinFt = 50
+        r.unitNiche = 300
+        r.setStoneRate(StoneRate(perLinFt: 40), for: .niche)
+        r.unitWindow = 100
+        r.setStoneRate(StoneRate(perLinFt: 10, widthIn: 6, bySqft: true, perSqft: 30), for: .window)
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked), showerWalls: 80)
+        s.features.benches = 2
+        s.features.niches = 2
+        s.features.windows = 1
+        s.features.sized = [
+            SizedFeature(kind: .bench, label: "Framed bench 5′", linFt: 5),        // 250 > 200
+            SizedFeature(kind: .bench, label: "Floating bench 3′", linFt: 3),      // 150 < 200: minimum
+            SizedFeature(kind: .niche, label: "Niche 13″ × 24″, stone all around", linFt: 10, stone: true), // 400
+            SizedFeature(kind: .window, label: "Window", linFt: 10, stone: true),  // 10 × ½′ × 30 = 150
+        ]
+        // One niche typed, not placed: the per-unit price.
+        let legacy = legacySummary(state: EstimatorState(section: s), rates: r)
+        let scheme = schemeSummary(state: EstimatorState(section: s), scheme: PricingScheme(rates: r))
+        #expect(legacy.lines.map(\.label) == scheme.lines.map(\.label))
+        #expect(legacy.lines.map(\.amount) == scheme.lines.map(\.amount))
+        func amount(_ start: String) -> Double? { legacy.lines.first { $0.label.hasPrefix(start) }?.amount }
+        #expect(amount("Framed bench 5′") == 250)
+        #expect(amount("Floating bench 3′") == 200)
+        #expect(amount("Niches (1×") == 300)
+        #expect(amount("Niche 13″") == 400)
+        #expect(amount("Window") == 150)
+        #expect(legacy.lines.contains { $0.label == "Floating bench 3′ (minimum $200.00)" })
+    }
+
+    @Test func placedItemsSetTheAreasFeaturesAndStoneWithWidthsGoesBySquareFoot() {
+        let r = room
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(D, 5, 8, 96), piece(A, 0, 9, 96), piece(B, 0, 3, 96)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 9, depthFt: 3)
+        // A framed bench along wall A, wall to wall: 9′.
+        let span = t.benchSpan(on: r.walls[0], in: r, floating: false)
+        #expect(span == 0...9)
+        t.items = [
+            .init(kind: .framedBench, wallID: A.id, fromFt: 0, toFt: 9, heightIn: 20, depthIn: 15),
+            .init(kind: .niche, wallID: A.id, fromFt: 4, toFt: 4 + 13.0 / 12, bottomIn: 48, heightIn: 24, dividers: 1, stone: .shelves),
+            .init(kind: .window, wallID: B.id, fromFt: 0.5, toFt: 2.5, bottomIn: 48, heightIn: 24),
+            .init(kind: .cornerShelf, wallID: A.id, bottomIn: 48, sizeIn: 9),
+            .init(kind: .cornerSeat, wallID: A.id, bottomIn: 20, sizeIn: 18),
+        ]
+        t.itemsPlaced = true
+        // The window comes off wall B's tile: 3′ × 8′ less 2′ × 2′.
+        #expect(abs(t.sqft(of: t.pieces[2], in: r) - (24 - 4)) < 1e-9)
+        // The bench's top and front are tile: 9 × 15″ + 9 × 20″.
+        #expect(abs(t.benchTileSqft(in: r) - (9 * 1.25 + 9 * 20.0 / 12)) < 1e-9)
+        // Stone top: off the tile, onto a line by the square foot (12″ wide).
+        t.trim = [.init(key: "benchTop:\(t.items[0].id)", stone: true)]
+        #expect(abs(t.benchTileSqft(in: r) - 9 * 20.0 / 12) < 1e-9)
+        var prices = StonePrices()
+        prices.stone[.benchTop] = StoneRate(perLinFt: 20, widthIn: 12, bySqft: true, perSqft: 35)
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
+        s.features.shelves = 5   // typed earlier: placed items override it
+        t.apply(r, to: &s, prices: prices)
+        let top = s.additionsLabor.first { $0.activity == "Stone bench top" }
+        #expect(top?.qty == 9 && top?.unit == "sq ft" && top?.rate == 35)
+        #expect(s.features.benches == 1 && s.features.niches == 1 && s.features.windows == 1)
+        #expect(s.features.shelves == 1 && s.features.seats == 1 && s.features.footrests == 0)
+        // Stone shelves only: the base shelf and one divider, 13″ each.
+        let niche = s.features.sized.first { $0.kind == .niche }
+        #expect(niche?.stone == true && abs((niche?.linFt ?? 0) - 26.0 / 12) < 1e-9)
+        #expect(s.features.sized.first { $0.kind == .bench }?.linFt == 9)
+    }
+
+    @Test func aFloatingBenchNeedsAWallAtEachEnd() {
+        let r = room
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        // Shower in the A/B corner, 4′ × 3′, open on its left and front.
+        t.pieces = [piece(A, 5, 9, 96), piece(B, 0, 3, 96)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 4, depthFt: 3)
+        // Along wall A it runs from the open left side to wall B: not floating.
+        #expect(t.benchSpan(on: r.walls[0], in: r, floating: true) == nil)
+        // Framed, it runs flush with the outside of a 4½″ curb on the open side.
+        let framed = t.benchSpan(on: r.walls[0], in: r, floating: false, curbWidthFt: 4.5 / 12)
+        #expect(framed.map { abs($0.lowerBound - (5 - 4.5 / 12)) < 1e-9 && abs($0.upperBound - 9) < 1e-9 } == true)
     }
 
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {

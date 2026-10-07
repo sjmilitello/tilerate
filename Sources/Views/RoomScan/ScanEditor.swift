@@ -32,8 +32,14 @@ struct ScanEditor: View {
     @State private var selectedPiece: UUID? = nil
     @State private var face = 0
     @State private var addingWall = false
-    /// The wall being drawn is a full wall with a shower door in it.
-    @State private var addingDoorWall = false
+    /// The wall being placed is a full wall (else a half wall).
+    @State private var addingFullWall = false
+    /// Waiting for a tap on the wall a framed bench goes against.
+    @State private var placingBench = false
+    /// The chosen bench, niche, window or corner piece.
+    @State private var selectedItem: UUID? = nil
+    /// A message about something that couldn't be placed.
+    @State private var placeNote: String? = nil
     /// An open side of the shower floor tapped on the plan: offer to close it.
     @State private var closingSide: AreaTakeoff.OpenSide? = nil
     @State private var askClose = false
@@ -72,10 +78,10 @@ struct ScanEditor: View {
                            floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
                            onResetFloor: placeShowerFloor,
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
-                           hint: addingWall ? nil : (usesWalls ? (openSides.isEmpty ? "Tap a wall to tile it · pinch to zoom"
-                                                                                       : "Tap a wall to tile it · tap the curb to add a wall") : "Pinch to zoom"),
+                           items: takeoff.items,
+                           hint: addingWall ? nil : (usesWalls ? "Tap a wall to tile it · pinch to zoom" : "Pinch to zoom"),
                            addingWall: addingWall,
-                           onAddWall: { a, b in addKneeWall(from: a, to: b) },
+                           onAddWall: { a, b in addDrawnWall(from: a, to: b) },
                            onMovePlannedEnd: { id, start, p in
                                room.movePlannedEnd(id, start: start, to: p)
                                clampPieces(on: id)
@@ -86,8 +92,13 @@ struct ScanEditor: View {
                            },
                            openSides: openSides.map { ($0.a, $0.b) },
                            onTapOpenSide: { i in
-                               closingSide = openSides[i]
-                               askClose = true
+                               if addingWall {
+                                   addingWall = false
+                                   closeSide(openSides[i], door: addingFullWall)
+                               } else {
+                                   closingSide = openSides[i]
+                                   askClose = true
+                               }
                            },
                            snapNewWall: { a, b in
                                area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
@@ -97,11 +108,30 @@ struct ScanEditor: View {
                 .frame(height: 250)
                 .background(Color(white: 0.09))
                 .overlay(alignment: .top) {
+                    if placingBench {
+                        HStack(spacing: 10) {
+                            Image(systemName: "hand.tap")
+                            Text("Tap the wall the bench goes against.").font(.caption)
+                            Button("Cancel") { placingBench = false }.font(.caption.weight(.semibold))
+                        }
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(8)
+                    } else if let note = placeNote {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle")
+                            Text(note).font(.caption).fixedSize(horizontal: false, vertical: true)
+                            Button("OK") { placeNote = nil }.font(.caption.weight(.semibold))
+                        }
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(8)
+                    }
                     if addingWall {
                         HStack(spacing: 10) {
                             Image(systemName: "hand.draw")
-                            Text(addingDoorWall ? "Drag on the plan from where the new wall starts to where it ends. The door goes in its middle."
-                                 : "Drag on the plan from where the wall starts to where it ends.")
+                            Text((openSides.isEmpty ? "" : "Tap the curb to put the \(addingFullWall ? "full" : "half") wall on the shower opening, or ")
+                                 + (openSides.isEmpty ? "Drag" : "drag") + " on the plan from where it starts to where it ends.")
                                 .font(.caption).fixedSize(horizontal: false, vertical: true)
                             Button("Cancel") { addingWall = false }
                                 .font(.caption.weight(.semibold))
@@ -116,6 +146,7 @@ struct ScanEditor: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
                             if usesWalls {
+                                addWallMenu
                                 wallPanel.id("wall")
                             } else if let id = selectedWall, let w = room.wall(id), w.planned {
                                 // A floor: walls aren't tiled here, but one drawn in can be changed or deleted.
@@ -141,8 +172,8 @@ struct ScanEditor: View {
             .background(ND.ground.ignoresSafeArea())
             .confirmationDialog("Add a wall on the curb", isPresented: $askClose, titleVisibility: .visible,
                                 presenting: closingSide) { side in
-                Button("Full wall with a shower door") { closeSide(side, door: true) }
-                Button("Knee wall") { closeSide(side, door: false) }
+                Button("Full wall (with a door)") { closeSide(side, door: true) }
+                Button("Half wall") { closeSide(side, door: false) }
             } message: { side in
                 Text("Along the open side of the shower, \(feetAndInches(side.lengthFt)). Move or resize it after.")
             }
@@ -162,24 +193,6 @@ struct ScanEditor: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button { addingDoorWall = false; addingWall = true } label: {
-                            Label("Add a knee wall that isn't built yet", systemImage: "square.split.diagonal.2x2")
-                        }
-                        if area == .shower {
-                            Button { addingDoorWall = true; addingWall = true } label: {
-                                Label("Add a full wall with a shower door", systemImage: "door.left.hand.open")
-                            }
-                        }
-                        let added = room.walls.filter(\.planned)
-                        if !added.isEmpty {
-                            Menu {
-                                ForEach(added) { w in
-                                    Button(role: .destructive) { deleteWall(w.id) } label: {
-                                        Label("Delete \(room.name(of: w))", systemImage: "trash")
-                                    }
-                                }
-                            } label: { Label("Delete a wall I added", systemImage: "trash") }
-                        }
                         Button { onRescan() } label: { Label("Scan again", systemImage: "viewfinder") }
                         if !takeoff.pieces.isEmpty {
                             Button(role: .destructive) {
@@ -199,6 +212,11 @@ struct ScanEditor: View {
 
     private func tapWall(_ id: UUID) {
         guard let wall = room.wall(id) else { return }
+        if placingBench {
+            placingBench = false
+            addBench(on: wall, floating: false)
+            return
+        }
         guard usesWalls else {
             if wall.planned { selectedWall = id }
             return
@@ -215,15 +233,34 @@ struct ScanEditor: View {
         }
     }
 
-    /// A knee wall drawn on the plan: added to the room, chosen, and tiled
-    /// on its first side.
-    private func addKneeWall(from a: ScannedRoom.Point, to b: ScannedRoom.Point) {
+    /// A wall drawn on the plan: added to the room, chosen, and tiled on
+    /// its first side. A full wall drawn onto the shower opening gets a door.
+    private func addDrawnWall(from a: ScannedRoom.Point, to b: ScannedRoom.Point) {
         addingWall = false
-        let ceiling = (room.ceilingFt * 12).rounded(.down)
-        let height = addingDoorWall ? ceiling : min(42, ceiling)
-        let w = placeWall(from: a, to: b, heightIn: height, door: addingDoorWall)
-        addingDoorWall = false
+        let ceiling = room.ceilingFt * 12
+        let height = addingFullWall ? ceiling : min(42, ceiling)
+        let onOpening = openSides.contains { s in
+            let d1 = hypot(s.a.x - a.x, s.a.y - a.y) + hypot(s.b.x - b.x, s.b.y - b.y)
+            let d2 = hypot(s.a.x - b.x, s.a.y - b.y) + hypot(s.b.x - a.x, s.b.y - a.y)
+            return min(d1, d2) < 0.05
+        }
+        let w = placeWall(from: a, to: b, heightIn: height, door: addingFullWall && onOpening && area == .shower)
         if usesWalls { tapWall(w.id) } else { selectedWall = w.id }
+    }
+
+    /// Add a Wall: full or half, then tap the curb or drag on the plan.
+    private var addWallMenu: some View {
+        Menu {
+            Button { addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
+            Button { addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
+            if area == .shower {
+                Button { addingWall = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
+            }
+        } label: {
+            Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
+        }
+        .buttonStyle(.bordered)
+        .font(.subheadline)
     }
 
     /// A new planned wall, with a door in its middle if asked. Where a wall
@@ -260,10 +297,191 @@ struct ScanEditor: View {
             let n = ScannedRoom.Point(x: -(b.y - a.y), y: b.x - a.x)
             if (center.x - a.x) * n.x + (center.y - a.y) * n.y < 0 { swap(&a, &b) }
         }
-        let ceiling = (room.ceilingFt * 12).rounded(.down)
+        let ceiling = room.ceilingFt * 12
         let w = placeWall(from: a, to: b, heightIn: door ? ceiling : min(42, ceiling), door: door)
         face = 0
         tapWall(w.id)
+    }
+
+    // MARK: Benches, niches, windows and corner pieces
+
+    private var defaults: ScanItemDefaults { stone.defaults }
+
+    /// A bench along a wall: the shower floor's side against it, wall to
+    /// wall (a framed bench may stop flush with the outside of the curb).
+    private func addBench(on wall: ScannedRoom.Wall, floating: Bool) {
+        let curbWidth = stone.rate(.curb).widthIn / 12
+        guard let span = takeoff.benchSpan(on: wall, in: room, floating: floating, curbWidthFt: curbWidth) else {
+            placeNote = floating ? "A floating bench needs a wall at each end. Choose the wall it runs along, between two walls."
+                                 : "There's no room for a bench along \(room.name(of: wall).lowercased())."
+            return
+        }
+        let item = AreaTakeoff.Item(kind: floating ? .floatingBench : .framedBench, wallID: wall.id, face: face,
+                                    fromFt: span.lowerBound, toFt: span.upperBound,
+                                    heightIn: floating ? defaults.floatingBenchHeightIn : defaults.framedBenchHeightIn,
+                                    depthIn: floating ? defaults.floatingBenchDepthIn : defaults.framedBenchDepthIn)
+        place(item, on: wall)
+    }
+
+    private func addOpening(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall) {
+        let w = (kind == .niche ? defaults.nicheWidthIn : defaults.windowWidthIn) / 12
+        let mid = takeoff.middle(of: wall, face: face)
+        let from = min(max(0, mid - w / 2), max(0, wall.lengthFt - w))
+        let item = AreaTakeoff.Item(kind: kind, wallID: wall.id, face: face, fromFt: from, toFt: from + w,
+                                    bottomIn: kind == .niche ? defaults.nicheBottomIn : defaults.windowBottomIn,
+                                    heightIn: kind == .niche ? defaults.nicheHeightIn : defaults.windowHeightIn)
+        place(item, on: wall)
+    }
+
+    /// A corner shelf, footrest or seat in a corner of the wall; another
+    /// shelf in the same corner goes 12″ above the last.
+    private func addCorner(_ kind: AreaTakeoff.Item.Kind, on wall: ScannedRoom.Wall) {
+        let atStart = takeoff.cornerEnd(of: wall, in: room)
+        let (size, height): (Double, Double) = switch kind {
+        case .cornerShelf: (defaults.cornerShelfIn, defaults.cornerShelfHeightIn)
+        case .cornerFootrest: (defaults.cornerFootrestIn, defaults.cornerFootrestHeightIn)
+        default: (defaults.cornerSeatIn, defaults.cornerSeatHeightIn)
+        }
+        let same = takeoff.items.filter { $0.kind == kind && $0.wallID == wall.id && $0.atStart == atStart }
+        let bottom = kind == .cornerShelf ? (same.map(\.bottomIn).max().map { $0 + 12 } ?? height) : height
+        let item = AreaTakeoff.Item(kind: kind, wallID: wall.id, face: face, bottomIn: min(bottom, wall.heightFt * 12),
+                                    sizeIn: size, atStart: atStart)
+        place(item, on: wall)
+    }
+
+    private func place(_ item: AreaTakeoff.Item, on wall: ScannedRoom.Wall) {
+        takeoff.items.append(item)
+        takeoff.itemsPlaced = true
+        placeNote = nil
+        if selectedWall != wall.id { selectedWall = wall.id }
+        selectedItem = item.id
+    }
+
+    /// Add door, window, niche, corner piece or floating bench to a wall.
+    @ViewBuilder
+    private func wallItemButtons(_ wall: ScannedRoom.Wall) -> some View {
+        if !room.isKneeWall(wall),
+           !room.openings.contains(where: { $0.wallID == wall.id && $0.kind == .showerDoor }) {
+            Button { addShowerDoor(on: wall) } label: { Label("Add door", systemImage: "door.left.hand.open") }
+        }
+        Button { addOpening(.window, on: wall) } label: { Label("Add window", systemImage: "window.horizontal") }
+        Button { addOpening(.niche, on: wall) } label: { Label("Add niche", systemImage: "square.split.1x2") }
+        Menu {
+            Button("Corner shelf") { addCorner(.cornerShelf, on: wall) }
+            Button("Corner seat") { addCorner(.cornerSeat, on: wall) }
+            Button("Corner footrest") { addCorner(.cornerFootrest, on: wall) }
+        } label: { Label("Add corner shelf / seat / footrest", systemImage: "triangle") }
+        Button { addBench(on: wall, floating: true) } label: { Label("Add floating bench", systemImage: "rectangle.split.1x2") }
+    }
+
+    /// The chosen item's sizes, stone and Delete; chips to choose the others on this wall.
+    @ViewBuilder
+    private func itemPanel(on wall: ScannedRoom.Wall) -> some View {
+        let here = takeoff.items.filter { $0.wallID == wall.id }
+        if !here.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(here) { item in
+                            let on = item.id == selectedItem
+                            Button { selectedItem = on ? nil : item.id } label: {
+                                Text(item.kind.name)
+                                    .font(.caption.weight(on ? .semibold : .regular))
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(on ? Color.mint.opacity(0.3) : Color.white.opacity(0.08), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                if let id = selectedItem, let i = takeoff.items.firstIndex(where: { $0.id == id }), takeoff.items[i].wallID == wall.id {
+                    itemControls(i, wall: wall)
+                } else {
+                    Text("Tap one to change it; drag it on the wall above.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .background(Color.mint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    @ViewBuilder
+    private func itemControls(_ i: Int, wall: ScannedRoom.Wall) -> some View {
+        let item = takeoff.items[i]
+        let width = Binding(get: { takeoff.items[i].widthFt * 12 }, set: { v in
+            takeoff.items[i].toFt = min(wall.lengthFt, takeoff.items[i].fromFt + max(4, v) / 12)
+        })
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(item.kind.name).font(.subheadline.weight(.semibold))
+                Spacer()
+                Button(role: .destructive) {
+                    takeoff.items.remove(at: i)
+                    selectedItem = nil
+                } label: { Label("Delete", systemImage: "trash") }
+                .font(.caption)
+            }
+            switch item.kind {
+            case .niche, .window:
+                HStack(spacing: 12) {
+                    InchField(title: "Width", inches: width)
+                    InchField(title: "Height", inches: $takeoff.items[i].heightIn)
+                    InchField(title: "Off the floor", inches: $takeoff.items[i].bottomIn)
+                }
+                InchField(title: "From the \(cornerName(wall, atStart: true)) end", inches: Binding(
+                    get: { takeoff.items[i].fromFt * 12 },
+                    set: { v in
+                        let w = takeoff.items[i].widthFt
+                        let from = min(max(0, v / 12), wall.lengthFt - w)
+                        takeoff.items[i].fromFt = from
+                        takeoff.items[i].toFt = from + w
+                    }))
+                .frame(maxWidth: 160, alignment: .leading)
+                if item.kind == .niche {
+                    Stepper("Divider shelves: \(item.dividers)", value: $takeoff.items[i].dividers, in: 0...6)
+                        .font(.subheadline)
+                    Picker("Stone", selection: $takeoff.items[i].stone) {
+                        Text("Tile").tag(AreaTakeoff.Item.Stone.tile)
+                        Text("Stone all around").tag(AreaTakeoff.Item.Stone.all)
+                        Text("Stone shelves").tag(AreaTakeoff.Item.Stone.shelves)
+                    }
+                    .pickerStyle(.segmented)
+                    let ft = AreaTakeoff.nicheStoneFt(takeoff.items[i])
+                    if ft > 0 {
+                        Text("Stone: \(feetAndInches(ft)) (\(item.stone == .all ? "top, sides, base shelf and dividers" : "base shelf and dividers"))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Picker("Stone", selection: $takeoff.items[i].stone) {
+                        Text("Tile").tag(AreaTakeoff.Item.Stone.tile)
+                        Text("Stone all around").tag(AreaTakeoff.Item.Stone.all)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("The window isn't tiled; it comes off the wall.").font(.caption).foregroundStyle(.secondary)
+                }
+            case .framedBench, .floatingBench:
+                HStack(spacing: 12) {
+                    InchField(title: "Length", inches: width)
+                    InchField(title: "Height", inches: $takeoff.items[i].heightIn)
+                    InchField(title: "Depth", inches: $takeoff.items[i].depthIn)
+                }
+                Text(item.kind == .framedBench
+                     ? "Top and front are tile (counted with the walls) unless switched to stone under Stone pieces."
+                     : "Supported at both ends; no front, the wall below is tile. Its top can be stone under Stone pieces.")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .cornerShelf, .cornerFootrest, .cornerSeat:
+                Picker("Corner", selection: $takeoff.items[i].atStart) {
+                    Text("\(cornerName(wall, atStart: true).capitalized) corner").tag(true)
+                    Text("\(cornerName(wall, atStart: false).capitalized) corner").tag(false)
+                }
+                .pickerStyle(.segmented)
+                HStack(spacing: 12) {
+                    InchField(title: "Size", inches: $takeoff.items[i].sizeIn)
+                    InchField(title: "Height", inches: $takeoff.items[i].bottomIn)
+                }
+                Text("Stone, charged per piece.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// A shower door opening on a wall: in the middle of this area's tile on it.
@@ -279,6 +497,7 @@ struct ScanEditor: View {
         room.walls.removeAll { $0.id == id }
         room.openings.removeAll { $0.wallID == id }
         takeoff.pieces.removeAll { $0.wallID == id }
+        takeoff.items.removeAll { $0.wallID == id }
         if selectedWall == id {
             selectedWall = nil
             selectedPiece = nil
@@ -351,7 +570,8 @@ struct ScanEditor: View {
                               others: others, snaps: room.snapPoints(on: wall, others: otherPieces.filter { $0.face == face }),
                               onDoor: { d in
                                   if let i = room.openings.firstIndex(where: { $0.id == d.id }) { room.openings[i] = d }
-                              })
+                              },
+                              selectedItem: $selectedItem)
                     .frame(height: 210)
 
                 if let pieceIndex = takeoff.pieces.firstIndex(where: { $0.id == selectedPiece && $0.wallID == wallID && $0.face == face }) {
@@ -361,27 +581,39 @@ struct ScanEditor: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: 10) {
-                    Button {
-                        if let p = takeoff.addPiece(on: wall, area: area, others: otherPieces, face: face) { selectedPiece = p.id }
-                    } label: { Label("Add piece", systemImage: "plus") }
-                    if let id = selectedPiece, let p = takeoff.pieces.first(where: { $0.id == id }), p.toFt - p.fromFt > 1 {
-                        Button { split(id) } label: { Label("Split", systemImage: "scissors") }
+                // The tile on this wall.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        Button {
+                            if let p = takeoff.addPiece(on: wall, area: area, others: otherPieces, face: face) { selectedPiece = p.id }
+                        } label: { Label("Add piece", systemImage: "plus") }
+                        if let id = selectedPiece, let p = takeoff.pieces.first(where: { $0.id == id }), p.toFt - p.fromFt > 1 {
+                            Button { split(id) } label: { Label("Split", systemImage: "scissors") }
+                        }
+                        if let id = selectedPiece, takeoff.pieces.contains(where: { $0.id == id }) {
+                            Button(role: .destructive) {
+                                takeoff.pieces.removeAll { $0.id == id }
+                                selectedPiece = takeoff.pieces.first { $0.wallID == wallID && $0.face == face }?.id
+                            } label: { Label("Remove piece", systemImage: "trash") }
+                        }
                     }
-                    if area == .shower, !room.isKneeWall(wall),
-                       !room.openings.contains(where: { $0.wallID == wallID && $0.kind == .showerDoor }) {
-                        Button { addShowerDoor(on: wall) } label: { Label("Door", systemImage: "door.left.hand.open") }
-                    }
-                    if let id = selectedPiece, takeoff.pieces.contains(where: { $0.id == id }) {
-                        Button(role: .destructive) {
-                            takeoff.pieces.removeAll { $0.id == id }
-                            selectedPiece = takeoff.pieces.first { $0.wallID == wallID && $0.face == face }?.id
-                        } label: { Label("Remove", systemImage: "trash") }
-                    }
+                    .fixedSize()
                 }
                 .buttonStyle(.bordered)
                 .font(.subheadline)
 
+                // What goes in this wall.
+                if area == .shower {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) { wallItemButtons(wall) }
+                            .fixedSize()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color(red: 0.85, green: 0.78, blue: 0.62))
+                    .font(.subheadline)
+                }
+
+                itemPanel(on: wall)
                 doorControls(on: wall)
                 openingsList(on: wall)
             }
@@ -394,10 +626,10 @@ struct ScanEditor: View {
         }
     }
 
-    /// A knee wall's height and thickness, and deleting it.
+    /// A wall drawn in: its height, thickness and length, and deleting it.
     private func plannedWallControls(_ wall: ScannedRoom.Wall) -> some View {
         let index = room.walls.firstIndex { $0.id == wall.id }!
-        let roomHeight = ((room.walls.filter { !$0.planned }.map(\.heightFt).max() ?? 8) * 12).rounded(.down)
+        let roomHeight = room.ceilingFt * 12
         return VStack(alignment: .leading, spacing: 10) {
             Text("Not built yet: drawn on the plan. Drag the handle in its middle to move it, or its ends to change its length.")
                 .font(.footnote).foregroundStyle(.secondary)
@@ -454,7 +686,7 @@ struct ScanEditor: View {
         let pieces = takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn)
         if area == .shower || !pieces.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text(area == .shower ? "Shower entry" : "Wall cap & jambs").font(.ndTitle(20))
+                Text(area == .shower ? "Stone pieces" : "Wall cap & jambs").font(.ndTitle(20))
                 if area == .shower {
                     InchField(title: "Curb height", inches: Binding(
                         get: { takeoff.curbHeightIn ?? stone.curbHeightIn },
@@ -464,10 +696,10 @@ struct ScanEditor: View {
                 ForEach(Array(openSides.enumerated()), id: \.offset) { _, side in
                     Menu {
                         Button { closeSide(side, door: true) } label: {
-                            Label("Full wall with a shower door", systemImage: "door.left.hand.open")
+                            Label("Full Wall (with a door)", systemImage: "rectangle.portrait")
                         }
                         Button { closeSide(side, door: false) } label: {
-                            Label("Knee wall", systemImage: "square.split.diagonal.2x2")
+                            Label("Half Wall", systemImage: "rectangle.bottomhalf.filled")
                         }
                     } label: {
                         Label("Add a wall on the curb (\(feetAndInches(side.lengthFt)) open)", systemImage: "plus.rectangle.on.rectangle")
@@ -816,6 +1048,8 @@ struct PlanCanvas: View {
     var onResetFloor: (() -> Void)? = nil
     /// The shower's curb: open sides of its floor.
     var curbEdges: [(ScannedRoom.Point, ScannedRoom.Point)] = []
+    /// Benches, niches, windows and corner pieces placed on the walls.
+    var items: [AreaTakeoff.Item] = []
     var hint: String? = nil
     /// Drawing a new wall: a drag on the plan from its start to its end.
     var addingWall = false
@@ -1174,6 +1408,26 @@ struct PlanCanvas: View {
         return path
     }
 
+    /// The unit vector from a wall toward the shower (its floor's middle),
+    /// else into the room; a planned wall's from the face given.
+    private func inward(_ w: ScannedRoom.Wall, face: Int) -> ScannedRoom.Point {
+        let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+        let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+        var n = ScannedRoom.Point(x: -dy / l, y: dx / l)
+        if w.planned { return face == 0 ? n : .init(x: -n.x, y: -n.y) }
+        let target: ScannedRoom.Point
+        if let r = floorRect?.wrappedValue ?? floorRectShown {
+            let c = r.corners
+            target = .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+        } else {
+            let pts = room.floorOutline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : room.floorOutline
+            target = .init(x: pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1)), y: pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1)))
+        }
+        let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
+        if (target.x - mid.x) * n.x + (target.y - mid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+        return n
+    }
+
     /// Grab handles on the ends of the chosen planned wall, and one in its
     /// middle to move it whole.
     @ViewBuilder
@@ -1304,6 +1558,45 @@ struct PlanCanvas: View {
                          at: CGPoint(x: center.x, y: center.y + 24))
             }
         }
+        // Benches and corner pieces, out from their wall; windows and niches on it.
+        let stoneColor = Color(red: 0.85, green: 0.78, blue: 0.62)
+        for item in items {
+            guard let w = room.wall(item.wallID) else { continue }
+            let n = inward(w, face: item.face)
+            func pt(_ along: Double, _ out: Double) -> CGPoint {
+                let p = room.point(on: w, along: along)
+                return f.at(.init(x: p.x + n.x * out, y: p.y + n.y * out))
+            }
+            let skin = w.planned ? w.thicknessIn / 24 : 0
+            var path = Path()
+            switch item.kind {
+            case .framedBench, .floatingBench:
+                let d = skin + item.depthIn / 12
+                path.addLines([pt(item.fromFt, skin), pt(item.toFt, skin), pt(item.toFt, d), pt(item.fromFt, d)])
+                path.closeSubpath()
+                ctx.fill(path, with: .color(Color.mint.opacity(0.3)))
+                ctx.stroke(path, with: .color(Color.mint), style: StrokeStyle(lineWidth: 1.5, dash: item.kind == .floatingBench ? [4, 3] : []))
+                if interactive {
+                    let c = pt((item.fromFt + item.toFt) / 2, d / 2 + skin / 2)
+                    ctx.draw(Text("Bench").font(.system(size: 9, weight: .semibold)).foregroundColor(.mint), at: c)
+                }
+            case .cornerShelf, .cornerFootrest, .cornerSeat:
+                let size = item.sizeIn / 12
+                let corner = item.atStart ? 0.0 : w.lengthFt
+                let along = item.atStart ? size : w.lengthFt - size
+                path.addLines([pt(corner, skin), pt(along, skin), pt(corner, skin + size)])
+                path.closeSubpath()
+                ctx.fill(path, with: .color(stoneColor.opacity(0.5)))
+                ctx.stroke(path, with: .color(stoneColor), lineWidth: 1)
+            case .window:
+                path.move(to: pt(item.fromFt, 0)); path.addLine(to: pt(item.toFt, 0))
+                ctx.stroke(path, with: .color(.cyan), style: StrokeStyle(lineWidth: 4))
+            case .niche:
+                path.addLines([pt(item.fromFt, skin), pt(item.fromFt, skin - 0.3), pt(item.toFt, skin - 0.3), pt(item.toFt, skin)])
+                ctx.stroke(path, with: .color(item.stone == .tile ? Color.white.opacity(0.7) : stoneColor), lineWidth: 1.5)
+            }
+        }
+
         // The curb.
         for (a, b) in curbEdges {
             var line = Path()
@@ -1351,8 +1644,12 @@ struct WallElevation: View {
     let snaps: [Double]
     /// A shower door moved or resized.
     var onDoor: (ScannedRoom.Opening) -> Void = { _ in }
+    /// The chosen bench, niche, window or corner piece (its handles show
+    /// instead of the tile's).
+    var selectedItem: Binding<UUID?> = .constant(nil)
 
     private let inset: CGFloat = 14
+    @State private var itemDragStart: AreaTakeoff.Item? = nil
     private static let stone = Color(red: 0.85, green: 0.78, blue: 0.62)
     @State private var doorDragStart: Double? = nil
 
@@ -1405,7 +1702,7 @@ struct WallElevation: View {
                         }
                         .frame(width: max(r.width, 1), height: max(r.height, 1))
                         .position(x: r.midX, y: r.midY)
-                        .onTapGesture { selectedPiece = p.id }
+                        .onTapGesture { selectedPiece = p.id; selectedItem.wrappedValue = nil }
                 }
 
                 // Doors and windows.
@@ -1437,8 +1734,16 @@ struct WallElevation: View {
                     showerDoor(d, scale: scale, at: at)
                 }
 
-                // Handles on the chosen piece.
-                if let i = takeoff.pieces.firstIndex(where: { $0.id == selectedPiece && $0.wallID == wall.id && $0.face == face }) {
+                // Benches, niches, windows and corner pieces.
+                ForEach(itemsHere) { item in
+                    itemView(item, scale: scale, at: at)
+                }
+
+                // Handles on the chosen item, else on the chosen piece.
+                if let id = selectedItem.wrappedValue, let i = takeoff.items.firstIndex(where: { $0.id == id }),
+                   itemsHere.contains(where: { $0.id == id }) {
+                    itemHandles(i, scale: scale, at: at)
+                } else if let i = takeoff.pieces.firstIndex(where: { $0.id == selectedPiece && $0.wallID == wall.id && $0.face == face }) {
                     handles(i, scale: scale, at: at)
                 }
 
@@ -1532,6 +1837,118 @@ struct WallElevation: View {
             })
     }
 
+    /// What's placed on this wall and seen from this side: a niche only on
+    /// its face; windows, benches and corner pieces from either.
+    private var itemsHere: [AreaTakeoff.Item] {
+        takeoff.items.filter { $0.wallID == wall.id && ($0.kind != .niche || $0.face == face) }
+    }
+
+    /// An item's rectangle on the wall, in feet: along and up.
+    private func itemRect(_ item: AreaTakeoff.Item) -> (from: Double, to: Double, bottom: Double, top: Double) {
+        switch item.kind {
+        case .niche, .window:
+            return (item.fromFt, item.toFt, item.bottomIn / 12, (item.bottomIn + item.heightIn) / 12)
+        case .framedBench, .floatingBench:
+            let bottom = item.kind == .floatingBench ? max(0, item.heightIn - 3) / 12 : 0
+            return (item.fromFt, item.toFt, bottom, item.heightIn / 12)
+        case .cornerShelf, .cornerFootrest, .cornerSeat:
+            let size = item.sizeIn / 12
+            let from = item.atStart ? 0 : wall.lengthFt - size
+            return (from, from + size, max(0, item.bottomIn - 1.5) / 12, item.bottomIn / 12)
+        }
+    }
+
+    @ViewBuilder
+    private func itemView(_ item: AreaTakeoff.Item, scale: Double, at: @escaping (Double, Double) -> CGPoint) -> some View {
+        let r = itemRect(item)
+        let a = at(r.from, r.top), b = at(r.to, r.bottom)
+        let rect = CGRect(x: a.x, y: a.y, width: max(b.x - a.x, 2), height: max(b.y - a.y, 3))
+        let selected = selectedItem.wrappedValue == item.id
+        let stoneColor = Color(red: 0.85, green: 0.78, blue: 0.62)
+        let color: Color = item.kind == .window ? .cyan : item.kind.isCorner || item.stone != .tile ? stoneColor : .mint
+        ZStack {
+            Rectangle().fill(item.kind == .window ? Color.cyan.opacity(0.15) : item.kind == .niche ? Color(white: 0.05) : color.opacity(0.35))
+            Rectangle().stroke(color, lineWidth: selected ? 2.5 : 1.5)
+            if item.kind == .niche, item.dividers > 0 {
+                Path { p in
+                    for k in 1...item.dividers {
+                        let y = rect.height * Double(k) / Double(item.dividers + 1)
+                        p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: rect.width, y: y))
+                    }
+                }
+                .stroke(item.stone == .tile ? Color.white.opacity(0.6) : stoneColor, lineWidth: 2)
+            }
+            if !item.kind.isCorner, rect.width > 34, rect.height > 16 {
+                Text(item.kind.name).font(.system(size: 9, weight: .semibold)).foregroundStyle(color).fixedSize()
+            }
+        }
+        .frame(width: rect.width, height: rect.height)
+        .overlay(alignment: .top) {
+            if item.kind.isCorner {
+                Text(item.kind.name.replacingOccurrences(of: "Corner ", with: ""))
+                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(stoneColor).fixedSize()
+                    .offset(y: -12)
+            }
+        }
+        .position(x: rect.midX, y: rect.midY)
+        .onTapGesture { selectedItem.wrappedValue = item.id }
+    }
+
+    /// Drag handles on the chosen item: a niche or window moves whole and
+    /// takes its sides and top; a bench its ends and top; a corner piece moves up and down.
+    @ViewBuilder
+    private func itemHandles(_ i: Int, scale: Double, at: @escaping (Double, Double) -> CGPoint) -> some View {
+        let item = takeoff.items[i]
+        let r = itemRect(item)
+        let a = at(r.from, r.top), b = at(r.to, r.bottom)
+        let rect = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+        let origin = at(0, 0)
+        let inch = { (v: Double) in (v * 12).rounded() / 12 }
+        if item.kind == .niche || item.kind == .window || item.kind.isCorner {
+            // Move it.
+            Color.clear.contentShape(Rectangle())
+                .frame(width: max(rect.width, 30), height: max(rect.height, 30))
+                .position(x: rect.midX, y: rect.midY)
+                .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("wall")).onChanged { v in
+                    let start = itemDragStart ?? item
+                    if itemDragStart == nil { itemDragStart = item }
+                    let up = (-v.translation.height / scale * 12).rounded()
+                    takeoff.items[i].bottomIn = min(max(0, start.bottomIn + up), wall.heightFt * 12 - (item.kind.isCorner ? 0 : start.heightIn))
+                    if !item.kind.isCorner {
+                        let w = start.widthFt
+                        let from = min(max(0, inch(start.fromFt + v.translation.width / scale)), wall.lengthFt - w)
+                        takeoff.items[i].fromFt = from
+                        takeoff.items[i].toFt = from + w
+                    }
+                }.onEnded { _ in itemDragStart = nil })
+        }
+        if !item.kind.isCorner {
+            // Just outside the edges, so a small niche stays visible.
+            ItemHandle(vertical: true)
+                .position(x: rect.minX - 9, y: rect.midY)
+                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
+                    let ft = inch((v.location.x - origin.x) / scale)
+                    takeoff.items[i].fromFt = min(max(0, ft), takeoff.items[i].toFt - 4.0 / 12)
+                })
+            ItemHandle(vertical: true)
+                .position(x: rect.maxX + 9, y: rect.midY)
+                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
+                    let ft = inch((v.location.x - origin.x) / scale)
+                    takeoff.items[i].toFt = max(min(wall.lengthFt, ft), takeoff.items[i].fromFt + 4.0 / 12)
+                })
+            ItemHandle(vertical: false)
+                .position(x: rect.midX, y: rect.minY - 9)
+                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
+                    let up = ((origin.y - v.location.y) / scale * 12).rounded()
+                    if item.kind.isBench {
+                        takeoff.items[i].heightIn = min(max(6, up), wall.heightFt * 12)
+                    } else {
+                        takeoff.items[i].heightIn = min(max(4, up - item.bottomIn), wall.heightFt * 12 - item.bottomIn)
+                    }
+                })
+        }
+    }
+
     /// A door with new sides, in feet along the wall.
     private func moved(_ d: ScannedRoom.Opening, left: Double, right: Double) -> ScannedRoom.Opening {
         var n = d
@@ -1573,6 +1990,19 @@ struct WallElevation: View {
                 let inches = (snapped(upFt, to: tops, pull: 2.0 / 12) * 12).rounded()
                 takeoff.pieces[i].heightIn = min(max(1, inches), (wall.heightFt * 12).rounded())
             })
+    }
+}
+
+/// A bench's, niche's or window's grab handle: a white pill with a green edge.
+private struct ItemHandle: View {
+    let vertical: Bool
+    var body: some View {
+        Capsule()
+            .fill(Color.white)
+            .overlay(Capsule().stroke(Color.mint, lineWidth: 2.5))
+            .frame(width: vertical ? 8 : 28, height: vertical ? 28 : 8)
+            .frame(width: 30, height: 30)
+            .contentShape(Rectangle())
     }
 }
 

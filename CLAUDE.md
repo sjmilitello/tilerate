@@ -251,7 +251,49 @@ uses that one (`plannedWall(along:)`), so two never stack and hide each
 other. ⋯ → "Delete a wall I added" lists them all; in a Floor area they
 can be selected and deleted too. Deleting one re-measures the room's other
 areas that tiled it. Cancel asks before discarding changes; "Use these
-measurements" keeps them and fills in the area. The floor's open sides
+measurements" keeps them and fills in the area.
+
+Walls are added from the editor's **Add a Wall** button (Full Wall, Half
+Wall, Framed Bench): tap the curb to put it on the shower opening, or drag to
+draw it. A full wall on the opening gets a door. "Knee wall" is called
+**half wall** everywhere the owner sees it (code still says `kneeWall`). A
+planned wall within 3″ of the ceiling is full (`isKneeWall`) — scans give
+odd ceilings like 8′ 0.7″, and a ½″ allowance made new full walls half walls
+with no door (fixed 2026-10-07).
+
+Benches, niches, windows and corner pieces (owner's rules, 2026-10-07) are
+`AreaTakeoff.items` (`Item`), placed from the buttons under a shower wall
+(Add door / window / niche / corner shelf, seat or footrest / floating
+bench) or Add a Wall → Framed Bench (then tap the wall it's against), and
+dragged on the wall face-on. Starting sizes are Admin settings
+(`Rates.scanDefaults`, `ScanItemDefaults`): benches 20″ high and 15″ deep;
+niche 13″ × 24″, 48″ up; window 36″ × 24″, 48″ up; corner shelf 9″ at 48″
+(another in the same corner 12″ higher), footrest 10″ at 18″, seat 18″ at
+20″. A bench runs along the shower floor's side against its wall
+(`benchSpan`): wall to wall, or a framed bench to flush with the outside of
+the curb (the curb stone's width past the floor); a floating bench needs a
+wall at each end and has no front. Tile benches add their top (and a framed
+bench's front) to the walls' square feet; stone tops and fronts are
+"Stone bench top/front" lines. A niche is tile, stone all around (top,
+sides, base shelf, dividers) or stone shelves only (base shelf, dividers),
+totalled as one; a window is tile or stone all around and never tiled
+over. Corner shelves, seats and footrests are always stone, per unit.
+
+"Use these measurements" with items placed (`itemsPlaced`) overrides the
+area's counts (`placedFeatures`): niches, windows, shelves, footrests,
+seats (`Features.seats`, `Rates.unitSeat`) and benches, and records each
+bench, niche and window with its size (`Features.sized`). Both pricing
+engines price features through one function, `featureLines`: each sized
+item is the higher of its minimum (`unitBench`, `unitNiche`, `unitWindow`)
+and its size — a bench's length × `benchPerLinFt`, a stone niche's or
+window's stone at its stone rate (tile: the minimum); the rest of a count at
+the per-unit price, exactly as before.
+
+Every stone piece (`StoneItem`: curb, cap & header, jambs, bench top, bench
+front, niche, window) has a `StoneRate` in Admin → Stone pieces
+(`Rates.stoneRates`, `stoneRate(_:)`/`setStoneRate`; curb, cap and jamb fall
+back to their old per-foot fields): per linear foot, a usual width, and —
+once a width is set — per square foot instead (length × width). The floor's open sides
 (`openSides`) are each edge less the stretches walls run along, so a knee
 wall across part of the front leaves the rest as the entry, with its curb
 and jambs. A selected planned wall has a move
