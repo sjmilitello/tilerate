@@ -160,27 +160,7 @@ struct AdminSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Base Labor Rates ($/sqft)") {
-                    baseRow("Floor", value: Binding(get: { rates.base[.floor] ?? 0 }, set: { rates.base[.floor] = $0 }))
-                    baseRow("Wall", value: Binding(get: { rates.base[.wall] ?? 0 }, set: { rates.base[.wall] = $0 }))
-                    baseRow("Tub Surround", value: Binding(get: { rates.base[.tub] ?? 0 }, set: { rates.base[.tub] = $0 }))
-                    baseRow("Shower (walls)", value: Binding(get: { rates.base[.shower] ?? 0 }, set: { rates.base[.shower] = $0 }))
-                    baseRow("Backsplash", value: Binding(get: { rates.base[.backsplash] ?? 0 }, set: { rates.base[.backsplash] = $0 }))
-                    baseRow("Fireplace", value: Binding(get: { rates.base[.fireplace] ?? 0 }, set: { rates.base[.fireplace] = $0 }))
-                    baseRow("Ceiling (tiled)", value: $rates.ceilingBase)
-                    baseRow("Shower floor", value: $rates.showerFloorBase)
-                }
-
-                Section("Minimum Charges ($)") {
-                    minRow("Floor", value: Binding(get: { rates.minimum[.floor] ?? 0 }, set: { rates.minimum[.floor] = $0 }))
-                    minRow("Wall", value: Binding(get: { rates.minimum[.wall] ?? 0 }, set: { rates.minimum[.wall] = $0 }))
-                    minRow("Tub Surround", value: Binding(get: { rates.minimum[.tub] ?? 0 }, set: { rates.minimum[.tub] = $0 }))
-                    minRow("Shower (walls)", value: Binding(get: { rates.minimum[.shower] ?? 0 }, set: { rates.minimum[.shower] = $0 }))
-                    minRow("Backsplash", value: Binding(get: { rates.minimum[.backsplash] ?? 0 }, set: { rates.minimum[.backsplash] = $0 }))
-                    minRow("Fireplace", value: Binding(get: { rates.minimum[.fireplace] ?? 0 }, set: { rates.minimum[.fireplace] = $0 }))
-                    minRow("Ceiling (tiled)", value: $rates.ceilingMinimum)
-                    minRow("Shower floor", value: $rates.showerFloorMinimum)
-                }
+                AreaPricingSection(rates: $rates)
 
                 Section("Tile Type Adders ($/sqft)") {
                     typeRow(.ceramic, "Ceramic")
@@ -255,20 +235,6 @@ struct AdminSheet: View {
                     baseRow("Niche (each)", value: $rates.unitNiche)
                     baseRow("Footrest (each)", value: $rates.unitFootrest)
                     baseRow("Bench (each)", value: $rates.unitBench)
-                }
-
-                Section("Escalator Floors") {
-                    NumericRow(title: "Lower Threshold (sqft)", value: Binding(
-                        get: { Double(rates.floorEscThresholdLower) },
-                        set: { rates.floorEscThresholdLower = Int($0) }
-                    ), fractionDigits: 0)
-
-                    NumericRow(title: "Upper Threshold (sqft)", value: Binding(
-                        get: { Double(rates.floorEscThresholdUpper) },
-                        set: { rates.floorEscThresholdUpper = Int($0) }
-                    ), fractionDigits: 0)
-
-                    baseRow("Escalator Adj ($/sqft)", value: $rates.floorEscAdjPerSqft)
                 }
 
                 Section("Tax Defaults") {

@@ -273,6 +273,12 @@ struct Rates: Codable, Equatable {
     /// The estimate layouts (roadmap Phase 4), and the one new estimates use.
     /// Kept with the rates so a saved estimate keeps the layout it was sent in.
     var estimateTemplates: [EstimateTemplate] = EstimateTemplate.starters
+
+    /// Pricing rules chosen in Admin → Area pricing that the rate fields above
+    /// can't hold, such as an escalator on a ceiling (roadmap Phase 5). A
+    /// surface priced the usual way has no entry: its numbers stay in `base`,
+    /// `minimum` and the escalator fields. Read with `rule(for:)`.
+    var surfaceRules: [PricedSurface: SurfaceRule] = [:]
     var defaultTemplateID: UUID = EstimateTemplate.classicID
 
     /// The layout with this id, else the default, else Classic.
@@ -469,6 +475,7 @@ extension Rates {
         c.read(.priceList, into: &priceList)
         c.read(.wording, into: &wording)
         c.read(.estimateTemplates, into: &estimateTemplates)
+        c.read(.surfaceRules, into: &surfaceRules)
         c.read(.defaultTemplateID, into: &defaultTemplateID)
         // The first starting list had one "Demolition" item; it became one
         // item per thing torn out. Its per-sq-ft price carries over to the

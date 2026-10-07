@@ -178,6 +178,25 @@ engines also matched every area of the phone's saved estimates at the
 owner's real rates. A change to pricing must be made in both engines while
 both exist.
 
+## Area pricing rules (roadmap Phase 5)
+
+From 2026-10-07 Admin → Area pricing replaces the base rate, minimum and
+escalator sections: each surface (floor, wall, tub surround, shower walls,
+shower floor, backsplash, fireplace, ceiling) has a rule — rate with a
+minimum, or a minimum with an escalator window — with example prices, a
+warning when a bigger area would cost less (`firstPriceDrop`), and Suggest
+an escalator (`suggestedEscalator`: (rate × first sq ft after the window −
+minimum) ÷ window width, rounded down to the cent). Read rules with
+`Rates.rule(for:)`, write with `setRule(_:for:)`: the usual kind of rule
+(escalator for floors, rate for the rest) is stored in the old rate fields
+exactly as before; only a different kind goes into `Rates.surfaceRules`. An
+area with such a rule is priced by the scheme engine alone (`computeSummary`),
+since today's code can't. Walls with their own tiles can take an escalator:
+the rule on all the walls together, each wall's adders on top.
+`SurfaceRuleTests` covers it, including the owner's floor ($22, $1,500,
+$14 from 50 to 99: the suggestion gives exactly $14) and a ceiling with
+$600 minimum and $25/sq ft from 31 (suggested $10.93).
+
 ## Estimate wording templates (roadmap Phase 3)
 
 From 2026-10-06 each area's sentence on the estimate is built from templates

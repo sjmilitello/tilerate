@@ -90,6 +90,11 @@ private func escalatorAdjPerSqft(rates: Rates) -> Double {
 /// the scheme's price is used only when it matches today's line for line,
 /// otherwise today's price is used and the difference is noted in Admin.
 func computeSummary(state: EstimatorState, rates: Rates) -> Summary {
+    // A rule chosen in Admin → Area pricing that today's code can't do: only
+    // the scheme can price the area.
+    if rates.hasChosenRules(for: state.area, ceiling: state.measurements.ceilingSqft > 0) {
+        return schemeSummary(state: state, scheme: PricingScheme(rates: rates))
+    }
     let current = legacySummary(state: state, rates: rates)
     guard PricingEngine.useScheme else { return current }
     let scheme = schemeSummary(state: state, scheme: PricingScheme(rates: rates))

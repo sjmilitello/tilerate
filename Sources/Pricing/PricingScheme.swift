@@ -91,41 +91,223 @@ struct FeaturePrices: Equatable {
     var bench: Double
 }
 
+// MARK: - Surfaces whose rule can be chosen (roadmap Phase 5)
+
+/// Every surface an area can be charged for, each with its own rule.
+enum PricedSurface: String, Codable, CaseIterable, Identifiable {
+    case floor, wall, tubSurround, showerWalls, showerFloor, backsplash, fireplace, ceiling
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .floor: "Floor"
+        case .wall: "Wall"
+        case .tubSurround: "Tub surround"
+        case .showerWalls: "Shower walls"
+        case .showerFloor: "Shower floor"
+        case .backsplash: "Backsplash"
+        case .fireplace: "Fireplace"
+        case .ceiling: "Ceiling (any area)"
+        }
+    }
+
+    /// The area whose rate fields hold it, when it has one.
+    var area: Area? {
+        switch self {
+        case .floor: .floor
+        case .wall: .wall
+        case .tubSurround: .tub
+        case .showerWalls: .shower
+        case .backsplash: .backsplash
+        case .fireplace: .fireplace
+        case .showerFloor, .ceiling: nil
+        }
+    }
+}
+
+extension SurfaceRule: Codable {
+    private enum CodingKeys: String, CodingKey { case kind, perSqft, minimum, from, through, escalatorPerSqft }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = (try? c.decode(String.self, forKey: .kind)) ?? "rate"
+        let perSqft = (try? c.decode(Double.self, forKey: .perSqft)) ?? 0
+        let minimum: Double? = (try? c.decodeIfPresent(Double.self, forKey: .minimum)) ?? nil
+        if kind == "escalator" {
+            self = .escalator(perSqft: perSqft, minimum: minimum ?? 0, window: EscalatorWindow(
+                from: (try? c.decode(Int.self, forKey: .from)) ?? 0,
+                through: (try? c.decode(Int.self, forKey: .through)) ?? 0,
+                perSqft: (try? c.decode(Double.self, forKey: .escalatorPerSqft)) ?? 0))
+        } else {
+            self = .rate(perSqft: perSqft, minimum: minimum)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .rate(perSqft, minimum):
+            try c.encode("rate", forKey: .kind)
+            try c.encode(perSqft, forKey: .perSqft)
+            try c.encodeIfPresent(minimum, forKey: .minimum)
+        case let .escalator(perSqft, minimum, window):
+            try c.encode("escalator", forKey: .kind)
+            try c.encode(perSqft, forKey: .perSqft)
+            try c.encode(minimum, forKey: .minimum)
+            try c.encode(window.from, forKey: .from)
+            try c.encode(window.through, forKey: .through)
+            try c.encode(window.perSqft, forKey: .escalatorPerSqft)
+        }
+    }
+
+    var isEscalator: Bool {
+        if case .escalator = self { true } else { false }
+    }
+}
+
+extension Rates {
+    /// The rule a surface is priced by: one chosen in Admin, or the usual one
+    /// from the rate fields (an escalator window for floors, a rate with a
+    /// minimum for everything else).
+    func rule(for surface: PricedSurface) -> SurfaceRule {
+        if let chosen = surfaceRules[surface] { return chosen }
+        return standardRule(for: surface)
+    }
+
+    private func standardRule(for surface: PricedSurface) -> SurfaceRule {
+        switch surface {
+        case .floor:
+            let lower = max(0, floorEscThresholdLower)
+            return .escalator(perSqft: base[.floor] ?? 0, minimum: minimum[.floor] ?? 0,
+                              window: EscalatorWindow(from: lower, through: max(lower, floorEscThresholdUpper),
+                                                      perSqft: floorEscAdjPerSqft))
+        case .showerFloor: return .rate(perSqft: showerFloorBase, minimum: showerFloorMinimum)
+        case .ceiling: return .rate(perSqft: ceilingBase, minimum: ceilingMinimum)
+        default:
+            let a = surface.area!
+            return .rate(perSqft: base[a] ?? 0, minimum: minimum[a])
+        }
+    }
+
+    /// Sets a surface's rule. The usual kind of rule goes back into the rate
+    /// fields, so prices and the Phase 2 check see it exactly as before; only
+    /// a different kind is kept in `surfaceRules`.
+    mutating func setRule(_ rule: SurfaceRule, for surface: PricedSurface) {
+        let usual = standardRule(for: surface).isEscalator == rule.isEscalator
+        guard usual else {
+            surfaceRules[surface] = rule
+            return
+        }
+        surfaceRules[surface] = nil
+        switch (surface, rule) {
+        case let (.floor, .escalator(rate, min, window)):
+            base[.floor] = rate
+            minimum[.floor] = min
+            floorEscThresholdLower = window.from
+            floorEscThresholdUpper = window.through
+            floorEscAdjPerSqft = window.perSqft
+        case let (.showerFloor, .rate(rate, min)):
+            showerFloorBase = rate
+            showerFloorMinimum = min ?? 0
+        case let (.ceiling, .rate(rate, min)):
+            ceilingBase = rate
+            ceilingMinimum = min ?? 0
+        case let (_, .rate(rate, min)):
+            if let a = surface.area {
+                base[a] = rate
+                minimum[a] = min ?? 0
+            }
+        default:
+            break
+        }
+    }
+
+    /// True when an area is priced by a rule today's code-written pricing
+    /// can't do, so only the scheme can price it.
+    func hasChosenRules(for area: Area?, ceiling: Bool) -> Bool {
+        guard !surfaceRules.isEmpty else { return false }
+        let mine: [PricedSurface]
+        switch area {
+        case .floor: mine = [.floor]
+        case .wall: mine = [.wall]
+        case .tub: mine = [.tubSurround]
+        case .shower: mine = [.showerWalls, .showerFloor]
+        case .backsplash: mine = [.backsplash]
+        case .fireplace: mine = [.fireplace]
+        case nil: mine = []
+        }
+        return (mine + (ceiling ? [.ceiling] : [])).contains { surfaceRules[$0] != nil }
+    }
+}
+
+// MARK: - Prices a rule gives, for the editor's examples and warnings
+
+/// What a rule charges for a surface of this size, before adders.
+func basePrice(_ rule: SurfaceRule, sqft: Double) -> Double {
+    guard sqft > 0 else { return 0 }
+    switch rule {
+    case let .rate(rate, minimum):
+        return max(rate * sqft, minimum ?? 0)
+    case let .escalator(rate, minimum, window):
+        let whole = Int(sqft.rounded(.down))
+        let over = whole <= window.through ? max(0, whole - window.from) : 0
+        return max(rate * sqft, minimum + Double(over) * window.perSqft)
+    }
+}
+
+/// The first whole square foot where one more square foot costs less, if any.
+func firstPriceDrop(_ rule: SurfaceRule) -> (sqft: Int, price: Double, next: Double)? {
+    var top = 300
+    if case let .escalator(_, _, window) = rule { top = min(6000, max(top, window.through * 3)) }
+    var last = basePrice(rule, sqft: 1)
+    for n in 2...top {
+        let p = basePrice(rule, sqft: Double(n))
+        if p < last - 0.005 { return (n - 1, last, p) }
+        last = p
+    }
+    return nil
+}
+
+/// The escalator that takes the minimum up to the square-foot price with no
+/// jump and no drop: (rate × first sq ft after the window − minimum) ÷ the
+/// window's width, rounded down to the cent. nil when there is no gap to
+/// bridge (the rate already beats the minimum at the window's start) or the
+/// rate never reaches the minimum.
+func suggestedEscalator(perSqft rate: Double, minimum: Double, from: Int, through: Int) -> Double? {
+    let after = Double(through + 1)
+    let width = after - Double(from)
+    guard width > 0, rate * after > minimum, rate * Double(from) < minimum else { return nil }
+    return ((rate * after - minimum) / width * 100).rounded(.down) / 100
+}
+
 // MARK: - The owner's pricing, as a scheme
 
 extension PricingScheme {
     /// The pricing the Admin rates describe today.
     init(rates r: Rates) {
-        func rate(_ a: Area) -> SurfaceRule { .rate(perSqft: r.base[a] ?? 0, minimum: r.minimum[a]) }
-        func one(_ label: String, _ a: Area) -> AreaPricing {
-            AreaPricing(surfaces: [SurfacePricing(label: label, measure: .area, tile: .main, rule: rate(a))],
+        func one(_ label: String, _ s: PricedSurface) -> AreaPricing {
+            AreaPricing(surfaces: [SurfacePricing(label: label, measure: .area, tile: .main, rule: r.rule(for: s))],
                         chargesFeatures: true)
         }
-        let lower = max(0, r.floorEscThresholdLower)
-        let window = EscalatorWindow(from: lower, through: max(lower, r.floorEscThresholdUpper),
-                                     perSqft: r.floorEscAdjPerSqft)
         areas = [
             .floor: AreaPricing(
-                surfaces: [SurfacePricing(label: "Floor", measure: .area, tile: .main,
-                                          rule: .escalator(perSqft: r.base[.floor] ?? 0,
-                                                           minimum: r.minimum[.floor] ?? 0, window: window))],
+                surfaces: [SurfacePricing(label: "Floor", measure: .area, tile: .main, rule: r.rule(for: .floor))],
                 chargesFeatures: false),
             .wall: one("Wall", .wall),
             .tub: AreaPricing(
                 surfaces: [SurfacePricing(label: "Tub surround", measure: .area, tile: .main,
-                                          rule: rate(.tub), wallsCanDiffer: true)],
+                                          rule: r.rule(for: .tubSurround), wallsCanDiffer: true)],
                 chargesFeatures: true),
             .shower: AreaPricing(
                 surfaces: [SurfacePricing(label: "Shower walls", measure: .showerWalls, tile: .main,
-                                          rule: rate(.shower), wallsCanDiffer: true),
+                                          rule: r.rule(for: .showerWalls), wallsCanDiffer: true),
                            SurfacePricing(label: "Shower floor", measure: .showerFloor, tile: .showerFloor,
-                                          rule: .rate(perSqft: r.showerFloorBase, minimum: r.showerFloorMinimum))],
+                                          rule: r.rule(for: .showerFloor))],
                 chargesFeatures: true),
             .backsplash: one("Backsplash", .backsplash),
             .fireplace: one("Fireplace", .fireplace),
         ]
-        ceiling = SurfacePricing(label: "Ceiling", measure: .ceiling, tile: .ceiling,
-                                 rule: .rate(perSqft: r.ceilingBase, minimum: r.ceilingMinimum))
+        ceiling = SurfacePricing(label: "Ceiling", measure: .ceiling, tile: .ceiling, rule: r.rule(for: .ceiling))
         adders = TileAdders(material: r.typeAdder, materialUnit: r.typeAdderUnit,
                             shape: r.sizeAdder, shapeUnit: r.sizeAdderUnit,
                             mosaicStyle: r.mosaicStyleAdder,
@@ -264,6 +446,18 @@ func schemeSummary(state: EstimatorState, scheme: PricingScheme) -> Summary {
     func escalated(_ label: String, sqft: Double, rate: Double, minimum: Double,
                    window: EscalatorWindow, adders: Double) -> Double {
         guard sqft > 0 else { return 0 }
+        var amount = escalatorBase(label, sqft: sqft, rate: rate, minimum: minimum, window: window)
+        if adders != 0 {
+            lines.append(Line(label: "\(label) adders @ \(money(adders))/sqft × \(Int(sqft.rounded()))",
+                              amount: adders * sqft))
+            amount += adders * sqft
+        }
+        return amount
+    }
+
+    /// The escalator rule's charge before adders, with its lines.
+    func escalatorBase(_ label: String, sqft: Double, rate: Double, minimum: Double,
+                       window: EscalatorWindow) -> Double {
         let whole = Int(sqft.rounded(.down))
         let over = whole <= window.through ? max(0, whole - window.from) : 0
         let escalator = Double(over) * window.perSqft
@@ -279,10 +473,23 @@ func schemeSummary(state: EstimatorState, scheme: PricingScheme) -> Summary {
             }
             amount = minimum + escalator
         }
-        if adders != 0 {
-            lines.append(Line(label: "\(label) adders @ \(money(adders))/sqft × \(Int(sqft.rounded()))",
-                              amount: adders * sqft))
-            amount += adders * sqft
+        return amount
+    }
+
+    /// Walls with a tile each under an escalator: the rule on all the walls
+    /// together, each wall's adders on top.
+    func separateWallsEscalated(_ label: String, rate: Double, minimum: Double, window: EscalatorWindow) -> Double {
+        let walls = state.walls.filter { $0.sqft > 0 }
+        guard !walls.isEmpty else { return 0 }
+        var amount = escalatorBase(label, sqft: walls.reduce(0) { $0 + $1.sqft }, rate: rate,
+                                   minimum: minimum, window: window)
+        for (i, wall) in state.walls.enumerated() where wall.sqft > 0 {
+            let adders = scheme.adders.perSqft(for: wall.tile, rate: rate)
+            guard adders != 0 else { continue }
+            let name = wall.name.isEmpty ? "Wall \(i + 1)" : wall.name
+            lines.append(Line(label: "\(name) adders @ \(money(adders))/sqft × \(Int(wall.sqft.rounded()))",
+                              amount: adders * wall.sqft))
+            amount += adders * wall.sqft
         }
         return amount
     }
@@ -297,6 +504,9 @@ func schemeSummary(state: EstimatorState, scheme: PricingScheme) -> Summary {
             return rated(surface.label, sqft: feet, rate: rate, minimum: minimum,
                          adders: scheme.adders.perSqft(for: tile(surface.tile), rate: rate))
         case let .escalator(rate, minimum, window):
+            if surface.wallsCanDiffer, !state.walls.isEmpty {
+                return separateWallsEscalated(surface.label, rate: rate, minimum: minimum, window: window)
+            }
             return escalated(surface.label, sqft: feet, rate: rate, minimum: minimum, window: window,
                              adders: scheme.adders.perSqft(for: tile(surface.tile), rate: rate))
         }
