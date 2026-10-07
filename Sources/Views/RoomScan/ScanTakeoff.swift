@@ -90,6 +90,8 @@ extension AreaTakeoff {
             return max(0, room.floorSqft - (excludeTub ? room.tubSqft : 0) - excludeSqft)
         case .size:
             return floorWidthFt * floorDepthFt
+        case .drawn:
+            return floorRect.map { $0.widthFt * $0.depthFt } ?? 0
         case .none:
             return 0
         }
@@ -98,6 +100,7 @@ extension AreaTakeoff {
     /// A tiled ceiling: the floor's size when one is set, otherwise the room's.
     func ceilingSqft(in room: ScannedRoom) -> Double {
         guard tileCeiling else { return 0 }
+        if floor == .drawn, let r = floorRect { return r.widthFt * r.depthFt }
         if floorWidthFt > 0, floorDepthFt > 0 { return floorWidthFt * floorDepthFt }
         return room.floorSqft
     }
@@ -123,7 +126,7 @@ extension AreaTakeoff {
             // A shower's floor in the same room is a separate item.
             t.excludeSqft = otherAreas.filter { $0.area == .shower }.reduce(0) { $0 + $1.measurements.showerFloorSqft }
         case .shower:
-            t.floor = .size
+            t.floor = .drawn
         case .tub:
             if room.tubOutline.count > 2 {
                 let (w, d) = boundingSize(room.tubOutline)
@@ -181,6 +184,56 @@ extension AreaTakeoff {
             return abs(d1.0 * d.0 + d1.1 * d.1) < 0.5
         }) else { return nil }
         return (first.toFt - first.fromFt, second.toFt - second.fromFt)
+    }
+
+    /// A shower floor placed in the corner the shower's walls make: the
+    /// longest piece and the longest piece at right angles to it, each side
+    /// as long as its piece. A shower on one wall gets a 3′ deep rectangle
+    /// out from it. nil without pieces.
+    func suggestedFloorRect(in room: ScannedRoom) -> FloorRect? {
+        let sorted = pieces.sorted { ($0.toFt - $0.fromFt) > ($1.toFt - $1.fromFt) }
+        guard let first = sorted.first, let w1 = room.wall(first.wallID) else { return nil }
+        let ends1 = (room.point(on: w1, along: first.fromFt), room.point(on: w1, along: first.toFt))
+        let len1 = first.toFt - first.fromFt
+        let inward1 = inwardNormal(of: w1, in: room)
+
+        func unit(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point) -> ScannedRoom.Point {
+            let dx = b.x - a.x, dy = b.y - a.y
+            let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+            return .init(x: dx / l, y: dy / l)
+        }
+        func d(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point) -> Double {
+            ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)).squareRoot()
+        }
+
+        let along1 = unit(ends1.0, ends1.1)
+        if let second = sorted.dropFirst().first(where: { p in
+            guard let w = room.wall(p.wallID) else { return false }
+            let a = unit(w.start, w.end)
+            return abs(a.x * along1.x + a.y * along1.y) < 0.5
+        }), let w2 = room.wall(second.wallID) {
+            let ends2 = (room.point(on: w2, along: second.fromFt), room.point(on: w2, along: second.toFt))
+            // The corner: the pair of ends closest together.
+            let pairs = [(ends1.0, ends2.0), (ends1.0, ends2.1), (ends1.1, ends2.0), (ends1.1, ends2.1)]
+            let corner = pairs.min { d($0.0, $0.1) < d($1.0, $1.1) }!
+            let far1 = d(corner.0, ends1.0) < d(corner.0, ends1.1) ? ends1.1 : ends1.0
+            let far2 = d(corner.1, ends2.0) < d(corner.1, ends2.1) ? ends2.1 : ends2.0
+            return FloorRect(origin: corner.0, u: unit(corner.0, far1), v: unit(corner.1, far2),
+                             widthFt: len1, depthFt: second.toFt - second.fromFt)
+        }
+        return FloorRect(origin: ends1.0, u: along1, v: inward1, widthFt: len1, depthFt: 3)
+    }
+
+    /// The unit vector from a wall into the room.
+    private func inwardNormal(of wall: ScannedRoom.Wall, in room: ScannedRoom) -> ScannedRoom.Point {
+        let dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y
+        let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+        var n = ScannedRoom.Point(x: -dy / l, y: dx / l)
+        let pts = room.floorOutline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : room.floorOutline
+        let cx = pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1))
+        let cy = pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1))
+        if (cx - wall.start.x) * n.x + (cy - wall.start.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+        return n
     }
 
     /// Puts the takeoff's square feet into the area.

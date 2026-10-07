@@ -92,6 +92,8 @@ struct RoomScanTests {
 
     @Test func aShowerTakesItsWallsFloorAndCeiling() {
         var t = AreaTakeoff.starting(for: .shower, room: room, otherAreas: [])
+        #expect(t.floor == .drawn)
+        t.floor = .size
         t.pieces = [piece(B, 0, 3, 96), piece(A, 6, 9, 96)]
         let size = t.suggestedFloorSize(in: room)
         #expect(size?.width == 3 && size?.depth == 3)
@@ -112,6 +114,33 @@ struct RoomScanTests {
         #expect(split.walls.map(\.name) == ["Wall A", "Wall B"])
         #expect(split.walls.map(\.sqft) == [24, 24])
         #expect(split.walls[1].tile.tileType == .marble)
+    }
+
+    @Test func aShowerFloorIsDrawnInTheCornerOfItsWalls() throws {
+        // Shower in the A/B corner: 3′ of B from its start (the A corner), the last 4′ of A.
+        var t = AreaTakeoff.starting(for: .shower, room: room, otherAreas: [])
+        t.pieces = [piece(A, 5, 9, 96), piece(B, 0, 3, 96)]
+        let r = try #require(t.suggestedFloorRect(in: room))
+        #expect(abs(r.widthFt - 4) < 1e-9 && abs(r.depthFt - 3) < 1e-9)
+        // Its corners: the A/B corner, 4′ back along A, 3′ down B.
+        let corners = Set(r.corners.map { "\(Int(($0.x * 12).rounded())),\(Int(($0.y * 12).rounded()))" })
+        #expect(corners == ["108,0", "60,0", "60,36", "108,36"])
+        t.floorRect = r
+        #expect(t.floorSqft(in: room) == 12)
+        t.tileCeiling = true
+        #expect(t.ceilingSqft(in: room) == 12)
+
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
+        t.apply(room, to: &s)
+        #expect(s.measurements.showerFloorSqft == 12)
+        #expect(s.measurements.showerWallsSqft == 32 + 24)
+
+        // A shower on one wall gets a 3′ deep floor out into the room.
+        var one = AreaTakeoff()
+        one.pieces = [piece(C, 0, 5, 96)]
+        let r1 = try #require(one.suggestedFloorRect(in: room))
+        #expect(r1.widthFt == 5 && r1.depthFt == 3)
+        #expect(r1.corners.allSatisfy { $0.y <= 8 + 1e-9 && $0.y >= 5 - 1e-9 })
     }
 
     @Test func aWallThatContinuesPastTheShowerSplitsBetweenAreas() {

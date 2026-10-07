@@ -207,6 +207,7 @@ struct RoomScanCover: View {
     @State private var stopRequested = false
     @State private var processing = false
     @State private var failure: String? = nil
+    @State private var savedBrightness: CGFloat? = nil
 
     var body: some View {
         ZStack {
@@ -252,6 +253,17 @@ struct RoomScanCover: View {
             }
         }
         .preferredColorScheme(.dark)
+        .statusBarHidden()
+        // Awake and at full brightness while scanning; put back afterwards.
+        .onAppear {
+            savedBrightness = UIScreen.main.brightness
+            UIApplication.shared.isIdleTimerDisabled = true
+            UIScreen.main.brightness = 1
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            if let savedBrightness { UIScreen.main.brightness = savedBrightness }
+        }
         .alert("The scan didn't finish", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
             Button("OK", role: .cancel) { dismiss() }
         } message: {

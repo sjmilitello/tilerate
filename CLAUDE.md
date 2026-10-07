@@ -217,6 +217,14 @@ continues into the room is two pieces, one per area), the openings ticked to
 come off (owner's call: nothing comes off unless ticked; only the part of an
 opening inside a piece), and the floor (scanned floor less the tub and other
 areas' floors, or width × depth for a shower floor) and ceiling.
+A shower floor is drawn on the plan (`FloorSource.drawn`, `FloorRect`:
+a corner, two side directions, width and depth), placed in the corner its
+walls make (`suggestedFloorRect`) and dragged to size: green handles on the
+plan for width, depth and moving, sides snapping to the inch and to walls
+(owner asked 2026-10-07: the whole room floor was being used). Other areas
+see it faintly in orange. While scanning, the screen stays awake at full
+brightness. Zooming the camera out isn't possible: RoomPlan always shows the
+1× camera and apps can't change it.
 `AreaTakeoff.apply` fills in the area's measurements; a shower or tub with a
 tile per wall gets a wall each named "Wall A"… keeping its tile.
 

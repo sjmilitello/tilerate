@@ -713,7 +713,26 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
         var heightIn: Double
     }
 
+    /// A rectangle drawn on the plan: a corner, the two directions its
+    /// sides run (unit vectors on the plan), and how far each side goes.
+    struct FloorRect: Codable, Hashable, Equatable {
+        var origin = ScannedRoom.Point()
+        var u = ScannedRoom.Point(x: 1, y: 0)
+        var v = ScannedRoom.Point(x: 0, y: 1)
+        var widthFt: Double = 3
+        var depthFt: Double = 3
+
+        var corners: [ScannedRoom.Point] {
+            func at(_ a: Double, _ b: Double) -> ScannedRoom.Point {
+                ScannedRoom.Point(x: origin.x + u.x * a + v.x * b, y: origin.y + u.y * a + v.y * b)
+            }
+            return [at(0, 0), at(widthFt, 0), at(widthFt, depthFt), at(0, depthFt)]
+        }
+    }
+
     enum FloorSource: String, Codable, CaseIterable {
+        /// A rectangle dragged into place on the plan.
+        case drawn
         /// The scanned floor, less anything excluded below.
         case room
         /// Width × depth, e.g. a shower floor inside a bigger room.
@@ -732,6 +751,8 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
     /// `size`: the floor's width and depth, in feet.
     var floorWidthFt: Double = 0
     var floorDepthFt: Double = 0
+    /// `drawn`: the rectangle on the plan.
+    var floorRect: FloorRect? = nil
     var tileCeiling: Bool = false
 }
 
@@ -1262,6 +1283,7 @@ extension AreaTakeoff {
         c.read(.excludeSqft, into: &excludeSqft)
         c.read(.floorWidthFt, into: &floorWidthFt)
         c.read(.floorDepthFt, into: &floorDepthFt)
+        c.read(.floorRect, into: &floorRect)
         c.read(.tileCeiling, into: &tileCeiling)
     }
 }
@@ -1276,5 +1298,17 @@ extension AreaTakeoff.Piece {
         c.read(.toFt, into: &to)
         c.read(.heightIn, into: &height)
         self.init(id: id, wallID: wallID, fromFt: from, toFt: to, heightIn: height)
+    }
+}
+
+extension AreaTakeoff.FloorRect {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.origin, into: &origin)
+        c.read(.u, into: &u)
+        c.read(.v, into: &v)
+        c.read(.widthFt, into: &widthFt)
+        c.read(.depthFt, into: &depthFt)
     }
 }

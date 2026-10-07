@@ -276,8 +276,10 @@ struct AreaFlowView: View {
     private var otherScanAreas: [OtherAreaPieces] {
         guard section.roomScan == nil, let r = roomIndex else { return [] }
         return store.doc.rooms[r].sections.compactMap { other in
-            guard other.id != section.id, other.roomScan == nil, let t = other.scanTakeoff, !t.pieces.isEmpty else { return nil }
-            return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces)
+            guard other.id != section.id, other.roomScan == nil, let t = other.scanTakeoff,
+                  !t.pieces.isEmpty || t.floor == .drawn else { return nil }
+            return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces,
+                                   floor: t.floor == .drawn ? t.floorRect : nil)
         }
     }
 
@@ -313,7 +315,8 @@ struct AreaFlowView: View {
                         }
                     }
                     Button { measuringOnPlan = true } label: {
-                        PlanCanvas(room: scan, mine: section.scanTakeoff?.pieces ?? [], others: otherScanAreas, interactive: false)
+                        PlanCanvas(room: scan, mine: section.scanTakeoff?.pieces ?? [], others: otherScanAreas, interactive: false,
+                                   floorRectShown: section.scanTakeoff?.floor == .drawn ? section.scanTakeoff?.floorRect : nil)
                             .frame(height: 150)
                             .background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 12))
                     }
