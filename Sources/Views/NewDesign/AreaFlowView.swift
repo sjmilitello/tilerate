@@ -313,6 +313,12 @@ struct AreaFlowView: View {
                                 Text("Rescan").font(.system(size: 14, weight: .medium))
                             }
                         }
+                        #if DEBUG
+                        if !RoomScanner.isAvailable {
+                            Button("Sample room") { finishScan(ScannedRoom.sample.turned(by: 27), target: .room) }
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        #endif
                     }
                     Button { measuringOnPlan = true } label: {
                         PlanCanvas(room: scan, mine: section.scanTakeoff?.pieces ?? [], others: otherScanAreas, interactive: false,
@@ -381,7 +387,7 @@ struct AreaFlowView: View {
     @ViewBuilder
     private var sampleScanButton: some View {
         #if DEBUG
-        Button("Use a sample room (no LiDAR here)") { finishScan(.sample, target: .room) }
+        Button("Use a sample room (no LiDAR here)") { finishScan(ScannedRoom.sample.turned(by: 27), target: .room) }
             .font(.system(size: 14))
         #else
         EmptyView()

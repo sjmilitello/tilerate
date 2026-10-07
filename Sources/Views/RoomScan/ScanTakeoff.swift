@@ -32,6 +32,20 @@ extension ScannedRoom {
         return max(0, mid - o.widthFt / 2)...min(wallLength, mid + o.widthFt / 2)
     }
 
+    /// The angle the room's walls make with the plan's axes (between −45°
+    /// and 45°), from the walls' directions weighted by their length: turning
+    /// the plan by minus this squares the room up on screen.
+    var squaringAngle: Double {
+        var sx = 0.0, sy = 0.0
+        for w in walls {
+            let a = atan2(w.end.y - w.start.y, w.end.x - w.start.x)
+            sx += w.lengthFt * cos(4 * a)
+            sy += w.lengthFt * sin(4 * a)
+        }
+        guard sx != 0 || sy != 0 else { return 0 }
+        return atan2(sy, sx) / 4
+    }
+
     /// The bathtub's footprint, in square feet.
     var tubSqft: Double { ScannedRoom.area(tubOutline) }
 

@@ -222,7 +222,13 @@ a corner, two side directions, width and depth), placed in the corner its
 walls make (`suggestedFloorRect`) and dragged to size: green handles on the
 plan for width, depth and moving, sides snapping to the inch and to walls
 (owner asked 2026-10-07: the whole room floor was being used). Other areas
-see it faintly in orange. While scanning, the screen stays awake at full
+see it faintly in orange. The floor has one move handle in its middle; tapping it lights the outline
+and gives each edge a grip (the opposite edge stays put), with the size,
+Reset and Done in a strip under the plan. The plan is turned on screen by
+`ScannedRoom.squaringAngle` so walls run square to the screen — RoomPlan's
+north is wherever the phone pointed when the scan began; only the drawing
+turns, never the saved points. Scan controls sit at the top of the screen so
+RoomPlan's 3D model at the bottom stays visible. While scanning, the screen stays awake at full
 brightness. Zooming the camera out isn't possible: RoomPlan always shows the
 1× camera and apps can't change it.
 `AreaTakeoff.apply` fills in the area's measurements; a shower or tub with a

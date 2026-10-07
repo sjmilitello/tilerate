@@ -46,16 +46,13 @@ struct ScanEditor: View {
         NavigationStack {
             VStack(spacing: 0) {
                 PlanCanvas(room: room, mine: takeoff.pieces, others: others, selectedWall: selectedWall,
-                           floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil) { wallID in
+                           floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
+                           onResetFloor: placeShowerFloor,
+                           hint: usesWalls ? "Tap a wall to tile it · pinch to zoom" : "Pinch to zoom") { wallID in
                     tapWall(wallID)
                 }
                 .frame(height: 250)
                 .background(Color(white: 0.09))
-                .overlay(alignment: .bottomLeading) {
-                    Text(usesWalls ? "Tap a wall to tile it · pinch to zoom · double-tap to fit"
-                                   : "Pinch to zoom · double-tap to fit")
-                        .font(.caption2).foregroundStyle(.secondary).padding(8)
-                }
 
                 ScrollViewReader { scroller in
                     ScrollView {
@@ -309,7 +306,7 @@ struct ScanEditor: View {
                 }
                 if takeoff.floor == .drawn {
                     if let r = takeoff.floorRect {
-                        Text("Drag the green handles on the plan: the arrows on its sides to size it, the middle one to move it. Sides snap to walls.")
+                        Text("On the plan, drag the green handle to move the floor. Tap it to resize: drag any edge, and edges snap to walls.")
                             .font(.footnote).foregroundStyle(.secondary)
                         HStack(spacing: 12) {
                             InchField(title: "Width", inches: Binding(get: { r.widthFt * 12 }, set: { takeoff.floorRect?.widthFt = max(1, $0) / 12 }))
@@ -318,7 +315,7 @@ struct ScanEditor: View {
                         Button {
                             placeShowerFloor()
                         } label: {
-                            Label("Fit to the shower walls", systemImage: "arrow.down.right.and.arrow.up.left")
+                            Label("Reset to the shower walls", systemImage: "arrow.counterclockwise")
                         }
                         .buttonStyle(.bordered)
                         .font(.subheadline)
@@ -405,34 +402,79 @@ struct PlanCanvas: View {
     /// A floor rectangle shown on the plan, and dragged when editable.
     var floorRect: Binding<AreaTakeoff.FloorRect?>? = nil
     var floorRectShown: AreaTakeoff.FloorRect? = nil
+    /// Puts the floor back where it started (Reset while editing it).
+    var onResetFloor: (() -> Void)? = nil
+    var hint: String? = nil
     var onTapWall: (UUID) -> Void = { _ in }
 
     @State private var zoom: CGFloat = 1
     @State private var dragStart: AreaTakeoff.FloorRect? = nil
+    /// The shower floor's edges are being resized.
+    @State private var editingFloor = false
     @State private var lastZoom: CGFloat = 1
     @State private var pan: CGSize = .zero
     @State private var lastPan: CGSize = .zero
 
+    /// Plan feet → screen points. The plan is turned by `angle` so the
+    /// room's walls run straight across and up the screen (the scanner's
+    /// north is wherever the phone pointed when the scan began).
     private struct Frame {
         let size: CGSize
         let scale: CGFloat
         let cx: Double, cy: Double
         let pan: CGSize
+        var cosA: Double = 1
+        var sinA: Double = 0
+        /// A point turned to line up with the screen, still in feet.
+        func turned(_ p: ScannedRoom.Point) -> (Double, Double) {
+            let dx = p.x - cx, dy = p.y - cy
+            return (dx * cosA - dy * sinA, dx * sinA + dy * cosA)
+        }
         func at(_ p: ScannedRoom.Point) -> CGPoint {
-            CGPoint(x: size.width / 2 + (p.x - cx) * scale + pan.width,
-                    y: size.height / 2 + (p.y - cy) * scale + pan.height)
+            let (x, y) = turned(p)
+            return CGPoint(x: size.width / 2 + x * scale + pan.width,
+                           y: size.height / 2 + y * scale + pan.height)
+        }
+        /// A drag on screen, in plan feet.
+        func feet(_ t: CGSize) -> (Double, Double) {
+            let x = Double(t.width / scale), y = Double(t.height / scale)
+            return (x * cosA + y * sinA, -x * sinA + y * cosA)
         }
     }
 
     private func frame(_ size: CGSize) -> Frame {
         let pts = room.floorOutline + room.walls.flatMap { [$0.start, $0.end] }
         let xs = pts.map(\.x), ys = pts.map(\.y)
-        let minX = xs.min() ?? 0, maxX = xs.max() ?? 1, minY = ys.min() ?? 0, maxY = ys.max() ?? 1
+        let a = -room.squaringAngle
+        var f = Frame(size: size, scale: 1, cx: ((xs.min() ?? 0) + (xs.max() ?? 1)) / 2,
+                      cy: ((ys.min() ?? 0) + (ys.max() ?? 1)) / 2, pan: pan, cosA: cos(a), sinA: sin(a))
+        // Fit the turned room.
+        let t = pts.map { f.turned($0) }
+        let tx = t.map(\.0), ty = t.map(\.1)
+        let minX = tx.min() ?? -1, maxX = tx.max() ?? 1, minY = ty.min() ?? -1, maxY = ty.max() ?? 1
         let fit = min((size.width - 60) / max(maxX - minX, 1), (size.height - 60) / max(maxY - minY, 1))
-        return Frame(size: size, scale: fit * zoom, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, pan: pan)
+        // Centre the turned room.
+        let ox = (minX + maxX) / 2, oy = (minY + maxY) / 2
+        f = Frame(size: size, scale: fit * zoom,
+                  cx: f.cx + (ox * f.cosA + oy * f.sinA), cy: f.cy + (-ox * f.sinA + oy * f.cosA),
+                  pan: pan, cosA: f.cosA, sinA: f.sinA)
+        return f
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            plan
+                .overlay(alignment: .bottomLeading) {
+                    if let hint, !editingFloor {
+                        Text(hint).font(.caption2).foregroundStyle(.secondary).padding(8)
+                            .allowsHitTesting(false)
+                    }
+                }
+            floorBar
+        }
+    }
+
+    private var plan: some View {
         GeometryReader { geo in
             let f = frame(geo.size)
             if interactive {
@@ -443,6 +485,7 @@ struct PlanCanvas: View {
                         withAnimation(.easeOut(duration: 0.25)) { zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero }
                     }
                     .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                        if editingFloor { withAnimation(.easeOut(duration: 0.15)) { editingFloor = false }; return }
                         if let id = wall(at: location, f) { onTapWall(id) }
                     }
                     .clipped()
@@ -466,41 +509,127 @@ struct PlanCanvas: View {
         }
     }
 
-    /// Handles on the floor rectangle: its far side along each wall (width,
-    /// depth) and its middle (move). Sizes snap to the inch, and a side
-    /// snaps to a wall within 3″.
+    /// While resizing the floor: its size, Reset and Done, in a strip
+    /// under the plan.
+    @ViewBuilder
+    private var floorBar: some View {
+        if editingFloor, let r = floorRect?.wrappedValue {
+            HStack(spacing: 10) {
+                Text("Shower floor \(feetAndInches(r.widthFt)) × \(feetAndInches(r.depthFt))")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.green)
+                Spacer(minLength: 4)
+                if let onResetFloor {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { onResetFloor() }
+                    } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
+                    }
+                }
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { editingFloor = false }
+                } label: {
+                    Text("Done").fontWeight(.semibold)
+                }
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .tint(.green)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(Color(white: 0.09))
+        }
+    }
+
+    /// The shower floor on the plan: one handle in its middle. Tap it to
+    /// resize — the outline lights up and each edge can be dragged; drag it
+    /// to move the whole floor. Sizes snap to the inch, and an edge snaps to
+    /// a wall within 3″.
     @ViewBuilder
     private func floorHandles(_ binding: Binding<AreaTakeoff.FloorRect?>, _ f: Frame) -> some View {
         if let r = binding.wrappedValue {
             let c = r.corners
             ZStack {
-                FloorHandle(symbol: "arrow.left.and.right")
-                    .position(midpoint(c[1], c[2], f))
-                    .highPriorityGesture(DragGesture(minimumDistance: 0).onChanged { v in
-                        let start = dragStart ?? r
-                        if dragStart == nil { dragStart = r }
-                        binding.wrappedValue?.widthFt = snapSide(start.widthFt + along(v.translation, start.u, f), start, alongU: true)
-                    }.onEnded { _ in dragStart = nil })
-                FloorHandle(symbol: "arrow.up.and.down")
-                    .position(midpoint(c[2], c[3], f))
-                    .highPriorityGesture(DragGesture(minimumDistance: 0).onChanged { v in
-                        let start = dragStart ?? r
-                        if dragStart == nil { dragStart = r }
-                        binding.wrappedValue?.depthFt = snapSide(start.depthFt + along(v.translation, start.v, f), start, alongU: false)
-                    }.onEnded { _ in dragStart = nil })
-                FloorHandle(symbol: "arrow.up.and.down.and.arrow.left.and.right")
+                if editingFloor {
+                    // Each edge: a thick invisible strip along it, with a grip at its middle.
+                    edge(binding, r, f, from: c[0], to: c[1], axis: .v, near: true)
+                    edge(binding, r, f, from: c[1], to: c[2], axis: .u, near: false)
+                    edge(binding, r, f, from: c[2], to: c[3], axis: .v, near: false)
+                    edge(binding, r, f, from: c[3], to: c[0], axis: .u, near: true)
+                }
+                FloorHandle(symbol: "arrow.up.and.down.and.arrow.left.and.right", active: editingFloor)
                     .position(midpoint(c[0], c[2], f))
-                    .highPriorityGesture(DragGesture(minimumDistance: 0).onChanged { v in
-                        let start = dragStart ?? r
-                        if dragStart == nil { dragStart = r }
-                        // Move in whole inches along the rectangle's own sides.
-                        let a = (along(v.translation, start.u, f) * 12).rounded() / 12
-                        let b = (along(v.translation, start.v, f) * 12).rounded() / 12
-                        binding.wrappedValue?.origin = .init(x: start.origin.x + start.u.x * a + start.v.x * b,
-                                                             y: start.origin.y + start.u.y * a + start.v.y * b)
-                    }.onEnded { _ in dragStart = nil })
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 4).onChanged { v in
+                            let start = dragStart ?? r
+                            if dragStart == nil { dragStart = r }
+                            // Move in whole inches along the floor's own sides.
+                            let a = (along(v.translation, start.u, f) * 12).rounded() / 12
+                            let b = (along(v.translation, start.v, f) * 12).rounded() / 12
+                            binding.wrappedValue?.origin = .init(x: start.origin.x + start.u.x * a + start.v.x * b,
+                                                                 y: start.origin.y + start.u.y * a + start.v.y * b)
+                        }.onEnded { _ in dragStart = nil }
+                        .exclusively(before: TapGesture().onEnded {
+                            withAnimation(.easeOut(duration: 0.15)) { editingFloor.toggle() }
+                        })
+                    )
             }
         }
+    }
+
+    private enum Axis { case u, v }
+
+    /// One edge of the floor while resizing: dragging it moves only that
+    /// edge, the opposite one stays put.
+    private func edge(_ binding: Binding<AreaTakeoff.FloorRect?>, _ r: AreaTakeoff.FloorRect, _ f: Frame,
+                      from a: ScannedRoom.Point, to b: ScannedRoom.Point, axis: Axis, near: Bool) -> some View {
+        let p = f.at(a), q = f.at(b)
+        let length = max(hypot(q.x - p.x, q.y - p.y), 1)
+        let angle = Angle(radians: atan2(q.y - p.y, q.x - p.x))
+        return ZStack {
+            Color.clear.frame(width: length, height: 48).contentShape(Rectangle())
+            Capsule().fill(Color.white).overlay(Capsule().stroke(Color.green, lineWidth: 2))
+                .frame(width: 26, height: 9)
+        }
+        .rotationEffect(angle)
+        .position(x: (p.x + q.x) / 2, y: (p.y + q.y) / 2)
+        .highPriorityGesture(DragGesture(minimumDistance: 0).onChanged { v in
+            let start = dragStart ?? r
+            if dragStart == nil { dragStart = r }
+            let dir = axis == .u ? start.u : start.v
+            let out = near ? ScannedRoom.Point(x: -dir.x, y: -dir.y) : dir
+            let old = axis == .u ? start.widthFt : start.depthFt
+            // The opposite edge stays put: measure from its middle.
+            let side = axis == .u ? start.v : start.u
+            let sideLen = axis == .u ? start.depthFt : start.widthFt
+            var anchor = ScannedRoom.Point(x: start.origin.x + side.x * sideLen / 2, y: start.origin.y + side.y * sideLen / 2)
+            if near { anchor = .init(x: anchor.x + dir.x * old, y: anchor.y + dir.y * old) }
+            let length = snapLength(old + along(v.translation, out, f), from: anchor, toward: out)
+            var updated = start
+            if axis == .u { updated.widthFt = length } else { updated.depthFt = length }
+            if near {
+                updated.origin = .init(x: start.origin.x - dir.x * (length - old), y: start.origin.y - dir.y * (length - old))
+            }
+            binding.wrappedValue = updated
+        }.onEnded { _ in dragStart = nil })
+    }
+
+    /// A length rounded to the inch, or to where it would meet a wall when
+    /// within 3″, measured from `from` toward `dir`.
+    private func snapLength(_ length: Double, from o: ScannedRoom.Point, toward dir: ScannedRoom.Point) -> Double {
+        var best = max(6.0 / 12, (length * 12).rounded() / 12)
+        var bestGap = 0.25
+        for w in room.walls {
+            let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+            let den = dir.x * ey - dir.y * ex
+            guard abs(den) > 1e-6 else { continue }
+            let t = ((w.start.x - o.x) * ey - (w.start.y - o.y) * ex) / den
+            let s = ((w.start.x - o.x) * dir.y - (w.start.y - o.y) * dir.x) / den
+            guard t > 0.5, s >= -0.05, s <= 1.05, abs(t - length) < bestGap else { continue }
+            best = t
+            bestGap = abs(t - length)
+        }
+        return best
     }
 
     private func midpoint(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point, _ f: Frame) -> CGPoint {
@@ -510,27 +639,8 @@ struct PlanCanvas: View {
 
     /// How far a drag on screen goes along a direction on the plan, in feet.
     private func along(_ t: CGSize, _ dir: ScannedRoom.Point, _ f: Frame) -> Double {
-        Double(t.width / f.scale) * dir.x + Double(t.height / f.scale) * dir.y
-    }
-
-    /// A width or depth rounded to the inch, or to where that side would
-    /// meet a wall when within 3″.
-    private func snapSide(_ length: Double, _ r: AreaTakeoff.FloorRect, alongU: Bool) -> Double {
-        let dir = alongU ? r.u : r.v
-        var best = max(1.0 / 12, (length * 12).rounded() / 12)
-        var bestGap = 0.25
-        for w in room.walls {
-            // Where the ray from the origin along `dir` crosses this wall.
-            let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
-            let den = dir.x * ey - dir.y * ex
-            guard abs(den) > 1e-6 else { continue }
-            let t = ((w.start.x - r.origin.x) * ey - (w.start.y - r.origin.y) * ex) / den
-            let s = ((w.start.x - r.origin.x) * dir.y - (w.start.y - r.origin.y) * dir.x) / den
-            guard t > 0.5, s >= -0.05, s <= 1.05, abs(t - length) < bestGap else { continue }
-            best = t
-            bestGap = abs(t - length)
-        }
-        return best
+        let (x, y) = f.feet(t)
+        return x * dir.x + y * dir.y
     }
 
     /// Pinch zooms round the point between the fingers; drag pans.
@@ -638,11 +748,16 @@ struct PlanCanvas: View {
             var path = Path()
             path.addLines(r.corners.map(f.at))
             path.closeSubpath()
-            ctx.fill(path, with: .color(Color.green.opacity(0.22)))
-            ctx.stroke(path, with: .color(Color.green), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            ctx.fill(path, with: .color(Color.green.opacity(editingFloor ? 0.3 : 0.18)))
+            if editingFloor {
+                ctx.stroke(path, with: .color(Color.green), style: StrokeStyle(lineWidth: 4, lineJoin: .round))
+            } else {
+                ctx.stroke(path, with: .color(Color.green.opacity(0.8)), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            }
             let c = r.corners
             let center = f.at(ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2))
-            if interactive {
+            let p0 = f.at(c[0]), p2 = f.at(c[2])
+            if interactive, !editingFloor, abs(p2.x - p0.x) > 90, abs(p2.y - p0.y) > 80 {
                 ctx.draw(Text("\(feetAndInches(r.widthFt)) × \(feetAndInches(r.depthFt))")
                             .font(.system(size: 11, weight: .semibold)).foregroundColor(.green),
                          at: CGPoint(x: center.x, y: center.y + 24))
@@ -874,17 +989,19 @@ private struct SqftField: View {
     }
 }
 
-/// A round grab handle on the plan, big enough for a thumb.
+/// The shower floor's handle: tap to resize its edges, drag to move it.
 private struct FloorHandle: View {
     let symbol: String
+    var active = false
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(.black)
-            .frame(width: 26, height: 26)
-            .background(Circle().fill(Color.green))
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(active ? .white : .black)
+            .frame(width: 32, height: 32)
+            .background(Circle().fill(active ? Color(red: 0.1, green: 0.55, blue: 0.25) : Color.green))
             .overlay(Circle().stroke(Color.white, lineWidth: 2))
-            .frame(width: 44, height: 44)
+            .shadow(color: .black.opacity(0.4), radius: 3)
+            .frame(width: 48, height: 48)
             .contentShape(Rectangle())
     }
 }

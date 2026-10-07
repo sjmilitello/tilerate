@@ -208,6 +208,7 @@ struct RoomScanCover: View {
     @State private var processing = false
     @State private var failure: String? = nil
     @State private var savedBrightness: CGFloat? = nil
+    @State private var showTip = true
 
     var body: some View {
         ZStack {
@@ -223,34 +224,42 @@ struct RoomScanCover: View {
             }
             .ignoresSafeArea()
 
-            VStack {
+            // Everything at the top, so the scanner's 3D model at the bottom
+            // stays in view.
+            VStack(spacing: 10) {
                 HStack {
                     Button("Cancel") { dismiss() }
                         .padding(.horizontal, 16).padding(.vertical, 10)
                         .background(.ultraThinMaterial, in: Capsule())
                     Spacer()
-                }
-                .padding(.horizontal, 16)
-                Spacer()
-                if stopRequested {
-                    Label("Building the floor plan…", systemImage: "hourglass")
-                        .padding(14).background(.ultraThinMaterial, in: Capsule())
-                        .padding(.bottom, 30)
-                } else {
-                    VStack(spacing: 10) {
-                        Text("Walk slowly round the room, pointing at the walls, floor and doors.")
-                            .font(.footnote).multilineTextAlignment(.center)
-                            .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    if !stopRequested {
                         Button {
                             stopRequested = true
                         } label: {
-                            Text("Done scanning").frame(maxWidth: .infinity)
+                            Label("Done", systemImage: "checkmark").fontWeight(.semibold)
                         }
-                        .buttonStyle(NDPrimaryButtonStyle())
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(Color.accentColor, in: Capsule())
+                        .foregroundStyle(.white)
                     }
-                    .padding(20)
                 }
+                if stopRequested {
+                    Label("Building the floor plan…", systemImage: "hourglass")
+                        .padding(12).background(.ultraThinMaterial, in: Capsule())
+                } else if showTip {
+                    Text("Walk slowly round the room, pointing at the walls, floor and doors.")
+                        .font(.footnote).multilineTextAlignment(.center)
+                        .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .transition(.opacity)
+                }
+                Spacer()
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(6))
+            withAnimation(.easeOut(duration: 0.6)) { showTip = false }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden()
@@ -337,6 +346,17 @@ extension ScannedRoom {
         r.floorSqft = 72
         r.tubOutline = [.init(x: 0, y: 0), .init(x: 5, y: 0), .init(x: 5, y: 2.5), .init(x: 0, y: 2.5)]
         r.tubLengthFt = 5
+        return r
+    }
+
+    /// The same room turned on the plan, as a real scan comes back.
+    func turned(by degrees: Double) -> ScannedRoom {
+        let a = degrees * .pi / 180, c = cos(a), s = sin(a)
+        func t(_ p: Point) -> Point { Point(x: p.x * c - p.y * s, y: p.x * s + p.y * c) }
+        var r = self
+        r.walls = walls.map { var w = $0; w.start = t(w.start); w.end = t(w.end); return w }
+        r.floorOutline = floorOutline.map(t)
+        r.tubOutline = tubOutline.map(t)
         return r
     }
 }

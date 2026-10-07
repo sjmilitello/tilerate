@@ -177,6 +177,21 @@ struct RoomScanTests {
         #expect(Set(walls.map(\.label)) == ["A", "B", "C", "D"])
     }
 
+    @Test func aTurnedScanIsSquaredUpForTheScreen() {
+        #expect(abs(room.squaringAngle) < 1e-9)
+        for degrees in [27.0, -40, 63, 90, 135] {
+            let turned = room.turned(by: degrees)
+            // The angle that squares it is the turn, folded into ±45°.
+            var expected = degrees.truncatingRemainder(dividingBy: 90)
+            if expected > 45 { expected -= 90 }
+            if expected < -45 { expected += 90 }
+            #expect(abs(turned.squaringAngle * 180 / .pi - expected) < 1e-6, "\(degrees)°")
+            // Turning doesn't change any measurement.
+            #expect(abs(ScannedRoom.area(turned.floorOutline) - 72) < 1e-9)
+            #expect(abs(turned.tubSqft - 12.5) < 1e-9)
+        }
+    }
+
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {
         var r = EstimateRoom(name: "Bath")
         r.scan = room
