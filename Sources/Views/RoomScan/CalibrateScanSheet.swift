@@ -19,9 +19,23 @@ struct CalibrateScanSheet: View {
 
     private var scanned: [ScannedRoom.Wall] { room.walls.filter { !$0.planned } }
     private var entered: [UUID: Double] { tape.filter { $0.value > 0 } }
+    /// The correction the tape asks for; nil when it changes nothing (e.g.
+    /// the earlier measurements, shown again, already match).
     private var calibration: ScanCalibration? {
-        entered.isEmpty && ceilingIn <= 0 ? nil
-            : ScanCalibration.solve(room, tapeIn: entered, ceilingIn: ceilingIn > 0 ? ceilingIn : nil)
+        guard !entered.isEmpty || ceilingIn > 0 else { return nil }
+        let c = ScanCalibration.solve(room, tapeIn: entered, ceilingIn: ceilingIn > 0 ? ceilingIn : nil)
+        return abs(c.sx - 1) < 1e-5 && abs(c.sy - 1) < 1e-5 && abs(c.sz - 1) < 1e-5 ? nil : c
+    }
+
+    /// What was taped before, shown again: changing one keeps the others
+    /// (one wall alone would otherwise rescale both ways).
+    private func loadEarlierTape() {
+        for c in room.calibrations {
+            for (key, inches) in c.tapeIn {
+                if let id = UUID(uuidString: key), room.wall(id) != nil { tape[id] = inches }
+            }
+            if let ceiling = c.ceilingIn { ceilingIn = ceiling }
+        }
     }
 
     var body: some View {
@@ -88,6 +102,7 @@ struct CalibrateScanSheet: View {
                 }
             }
             .navigationTitle(afterScan ? "Tape a wall?" : "Calibrate the scan")
+            .onAppear(perform: loadEarlierTape)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(afterScan ? "Skip" : "Cancel") { dismiss() } }

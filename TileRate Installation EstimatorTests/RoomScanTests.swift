@@ -611,6 +611,16 @@ struct RoomScanTests {
         #expect(abs(undone.wall(A.id)!.lengthFt - 9) < 1e-9 && undone.calibrations.isEmpty)
     }
 
+    @Test func calibratingAgainKeepsWhatWasTapedBefore() {
+        // A 102″, B 90″; then A again at 101″ with B's earlier tape still there.
+        let first = room.calibrated(ScanCalibration.solve(room, tapeIn: [A.id: 102, B.id: 90]))
+        let again = first.calibrated(ScanCalibration.solve(first, tapeIn: [A.id: 101, B.id: 90]))
+        #expect(abs(again.wall(A.id)!.lengthFt * 12 - 101) < 1e-6)
+        #expect(abs(again.wall(B.id)!.lengthFt * 12 - 90) < 1e-6)   // B unchanged
+        // The earlier tape is kept with the calibration, to show again.
+        #expect(first.calibrations.last?.tapeIn[B.id.uuidString] == 90)
+    }
+
     @Test func oneWallEachWayCorrectsLengthAndWidthSeparately() {
         // A (across) tapes 107″, B (down) tapes 97″, ceiling 95½″.
         let c = ScanCalibration.solve(room, tapeIn: [A.id: 107, B.id: 97], ceilingIn: 95.5)

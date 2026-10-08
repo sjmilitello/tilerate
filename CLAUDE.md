@@ -392,7 +392,11 @@ records it (`calibrations`, last one undoable); `AreaTakeoff.calibrated`
 moves each area with it — tile stretches along its walls, full-height tile
 stays full, niches, windows, benches and corner pieces keep their sizes —
 and every area measured from the scan is applied again. It shows how far
-off the scan was and how close each taped wall comes out before applying.
+off the scan was and how close each taped wall comes out before applying. Opening it again shows
+every wall taped before (`loadEarlierTape`), so calibrating again keeps
+them: one wall alone rescales both ways, which used to undo the other
+way's earlier correction (fixed 2026-10-08). Apply is off when nothing
+would change.
 
 The editor (`ScanEditor`): floor plan on top (`PlanCanvas`: tap a wall,
 pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
