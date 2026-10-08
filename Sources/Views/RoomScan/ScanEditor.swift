@@ -61,6 +61,19 @@ struct ScanEditor: View {
     @State private var splitAtIn: Double = 0
     /// The door, window or opening chosen in Edit walls.
     @State private var selectedOpening: UUID? = nil
+    /// Undo and redo: the room and this area's choices together.
+    @State private var history: EditHistory<EditSnapshot>
+    /// Changes waiting to settle into one undo step.
+    @State private var settleToken = UUID()
+    /// Set while undo/redo itself changes the model.
+    @State private var restoring = false
+
+    struct EditSnapshot: Equatable {
+        var room: ScannedRoom
+        var takeoff: AreaTakeoff
+    }
+
+    private var snapshot: EditSnapshot { EditSnapshot(room: room, takeoff: takeoff) }
     @State private var confirmDeleteScanned = false
     /// Waiting for a tap on the wall a framed bench goes against.
     @State private var placingBench = false
@@ -132,6 +145,7 @@ struct ScanEditor: View {
         self.onUse = onUse
         self.onRescan = onRescan
         _takeoff = State(initialValue: takeoff)
+        _history = State(initialValue: EditHistory(EditSnapshot(room: room, takeoff: takeoff)))
         _selectedWall = State(initialValue: takeoff.pieces.first?.wallID)
         _selectedPiece = State(initialValue: takeoff.pieces.first?.id)
     }
@@ -355,6 +369,14 @@ struct ScanEditor: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                        .disabled(!history.canUndo && snapshot == history.current)
+                        .accessibilityLabel("Undo")
+                    Button { redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                        .disabled(!history.canRedo)
+                        .accessibilityLabel("Redo")
+                }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
@@ -392,6 +414,36 @@ struct ScanEditor: View {
             }
         }
         .preferredColorScheme(.dark)
+        .onChange(of: snapshot) { _, now in
+            // A drag sends many changes: they settle into one step once it's still.
+            if restoring { restoring = false; return }
+            let token = UUID()
+            settleToken = token
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                if settleToken == token { history.settle(now) }
+            }
+        }
+    }
+
+    private func undo() {
+        guard let back = history.undo(from: snapshot) else { return }
+        restore(back)
+    }
+
+    private func redo() {
+        guard let next = history.redo(from: snapshot) else { return }
+        restore(next)
+    }
+
+    private func restore(_ s: EditSnapshot) {
+        settleToken = UUID()
+        restoring = true
+        dragBase = nil
+        room = s.room
+        takeoff = s.takeoff
+        if let id = selectedWall, room.wall(id) == nil { selectedWall = nil }
+        if let id = selectedItem, !takeoff.items.contains(where: { $0.id == id }) { selectedItem = nil }
+        if let id = selectedOpening, !room.openings.contains(where: { $0.id == id }) { selectedOpening = nil }
     }
 
     // MARK: Walls
@@ -1276,7 +1328,7 @@ struct ScanEditor: View {
                                                         set: { piece.wrappedValue.toFt = max(min(wall.lengthFt, $0 / 12), piece.wrappedValue.fromFt) }))
                 InchField(title: "Height", inches: piece.heightIn)
             }
-            Text("From and To are inches from the \(cornerName(wall, atStart: true)) end of the wall. This piece: \(ND.number(takeoff.sqft(of: piece.wrappedValue, in: room))) sq ft.")
+            Text("From and To are measured from the \(cornerName(wall, atStart: true)) end of the wall. This piece: \(ND.number(takeoff.sqft(of: piece.wrappedValue, in: room))) sq ft.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -1593,42 +1645,57 @@ struct PlanCanvas: View {
     var snapNewWall: (ScannedRoom.Point, ScannedRoom.Point) -> (ScannedRoom.Point, ScannedRoom.Point) = { ($0, $1) }
     var onTapWall: (UUID) -> Void = { _ in }
 
-    @State private var zoom: CGFloat = 1
-    @State private var dragStart: AreaTakeoff.FloorRect? = nil
-    /// The planned wall being dragged whole, as it was when the drag began.
-    @State private var wallDragStart: ScannedRoom.Wall? = nil
-    /// The shower floor's edges are being resized.
-    @State private var editingFloor = false
+    /// What a drag steers, chosen with a tap (owner's call, 2026-10-08: the
+    /// thumb covers what it drags, so tap it, then drag anywhere).
+    enum Hold: Equatable {
+        case wall(UUID)
+        case wallEnd(UUID, start: Bool)
+        case floor
+        case floorEdge(Axis, near: Bool)
+    }
+    enum Axis: Equatable { case u, v }
+
+    @State private var hold: Hold? = nil
+    @State private var viewport = PlanViewport()
+    /// The viewport as a pinch or pan began.
+    @State private var viewportStart: PlanViewport? = nil
+    /// Steering: what was held as the drag began, the finger's last place,
+    /// and how far the thing has been steered (plan feet).
+    @State private var steerWall: ScannedRoom.Wall? = nil
+    @State private var steerFloor: AreaTakeoff.FloorRect? = nil
+    @State private var lastTranslation: CGSize = .zero
+    @State private var steered: ScannedRoom.Point = .init()
+    @State private var steering = false
     /// The wall being drawn, start and end, while dragging.
     @State private var drawing: (ScannedRoom.Point, ScannedRoom.Point)? = nil
-    @State private var lastZoom: CGFloat = 1
-    @State private var pan: CGSize = .zero
-    @State private var lastPan: CGSize = .zero
 
     /// Plan feet → screen points. The plan is turned by `angle` so the
     /// room's walls run straight across and up the screen (the scanner's
     /// north is wherever the phone pointed when the scan began).
     private struct Frame {
         let size: CGSize
+        /// Feet to points, zoom included.
         let scale: CGFloat
         let cx: Double, cy: Double
         let pan: CGSize
         var cosA: Double = 1
         var sinA: Double = 0
+        var zoom: CGFloat = 1
         /// A point turned to line up with the screen, still in feet.
         func turned(_ p: ScannedRoom.Point) -> (Double, Double) {
             let dx = p.x - cx, dy = p.y - cy
             return (dx * cosA - dy * sinA, dx * sinA + dy * cosA)
         }
+        /// view = fitted × zoom + pan, fitted = middle of the screen + turned × fit.
         func at(_ p: ScannedRoom.Point) -> CGPoint {
             let (x, y) = turned(p)
-            return CGPoint(x: size.width / 2 + x * scale + pan.width,
-                           y: size.height / 2 + y * scale + pan.height)
+            return CGPoint(x: size.width / 2 * zoom + x * scale + pan.width,
+                           y: size.height / 2 * zoom + y * scale + pan.height)
         }
         /// The plan point under a screen point.
         func point(at s: CGPoint) -> ScannedRoom.Point {
-            let x = Double((s.x - size.width / 2 - pan.width) / scale)
-            let y = Double((s.y - size.height / 2 - pan.height) / scale)
+            let x = Double((s.x - size.width / 2 * zoom - pan.width) / scale)
+            let y = Double((s.y - size.height / 2 * zoom - pan.height) / scale)
             return ScannedRoom.Point(x: cx + x * cosA + y * sinA, y: cy - x * sinA + y * cosA)
         }
         /// A drag on screen, in plan feet.
@@ -1643,7 +1710,7 @@ struct PlanCanvas: View {
         let xs = pts.map(\.x), ys = pts.map(\.y)
         let a = -room.squaringAngle
         var f = Frame(size: size, scale: 1, cx: ((xs.min() ?? 0) + (xs.max() ?? 1)) / 2,
-                      cy: ((ys.min() ?? 0) + (ys.max() ?? 1)) / 2, pan: pan, cosA: cos(a), sinA: sin(a))
+                      cy: ((ys.min() ?? 0) + (ys.max() ?? 1)) / 2, pan: .zero, cosA: cos(a), sinA: sin(a))
         // Fit the turned room.
         let t = pts.map { f.turned($0) }
         let tx = t.map(\.0), ty = t.map(\.1)
@@ -1653,9 +1720,9 @@ struct PlanCanvas: View {
         let fit = min((size.width - margin) / max(maxX - minX, 1), (size.height - margin) / max(maxY - minY, 1))
         // Centre the turned room.
         let ox = (minX + maxX) / 2, oy = (minY + maxY) / 2
-        f = Frame(size: size, scale: fit * zoom,
+        f = Frame(size: size, scale: fit * viewport.zoom,
                   cx: f.cx + (ox * f.cosA + oy * f.sinA), cy: f.cy + (-ox * f.sinA + oy * f.cosA),
-                  pan: pan, cosA: f.cosA, sinA: f.sinA)
+                  pan: viewport.pan, cosA: f.cosA, sinA: f.sinA, zoom: viewport.zoom)
         return f
     }
 
@@ -1663,12 +1730,25 @@ struct PlanCanvas: View {
         VStack(spacing: 0) {
             plan
                 .overlay(alignment: .bottomLeading) {
-                    if let hint, !editingFloor {
-                        Text(hint).font(.caption2).foregroundStyle(.secondary).padding(8)
+                    if let text = hold == nil ? hint : "Drag anywhere to move it · tap empty space to let go" {
+                        Text(text).font(.caption2).foregroundStyle(hold == nil ? .secondary : .primary).padding(8)
                             .allowsHitTesting(false)
                     }
                 }
-            floorBar
+                .overlay(alignment: .top) {
+                    VStack(spacing: 6) {
+                        holdStrip
+                        floorBar
+                    }
+                    .padding(.top, 6)
+                }
+        }
+        .onChange(of: selectedWall) { _, id in
+            // Chosen elsewhere (3-D, the panels): let go of a different wall.
+            switch hold {
+            case .wall(let w), .wallEnd(let w, _): if w != id { hold = nil }
+            default: break
+            }
         }
     }
 
@@ -1678,7 +1758,7 @@ struct PlanCanvas: View {
             if interactive {
                 Canvas { ctx, _ in draw(ctx, f) }
                     .contentShape(Rectangle())
-                    .gesture(addingWall ? nil : zoomAndPan(geo.size))
+                    .gesture(addingWall ? nil : zoomPanSteer(geo.size, f))
                     .overlay {
                         if addingWall {
                             Color.clear.contentShape(Rectangle())
@@ -1694,22 +1774,15 @@ struct PlanCanvas: View {
                                 })
                         }
                     }
-                    .overlay { plannedEndHandles(f) }
                     .onTapGesture(count: 2) {
-                        withAnimation(.easeOut(duration: 0.25)) { zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero }
+                        withAnimation(.easeOut(duration: 0.25)) { viewport = PlanViewport() }
                     }
-                    .onTapGesture(count: 1, coordinateSpace: .local) { location in
-                        if let onTapPoint { onTapPoint(f.point(at: location)); return }
-                        if editingFloor { withAnimation(.easeOut(duration: 0.15)) { editingFloor = false }; return }
-                        if let side = openSide(at: location, f) { onTapOpenSide(side); return }
-                        if let id = wall(at: location, f) { onTapWall(id) }
-                    }
+                    .onTapGesture(count: 1, coordinateSpace: .local) { location in tap(at: location, f) }
                     .clipped()
-                    .overlay { if let floorRect { floorHandles(floorRect, f) } }
                     .overlay(alignment: .topTrailing) {
-                        if zoom != 1 || pan != .zero {
+                        if !viewport.isFitted {
                             Button {
-                                withAnimation(.easeOut(duration: 0.25)) { zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero }
+                                withAnimation(.easeOut(duration: 0.25)) { viewport = PlanViewport() }
                             } label: {
                                 Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right")
                                     .font(.caption.weight(.semibold))
@@ -1725,123 +1798,209 @@ struct PlanCanvas: View {
         }
     }
 
-    /// While resizing the floor: its size, Reset and Done, in a strip
-    /// under the plan.
+    /// The held thing's measurements, live, at the top of the plan.
+    @ViewBuilder
+    private var holdStrip: some View {
+        let text: String? = {
+            switch hold {
+            case .wall(let id), .wallEnd(let id, _):
+                guard let w = room.wall(id) else { return nil }
+                let near = room.parallelNeighbors(of: id).map { "to wall \($0.wall.label) \(dimensionText(abs($0.offset)))" }
+                return (["\(room.name(of: w)) \(dimensionText(w.lengthFt))"] + near).joined(separator: " · ")
+            case .floor, .floorEdge:
+                guard let r = floorRect?.wrappedValue else { return nil }
+                return "Shower floor \(dimensionText(r.widthFt)) × \(dimensionText(r.depthFt))"
+            case nil:
+                return nil
+            }
+        }()
+        if let text {
+            Text(text)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(.ultraThinMaterial, in: Capsule())
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// While the floor is held: Rotate, Reset and Done.
     @ViewBuilder
     private var floorBar: some View {
-        if editingFloor, let r = floorRect?.wrappedValue {
-            HStack(spacing: 10) {
-                Text("Shower floor \(feetAndInches(r.widthFt)) × \(feetAndInches(r.depthFt))")
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.green)
-                Spacer(minLength: 4)
+        if floorHeld, let r = floorRect?.wrappedValue {
+            HStack(spacing: 8) {
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) {
                         floorRect?.wrappedValue = r.turned
                         onFloorChanged?()
                     }
-                } label: {
-                    Label("Rotate", systemImage: "rotate.right")
-                }
+                } label: { Label("Rotate", systemImage: "rotate.right") }
                 if let onResetFloor {
                     Button {
                         withAnimation(.easeOut(duration: 0.2)) { onResetFloor() }
-                    } label: {
-                        Label("Reset", systemImage: "arrow.counterclockwise")
-                    }
+                    } label: { Label("Reset", systemImage: "arrow.counterclockwise") }
                 }
                 Button {
-                    withAnimation(.easeOut(duration: 0.15)) { editingFloor = false }
-                } label: {
-                    Text("Done").fontWeight(.semibold)
-                }
+                    withAnimation(.easeOut(duration: 0.15)) { hold = nil }
+                } label: { Text("Done").fontWeight(.semibold) }
             }
             .font(.caption)
             .buttonStyle(.bordered)
             .tint(.green)
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(Color(white: 0.09))
+            .background(.ultraThinMaterial, in: Capsule())
         }
     }
 
-    /// The shower floor on the plan: one handle in its middle. Tap it to
-    /// resize — the outline lights up and each edge can be dragged; drag it
-    /// to move the whole floor. Sizes snap to the inch, and an edge snaps to
-    /// a wall within 3″.
-    @ViewBuilder
-    private func floorHandles(_ binding: Binding<AreaTakeoff.FloorRect?>, _ f: Frame) -> some View {
-        if let r = binding.wrappedValue {
-            let c = r.corners
-            ZStack {
-                if editingFloor {
-                    // Each edge: a thick invisible strip along it, with a grip at its middle.
-                    edge(binding, r, f, from: c[0], to: c[1], axis: .v, near: true)
-                    edge(binding, r, f, from: c[1], to: c[2], axis: .u, near: false)
-                    edge(binding, r, f, from: c[2], to: c[3], axis: .v, near: false)
-                    edge(binding, r, f, from: c[3], to: c[0], axis: .u, near: true)
-                }
-                FloorHandle(symbol: "arrow.up.and.down.and.arrow.left.and.right", active: editingFloor)
-                    .position(midpoint(c[0], c[2], f))
-                    .highPriorityGesture(
-                        DragGesture(minimumDistance: 4).onChanged { v in
-                            let start = dragStart ?? r
-                            if dragStart == nil { dragStart = r }
-                            // Move in whole inches along the floor's own sides.
-                            let a = (along(v.translation, start.u, f) * 12).rounded() / 12
-                            let b = (along(v.translation, start.v, f) * 12).rounded() / 12
-                            binding.wrappedValue?.origin = .init(x: start.origin.x + start.u.x * a + start.v.x * b,
-                                                                 y: start.origin.y + start.u.y * a + start.v.y * b)
-                        }.onEnded { _ in dragStart = nil; onFloorChanged?() }
-                        .exclusively(before: TapGesture().onEnded {
-                            withAnimation(.easeOut(duration: 0.15)) { editingFloor.toggle() }
-                        })
-                    )
+    // MARK: Tap to choose, drag anywhere to steer
+
+    /// What a tap chooses: a wall's end (of the chosen wall), the floor's
+    /// edge or the floor (once the floor is held), the curb, a wall, the
+    /// floor; empty space lets go.
+    private func tap(at location: CGPoint, _ f: Frame) {
+        if let onTapPoint { onTapPoint(f.point(at: location)); return }
+        let editable: (ScannedRoom.Wall) -> Bool = { $0.planned || editAnyWall }
+        // An end of the chosen wall.
+        if let id = selectedWall, let w = room.wall(id), editable(w) {
+            for start in [true, false] where hypot(location.x - f.at(start ? w.start : w.end).x,
+                                                   location.y - f.at(start ? w.start : w.end).y) < 22 {
+                hold = .wallEnd(id, start: start)
+                return
             }
         }
+        // The floor's edges and body, once the floor is held.
+        if floorHeld, let r = floorRect?.wrappedValue {
+            if let e = floorEdge(at: location, r, f) { hold = .floorEdge(e.axis, near: e.near); return }
+            if inside(location, r, f) { hold = .floor; return }
+        }
+        // Inside the floor (not right on its edge) is the floor, before the curb or a wall.
+        if let r = floorRect?.wrappedValue, inside(location, r, f), floorEdge(at: location, r, f, reach: 10) == nil {
+            hold = .floor
+            return
+        }
+        if let side = openSide(at: location, f) { hold = nil; onTapOpenSide(side); return }
+        if let id = wall(at: location, f) {
+            onTapWall(id)
+            if let w = room.wall(id), editable(w) { hold = .wall(id) } else { hold = nil }
+            return
+        }
+        if let r = floorRect?.wrappedValue, inside(location, r, f) { hold = .floor; return }
+        hold = nil
     }
 
-    private enum Axis { case u, v }
+    private var floorHeld: Bool {
+        switch hold { case .floor, .floorEdge: true; default: false }
+    }
 
-    /// One edge of the floor while resizing: dragging it moves only that
-    /// edge, the opposite one stays put.
-    private func edge(_ binding: Binding<AreaTakeoff.FloorRect?>, _ r: AreaTakeoff.FloorRect, _ f: Frame,
-                      from a: ScannedRoom.Point, to b: ScannedRoom.Point, axis: Axis, near: Bool) -> some View {
-        let p = f.at(a), q = f.at(b)
-        let length = max(hypot(q.x - p.x, q.y - p.y), 1)
-        let angle = Angle(radians: atan2(q.y - p.y, q.x - p.x))
-        return ZStack {
-            Color.clear.frame(width: length, height: 48).contentShape(Rectangle())
-            Capsule().fill(Color.white).overlay(Capsule().stroke(Color.green, lineWidth: 2))
-                .frame(width: 26, height: 9)
+    private func inside(_ p: CGPoint, _ r: AreaTakeoff.FloorRect, _ f: Frame) -> Bool {
+        AreaTakeoff.inside(r.corners, f.point(at: p))
+    }
+
+    /// The floor's edge within reach of a tap: which axis it bounds and
+    /// whether it's the edge at the floor's origin.
+    private func floorEdge(at p: CGPoint, _ r: AreaTakeoff.FloorRect, _ f: Frame, reach: CGFloat = 18) -> (axis: Axis, near: Bool)? {
+        let c = r.corners
+        let edges: [(ScannedRoom.Point, ScannedRoom.Point, Axis, Bool)] = [
+            (c[0], c[1], .v, true), (c[1], c[2], .u, false), (c[2], c[3], .v, false), (c[3], c[0], .u, true),
+        ]
+        let best = edges.map { ($0.2, $0.3, distance(p, f.at($0.0), f.at($0.1))) }.min { $0.2 < $1.2 }
+        guard let best, best.2 < reach else { return nil }
+        return (best.0, best.1)
+    }
+
+    /// Pinch zooms about the fingers; a drag steers what's held (by the
+    /// finger's speed), or pans when nothing is.
+    private func zoomPanSteer(_ size: CGSize, _ f: Frame) -> some Gesture {
+        let magnify = MagnifyGesture()
+            .onChanged { v in
+                let base = viewportStart ?? viewport
+                if viewportStart == nil { viewportStart = viewport }
+                viewport = base.zoomed(to: base.zoom * v.magnification, about: v.startLocation).clamped(in: size)
+            }
+            .onEnded { _ in viewportStart = nil }
+        let drag = DragGesture(minimumDistance: 6)
+            .onChanged { v in
+                if let hold {
+                    steer(hold, by: CGSize(width: v.translation.width - lastTranslation.width,
+                                           height: v.translation.height - lastTranslation.height), f, size)
+                    lastTranslation = v.translation
+                } else {
+                    let base = viewportStart ?? viewport
+                    if viewportStart == nil { viewportStart = viewport }
+                    viewport = base.panned(by: v.translation).clamped(in: size)
+                }
+            }
+            .onEnded { _ in
+                viewportStart = nil
+                lastTranslation = .zero
+                if steering {
+                    steering = false
+                    steerWall = nil
+                    steerFloor = nil
+                    steered = .init()
+                    onWallDragEnded()
+                    if floorRect != nil { onFloorChanged?() }
+                }
+            }
+        return magnify.simultaneously(with: drag)
+    }
+
+    /// One step of a drag, applied to what's held from where it started.
+    private func steer(_ hold: Hold, by delta: CGSize, _ f: Frame, _ size: CGSize) {
+        if !steering {
+            steering = true
+            steered = .init()
+            switch hold {
+            case .wall(let id), .wallEnd(let id, _): steerWall = room.wall(id)
+            case .floor, .floorEdge: steerFloor = floorRect?.wrappedValue
+            }
         }
-        .rotationEffect(angle)
-        .position(x: (p.x + q.x) / 2, y: (p.y + q.y) / 2)
-        .highPriorityGesture(DragGesture(minimumDistance: 0).onChanged { v in
-            let start = dragStart ?? r
-            if dragStart == nil { dragStart = r }
+        let (fx, fy) = f.feet(Steering.steered(delta))
+        steered = .init(x: steered.x + fx, y: steered.y + fy)
+        var shown: ScannedRoom.Point? = nil
+        switch hold {
+        case .wall(let id):
+            guard let base = steerWall else { return }
+            if base.planned { onMovePlannedWall(base, steered) } else { onMoveWall(id, steered) }
+            shown = room.wall(id).map { .init(x: ($0.start.x + $0.end.x) / 2, y: ($0.start.y + $0.end.y) / 2) }
+        case .wallEnd(let id, let start):
+            guard let base = steerWall else { return }
+            let from = start ? base.start : base.end, other = start ? base.end : base.start
+            let target = ScannedRoom.Point(x: from.x + steered.x, y: from.y + steered.y)
+            let p = room.plannedEnd(from: other, toward: target, except: id)
+            if base.planned { onMovePlannedEnd(id, start, p) } else { onMoveWallEnd(id, start, p) }
+            shown = p
+        case .floor:
+            guard let start = steerFloor, let binding = floorRect else { return }
+            let a = Steering.sixteenth(steered.x * start.u.x + steered.y * start.u.y)
+            let b = Steering.sixteenth(steered.x * start.v.x + steered.y * start.v.y)
+            binding.wrappedValue?.origin = .init(x: start.origin.x + start.u.x * a + start.v.x * b,
+                                                 y: start.origin.y + start.u.y * a + start.v.y * b)
+            shown = binding.wrappedValue?.center
+        case .floorEdge(let axis, let near):
+            guard let start = steerFloor, let binding = floorRect else { return }
             let dir = axis == .u ? start.u : start.v
             let out = near ? ScannedRoom.Point(x: -dir.x, y: -dir.y) : dir
             let old = axis == .u ? start.widthFt : start.depthFt
-            // The opposite edge stays put: measure from its middle.
             let side = axis == .u ? start.v : start.u
             let sideLen = axis == .u ? start.depthFt : start.widthFt
             var anchor = ScannedRoom.Point(x: start.origin.x + side.x * sideLen / 2, y: start.origin.y + side.y * sideLen / 2)
             if near { anchor = .init(x: anchor.x + dir.x * old, y: anchor.y + dir.y * old) }
-            let length = snapLength(old + along(v.translation, out, f), from: anchor, toward: out)
+            let length = snapLength(old + steered.x * out.x + steered.y * out.y, from: anchor, toward: out)
             var updated = start
             if axis == .u { updated.widthFt = length } else { updated.depthFt = length }
             if near {
                 updated.origin = .init(x: start.origin.x - dir.x * (length - old), y: start.origin.y - dir.y * (length - old))
             }
             binding.wrappedValue = updated
-        }.onEnded { _ in dragStart = nil; onFloorChanged?() })
+            shown = .init(x: anchor.x + out.x * length, y: anchor.y + out.y * length)
+        }
+        // Keep it on screen.
+        if let shown { viewport = viewport.keeping(f.at(shown), in: size) }
     }
 
-    /// A length rounded to the inch, or to where it would meet a wall when
-    /// within 3″, measured from `from` toward `dir`.
+    /// A length rounded to the sixteenth, or to where it would meet a wall
+    /// when within 3″, measured from `from` toward `dir`.
     private func snapLength(_ length: Double, from o: ScannedRoom.Point, toward dir: ScannedRoom.Point) -> Double {
-        var best = max(6.0 / 12, (length * 12).rounded() / 12)
+        var best = max(6.0 / 12, Steering.sixteenth(length))
         var bestGap = 0.25
         for w in room.walls {
             let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
@@ -1865,25 +2024,6 @@ struct PlanCanvas: View {
     private func along(_ t: CGSize, _ dir: ScannedRoom.Point, _ f: Frame) -> Double {
         let (x, y) = f.feet(t)
         return x * dir.x + y * dir.y
-    }
-
-    /// Pinch zooms round the point between the fingers; drag pans.
-    private func zoomAndPan(_ size: CGSize) -> some Gesture {
-        let magnify = MagnifyGesture()
-            .onChanged { v in
-                let newZoom = min(6, max(0.6, lastZoom * v.magnification))
-                // Keep the plan under the pinch where it was.
-                let anchor = CGSize(width: v.startLocation.x - size.width / 2, height: v.startLocation.y - size.height / 2)
-                let k = newZoom / lastZoom
-                pan = CGSize(width: anchor.width - (anchor.width - lastPan.width) * k,
-                             height: anchor.height - (anchor.height - lastPan.height) * k)
-                zoom = newZoom
-            }
-            .onEnded { _ in lastZoom = zoom; lastPan = pan }
-        let drag = DragGesture(minimumDistance: 10)
-            .onChanged { pan = CGSize(width: lastPan.width + $0.translation.width, height: lastPan.height + $0.translation.height) }
-            .onEnded { _ in lastPan = pan }
-        return magnify.simultaneously(with: drag)
     }
 
     /// An open side of the shower floor under a tap, when it's nearer than any wall.
@@ -1965,42 +2105,6 @@ struct PlanCanvas: View {
         let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
         if (target.x - mid.x) * n.x + (target.y - mid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
         return n
-    }
-
-    /// Grab handles on the ends of the chosen planned wall, and one in its
-    /// middle to move it whole.
-    @ViewBuilder
-    private func plannedEndHandles(_ f: Frame) -> some View {
-        if !addingWall, let id = selectedWall, let w = room.wall(id), w.planned || editAnyWall {
-            ZStack {
-                FloorHandle(symbol: w.planned ? "arrow.up.and.down.and.arrow.left.and.right" : "arrow.left.and.right")
-                    .scaleEffect(0.85)
-                    .rotationEffect(w.planned ? .zero : .radians(atan2(Double(f.at(w.end).y - f.at(w.start).y),
-                                                                       Double(f.at(w.end).x - f.at(w.start).x)) + .pi / 2))
-                    .position(midpoint(w.start, w.end, f))
-                    .highPriorityGesture(DragGesture(minimumDistance: 2).onChanged { v in
-                        let start = wallDragStart ?? w
-                        if wallDragStart == nil { wallDragStart = w }
-                        let (x, y) = f.feet(v.translation)
-                        if w.planned { onMovePlannedWall(start, .init(x: x, y: y)) } else { onMoveWall(id, .init(x: x, y: y)) }
-                    }.onEnded { _ in wallDragStart = nil; onWallDragEnded() })
-                ForEach([true, false], id: \.self) { isStart in
-                    let p = isStart ? w.start : w.end
-                    Circle().fill(Color.white).overlay(Circle().stroke(Color.green, lineWidth: 3))
-                        .frame(width: 18, height: 18)
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                        .position(f.at(p))
-                        .highPriorityGesture(DragGesture(minimumDistance: 0).onChanged { v in
-                            let base = wallDragStart ?? w
-                            if wallDragStart == nil { wallDragStart = w }
-                            let other = isStart ? base.end : base.start
-                            let target = f.point(at: v.location)
-                            let p = room.plannedEnd(from: other, toward: target, except: id)
-                            if w.planned { onMovePlannedEnd(id, isStart, p) } else { onMoveWallEnd(id, isStart, p) }
-                        }.onEnded { _ in wallDragStart = nil; onWallDragEnded() })
-                }
-            }
-        }
     }
 
     private func segment(_ wallID: UUID, from: Double, to: Double, _ f: Frame) -> Path? {
@@ -2087,19 +2191,31 @@ struct PlanCanvas: View {
             var path = Path()
             path.addLines(r.corners.map(f.at))
             path.closeSubpath()
-            ctx.fill(path, with: .color(Color.green.opacity(editingFloor ? 0.3 : 0.18)))
-            if editingFloor {
-                ctx.stroke(path, with: .color(Color.green), style: StrokeStyle(lineWidth: 4, lineJoin: .round))
+            let held = floorHeld
+            ctx.fill(path, with: .color(Color.green.opacity(hold == .floor ? 0.32 : 0.18)))
+            if held {
+                ctx.stroke(path, with: .color(Color.green), style: StrokeStyle(lineWidth: 2.5, lineJoin: .round))
             } else {
                 ctx.stroke(path, with: .color(Color.green.opacity(0.8)), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
             }
-            let c = r.corners
-            let center = f.at(ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2))
-            let p0 = f.at(c[0]), p2 = f.at(c[2])
-            if interactive, !editingFloor, abs(p2.x - p0.x) > 90, abs(p2.y - p0.y) > 80 {
-                ctx.draw(Text("\(feetAndInches(r.widthFt)) × \(feetAndInches(r.depthFt))")
-                            .font(.system(size: 11, weight: .semibold)).foregroundColor(.green),
-                         at: CGPoint(x: center.x, y: center.y + 24))
+            // The held edge, thick.
+            if case .floorEdge(let axis, let near) = hold {
+                let c = r.corners
+                let (a, b): (ScannedRoom.Point, ScannedRoom.Point) = switch (axis, near) {
+                case (.v, true): (c[0], c[1])
+                case (.u, false): (c[1], c[2])
+                case (.v, false): (c[2], c[3])
+                case (.u, true): (c[3], c[0])
+                }
+                var e = Path()
+                e.move(to: f.at(a)); e.addLine(to: f.at(b))
+                ctx.stroke(e, with: .color(.white), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                ctx.stroke(e, with: .color(.green), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            }
+            if interactive, !held, !showDimensions {
+                let c = r.corners
+                let center = f.at(ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2))
+                ctx.draw(Text(Image(systemName: "hand.tap")).font(.system(size: 15)).foregroundColor(.green), at: center)
             }
         }
         // Benches and corner pieces, out from their wall; windows and niches on it.
@@ -2168,11 +2284,27 @@ struct PlanCanvas: View {
             ctx.stroke(line, with: .color(Color(red: 0.85, green: 0.78, blue: 0.62)),
                        style: StrokeStyle(lineWidth: 5, lineCap: .butt))
             let m = CGPoint(x: (f.at(a).x + f.at(b).x) / 2, y: (f.at(a).y + f.at(b).y) / 2)
-            if interactive {
+            if interactive, !showDimensions {
                 ctx.draw(Text("Curb").font(.system(size: 10, weight: .semibold))
                             .foregroundColor(Color(red: 0.85, green: 0.78, blue: 0.62)), at: CGPoint(x: m.x, y: m.y + 11))
             }
         }
+        // The chosen wall that can move: its ends; what's held, lit.
+        if interactive, let id = selectedWall, let w = room.wall(id), w.planned || editAnyWall {
+            var line = Path()
+            line.move(to: f.at(w.start)); line.addLine(to: f.at(w.end))
+            if hold == .wall(id) {
+                ctx.stroke(line, with: .color(.green), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+            }
+            for start in [true, false] {
+                let c = f.at(start ? w.start : w.end)
+                let ring = Path(ellipseIn: CGRect(x: c.x - 8, y: c.y - 8, width: 16, height: 16))
+                let held = hold == .wallEnd(id, start: start)
+                ctx.fill(ring, with: .color(held ? .green : .white))
+                ctx.stroke(ring, with: .color(.green), lineWidth: 2.5)
+            }
+        }
+
         // Wall labels, just inside the room.
         let cx = room.walls.map { ($0.start.x + $0.end.x) / 2 }.reduce(0, +) / Double(max(room.walls.count, 1))
         let cy = room.walls.map { ($0.start.y + $0.end.y) / 2 }.reduce(0, +) / Double(max(room.walls.count, 1))
@@ -2196,53 +2328,123 @@ struct PlanCanvas: View {
     /// quarter inch (walls drawn in aren't dimensioned).
     private func drawDimensions(_ ctx: GraphicsContext, _ f: Frame, center: ScannedRoom.Point) {
         let ink = Color(red: 1, green: 0.8, blue: 0.3)
-        let floorMid: ScannedRoom.Point? = (floorRect?.wrappedValue ?? floorRectShown).map { r in
-            let c = r.corners
-            return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
-        }
-        for w in room.walls where !w.planned && w.lengthFt > 0.05 {
+        var placed: [CGRect] = []
+        let floor = floorRect?.wrappedValue ?? floorRectShown
+        let floorMid = floor?.center
+        // Every wall: outside the room for a scanned wall, away from the shower for one drawn in.
+        for w in room.walls where w.lengthFt > 0.05 {
             let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
             var n = ScannedRoom.Point(x: -dy / w.lengthFt, y: dx / w.lengthFt)
             let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
-            // Away from the room (a scanned wall), or from the shower (one drawn in).
             let from = w.planned ? (floorMid ?? center) : center
             if (from.x - mid.x) * n.x + (from.y - mid.y) * n.y > 0 { n = .init(x: -n.x, y: -n.y) }
-            let pa = f.at(w.start), pb = f.at(w.end)
-            let q = f.at(.init(x: w.start.x + n.x, y: w.start.y + n.y))
-            let ln = max(hypot(q.x - pa.x, q.y - pa.y), 1e-6)
-            let ns = CGPoint(x: (q.x - pa.x) / ln, y: (q.y - pa.y) / ln)
             let gap: CGFloat = w.planned ? 6 + w.thicknessIn / 24 * f.scale : 6
-            let off: CGFloat = w.planned ? gap + 14 : 24
-            func shifted(_ p: CGPoint, _ d: CGFloat) -> CGPoint { CGPoint(x: p.x + ns.x * d, y: p.y + ns.y * d) }
-            var lines = Path()
-            // Extension lines.
-            lines.move(to: shifted(pa, gap)); lines.addLine(to: shifted(pa, off + 5))
-            lines.move(to: shifted(pb, gap)); lines.addLine(to: shifted(pb, off + 5))
-            // The dimension line.
-            let a = shifted(pa, off), b = shifted(pb, off)
-            lines.move(to: a); lines.addLine(to: b)
-            ctx.stroke(lines, with: .color(ink.opacity(0.85)), lineWidth: 1)
-            // Slash ticks.
-            let ux = (b.x - a.x) / max(hypot(b.x - a.x, b.y - a.y), 1e-6), uy = (b.y - a.y) / max(hypot(b.x - a.x, b.y - a.y), 1e-6)
-            var ticks = Path()
-            for p in [a, b] {
-                let tx = (ux + ns.x) * 4, ty = (uy + ns.y) * 4
-                ticks.move(to: CGPoint(x: p.x - tx, y: p.y - ty)); ticks.addLine(to: CGPoint(x: p.x + tx, y: p.y + ty))
-            }
-            ctx.stroke(ticks, with: .color(ink), lineWidth: 1.8)
-            // The length, upright along the line, on a dark patch.
-            var angle = atan2(b.y - a.y, b.x - a.x)
-            if angle > .pi / 2 { angle -= .pi } else if angle < -.pi / 2 { angle += .pi }
-            let text = ctx.resolve(Text(dimensionText(w.lengthFt)).font(.system(size: 11, weight: .semibold).monospacedDigit())
-                .foregroundColor(ink))
-            let size = text.measure(in: CGSize(width: 200, height: 40))
-            var c = ctx
-            c.translateBy(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-            c.rotate(by: .radians(angle))
-            c.fill(Path(roundedRect: CGRect(x: -size.width / 2 - 4, y: -size.height / 2 - 1, width: size.width + 8, height: size.height + 2),
-                        cornerRadius: 4), with: .color(Color(white: 0.09)))
-            c.draw(text, at: .zero)
+            dimension(ctx, f, from: w.start, to: w.end, normal: n, gap: gap, offset: w.planned ? gap + 14 : 24,
+                      text: dimensionText(w.lengthFt), ink: ink, placed: &placed)
         }
+        // The shower floor's width and depth, just inside it.
+        if let r = floor {
+            let green = Color(red: 0.45, green: 0.9, blue: 0.5)
+            let c = r.corners
+            dimension(ctx, f, from: c[0], to: c[1], normal: r.v, gap: -2, offset: 14,
+                      text: dimensionText(r.widthFt), ink: green, placed: &placed)
+            dimension(ctx, f, from: c[0], to: c[3], normal: r.u, gap: -2, offset: 14,
+                      text: dimensionText(r.depthFt), ink: green, placed: &placed)
+        }
+        // The curb: its length, just outside the floor.
+        let stone = Color(red: 0.85, green: 0.78, blue: 0.62)
+        for (a, b) in curbEdges {
+            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            let len = hypot(b.x - a.x, b.y - a.y)
+            var out = ScannedRoom.Point(x: -(b.y - a.y) / max(len, 1e-9), y: (b.x - a.x) / max(len, 1e-9))
+            if let m = floorMid, (mid.x - m.x) * out.x + (mid.y - m.y) * out.y < 0 { out = .init(x: -out.x, y: -out.y) }
+            let k = 16 / Double(f.scale)
+            label(ctx, f, at: .init(x: mid.x + out.x * k, y: mid.y + out.y * k),
+                  text: "Curb \(dimensionText(len))", ink: stone, placed: &placed)
+        }
+        // Framed benches: length along their front, depth beside.
+        for item in items where item.kind == .framedBench {
+            guard let w = room.wall(item.wallID) else { continue }
+            let n = inward(w, face: item.face)
+            let skin = w.planned ? w.thicknessIn / 24 : 0
+            let d = skin + item.depthIn / 12
+            func pt(_ along: Double, _ out: Double) -> ScannedRoom.Point {
+                let p = room.point(on: w, along: along)
+                return .init(x: p.x + n.x * out, y: p.y + n.y * out)
+            }
+            dimension(ctx, f, from: pt(item.fromFt, d), to: pt(item.toFt, d), normal: n, gap: 2, offset: 12,
+                      text: dimensionText(item.widthFt), ink: .mint, placed: &placed)
+            label(ctx, f, at: pt((item.fromFt + item.toFt) / 2, skin + item.depthIn / 24),
+                  text: "Bench \(dimensionText(item.depthIn / 12)) deep", ink: .mint, placed: &placed)
+        }
+    }
+
+    /// One dimension: extension lines from `from`/`to` (plan feet) out along
+    /// `normal`, a line with slash ticks `offset` points out, and its text on a
+    /// dark patch — moved along the line, then further out, until it clears
+    /// the labels already drawn (a small version of FabSpecPro's placer).
+    private func dimension(_ ctx: GraphicsContext, _ f: Frame, from p0: ScannedRoom.Point, to p1: ScannedRoom.Point,
+                           normal n: ScannedRoom.Point, gap: CGFloat, offset: CGFloat, text: String, ink: Color,
+                           placed: inout [CGRect]) {
+        let pa = f.at(p0), pb = f.at(p1)
+        let q = f.at(.init(x: p0.x + n.x, y: p0.y + n.y))
+        let ln = max(hypot(q.x - pa.x, q.y - pa.y), 1e-6)
+        let ns = CGPoint(x: (q.x - pa.x) / ln, y: (q.y - pa.y) / ln)
+        func shifted(_ p: CGPoint, _ d: CGFloat) -> CGPoint { CGPoint(x: p.x + ns.x * d, y: p.y + ns.y * d) }
+        let resolved = ctx.resolve(Text(text).font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundColor(ink))
+        let size = resolved.measure(in: CGSize(width: 240, height: 40))
+        var angle = atan2(pb.y - pa.y, pb.x - pa.x)
+        if angle > .pi / 2 { angle -= .pi } else if angle < -.pi / 2 { angle += .pi }
+        // Find a place: along the line, then a rung further out.
+        var off = offset, spot = CGPoint.zero, box = CGRect.zero
+        search: for rung in 0..<4 {
+            off = offset + CGFloat(rung) * 15
+            let a = shifted(pa, off), b = shifted(pb, off)
+            for t in [0.5, 0.3, 0.7, 0.18, 0.82] {
+                spot = CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+                let w = abs(cos(angle)) * size.width + abs(sin(angle)) * size.height + 8
+                let h = abs(sin(angle)) * size.width + abs(cos(angle)) * size.height + 2
+                box = CGRect(x: spot.x - w / 2, y: spot.y - h / 2, width: w, height: h)
+                if !placed.contains(where: { $0.intersects(box) }) { break search }
+            }
+        }
+        placed.append(box)
+        let a = shifted(pa, off), b = shifted(pb, off)
+        var lines = Path()
+        lines.move(to: shifted(pa, gap)); lines.addLine(to: shifted(pa, off + 5))
+        lines.move(to: shifted(pb, gap)); lines.addLine(to: shifted(pb, off + 5))
+        lines.move(to: a); lines.addLine(to: b)
+        ctx.stroke(lines, with: .color(ink.opacity(0.85)), lineWidth: 1)
+        let len = max(hypot(b.x - a.x, b.y - a.y), 1e-6)
+        let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
+        var ticks = Path()
+        for p in [a, b] {
+            let tx = (ux + ns.x) * 4, ty = (uy + ns.y) * 4
+            ticks.move(to: CGPoint(x: p.x - tx, y: p.y - ty)); ticks.addLine(to: CGPoint(x: p.x + tx, y: p.y + ty))
+        }
+        ctx.stroke(ticks, with: .color(ink), lineWidth: 1.8)
+        var c = ctx
+        c.translateBy(x: spot.x, y: spot.y)
+        c.rotate(by: .radians(angle))
+        c.fill(Path(roundedRect: CGRect(x: -size.width / 2 - 4, y: -size.height / 2 - 1, width: size.width + 8, height: size.height + 2),
+                    cornerRadius: 4), with: .color(Color(white: 0.09)))
+        c.draw(resolved, at: .zero)
+    }
+
+    /// A label on a dark patch, moved down until it clears the others.
+    private func label(_ ctx: GraphicsContext, _ f: Frame, at p: ScannedRoom.Point, text: String, ink: Color,
+                       placed: inout [CGRect]) {
+        let resolved = ctx.resolve(Text(text).font(.system(size: 10, weight: .semibold).monospacedDigit()).foregroundColor(ink))
+        let size = resolved.measure(in: CGSize(width: 240, height: 40))
+        var spot = f.at(p), box = CGRect.zero
+        for k in 0..<5 {
+            spot = CGPoint(x: f.at(p).x, y: f.at(p).y + CGFloat(k) * 14)
+            box = CGRect(x: spot.x - size.width / 2 - 4, y: spot.y - size.height / 2 - 1, width: size.width + 8, height: size.height + 2)
+            if !placed.contains(where: { $0.intersects(box) }) { break }
+        }
+        placed.append(box)
+        ctx.fill(Path(roundedRect: box, cornerRadius: 4), with: .color(Color(white: 0.09).opacity(0.85)))
+        ctx.draw(resolved, at: spot)
     }
 }
 
@@ -2273,14 +2475,28 @@ struct WallElevation: View {
     var selectedOpening: Binding<UUID?> = .constant(nil)
 
     private let inset: CGFloat = 14
-    @State private var itemDragStart: AreaTakeoff.Item? = nil
-    @State private var openingDragStart: ScannedRoom.Opening? = nil
     private static let stone = Color(red: 0.85, green: 0.78, blue: 0.62)
-    @State private var doorDragStart: Double? = nil
+
+    /// What a drag steers (owner's call, 2026-10-08): tap a thing to choose
+    /// it, tap one of its edges (or its middle, to move it), then drag
+    /// anywhere on the wall.
+    enum Part: Equatable { case move, left, right, top, bottom }
+    enum Hold: Equatable {
+        case piece(UUID, Part)
+        case item(UUID, Part)
+        case opening(UUID, Part)
+    }
+    @State private var hold: Hold? = nil
+    @State private var holdPiece: AreaTakeoff.Piece? = nil
+    @State private var holdItem: AreaTakeoff.Item? = nil
+    @State private var holdOpening: ScannedRoom.Opening? = nil
+    @State private var steeredFt: CGSize = .zero
+    @State private var lastTranslation: CGSize = .zero
+    private let sixteenth = 1.0 / 192
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width - 2 * inset, h = geo.size.height - 2 * inset - 30
+            let w = geo.size.width - 2 * inset, h = geo.size.height - 2 * inset - 44
             let scale = min(w / max(wall.lengthFt, 0.5), h / max(wall.heightFt, 0.5))
             let width = wall.lengthFt * scale, height = wall.heightFt * scale
             let origin = CGPoint(x: (geo.size.width - width) / 2, y: inset + (h - height) / 2 + height)
@@ -2296,6 +2512,7 @@ struct WallElevation: View {
                     .overlay(Rectangle().stroke(Color(white: 0.45), lineWidth: 1))
                     .frame(width: width, height: height)
                     .position(x: origin.x + width / 2, y: origin.y - height / 2)
+                    .onTapGesture { hold = nil }
 
                 // Other areas' tile.
                 ForEach(others.indices, id: \.self) { i in
@@ -2327,7 +2544,11 @@ struct WallElevation: View {
                         }
                         .frame(width: max(r.width, 1), height: max(r.height, 1))
                         .position(x: r.midX, y: r.midY)
-                        .onTapGesture { selectedPiece = p.id; selectedItem.wrappedValue = nil }
+                        .onTapGesture {
+                            if selectedPiece != p.id { hold = nil }
+                            selectedPiece = p.id
+                            selectedItem.wrappedValue = nil
+                        }
                 }
 
                 // Doors and windows.
@@ -2359,10 +2580,9 @@ struct WallElevation: View {
                     handles(i, scale: scale, at: at)
                 }
 
-                // The floor line, the wall's length, and what each end meets.
-                Text(feetAndInches(wall.lengthFt))
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .position(x: origin.x + width / 2, y: origin.y + 10)
+                // Along the bottom: where every door, window, niche and bench
+                // starts and stops, end to end (owner asked 2026-10-08).
+                chain(at: at, origin: origin)
                 // What each end meets, on a line of its own, spread at least
                 // far enough to read under a narrow wall.
                 HStack {
@@ -2374,11 +2594,180 @@ struct WallElevation: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: max(width, 170))
-                .position(x: origin.x + width / 2, y: origin.y + 25)
+                .position(x: origin.x + width / 2, y: origin.y + 38)
+
+                Text(hold != nil ? "Drag anywhere · tap the wall to let go" : "Tap a side or the middle, then drag anywhere")
+                    .font(.system(size: 9, weight: hold != nil ? .semibold : .regular))
+                    .foregroundStyle(hold != nil ? Color.green : Color.secondary)
+                    .padding(6)
+                    .opacity(hold != nil || selectedPiece != nil || selectedItem.wrappedValue != nil || selectedOpening.wrappedValue != nil ? 1 : 0)
+                    .allowsHitTesting(false)
             }
             .coordinateSpace(name: "wall")
+            .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .named("wall"))
+                .onChanged { v in
+                    guard let hold else { return }
+                    let step = Steering.steered(CGSize(width: v.translation.width - lastTranslation.width,
+                                                       height: v.translation.height - lastTranslation.height))
+                    lastTranslation = v.translation
+                    steeredFt = CGSize(width: steeredFt.width + step.width / scale,
+                                       height: steeredFt.height - step.height / scale)
+                    steer(hold)
+                }
+                .onEnded { _ in
+                    lastTranslation = .zero
+                    steeredFt = .zero
+                    holdPiece = nil; holdItem = nil; holdOpening = nil
+                })
         }
         .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
+        .onChange(of: selectedPiece) { _, _ in if case .piece = hold { hold = nil } }
+        .onChange(of: selectedItem.wrappedValue) { _, _ in if case .item = hold { hold = nil } }
+        .onChange(of: selectedOpening.wrappedValue) { _, _ in if case .opening = hold { hold = nil } }
+    }
+
+    /// One step of a drag, applied to what's held from where it started
+    /// (to the sixteenth, snapping to nearby edges).
+    private func steer(_ hold: Hold) {
+        let dx = Double(steeredFt.width), dy = Double(steeredFt.height)
+        switch hold {
+        case .piece(let id, let part):
+            guard let i = takeoff.pieces.firstIndex(where: { $0.id == id }) else { return }
+            if holdPiece == nil { holdPiece = takeoff.pieces[i] }
+            guard let start = holdPiece else { return }
+            switch part {
+            case .left:
+                let ft = snapped(start.fromFt + dx, to: snaps, pull: 1.0 / 8, step: sixteenth)
+                takeoff.pieces[i].fromFt = min(max(0, ft), takeoff.pieces[i].toFt - 1.0 / 12)
+            case .right:
+                let ft = snapped(start.toFt + dx, to: snaps, pull: 1.0 / 8, step: sixteenth)
+                takeoff.pieces[i].toFt = max(min(wall.lengthFt, ft), takeoff.pieces[i].fromFt + 1.0 / 12)
+            case .top:
+                let tops = [wall.heightFt] + room.openings.filter { $0.wallID == wall.id }.flatMap { [$0.bottomFt, $0.bottomFt + $0.heightFt] }
+                let up = snapped(start.heightIn / 12 + dy, to: tops, pull: 1.0 / 12, step: sixteenth)
+                takeoff.pieces[i].heightIn = min(max(1, up * 12), wall.heightFt * 12)
+            default: break
+            }
+        case .item(let id, let part):
+            guard let i = takeoff.items.firstIndex(where: { $0.id == id }) else { return }
+            if holdItem == nil { holdItem = takeoff.items[i] }
+            guard let start = holdItem else { return }
+            let s16 = { (v: Double) in (v / self.sixteenth).rounded() * self.sixteenth }
+            switch part {
+            case .move:
+                let up = s16(dy) * 12
+                takeoff.items[i].bottomIn = min(max(0, start.bottomIn + up), wall.heightFt * 12 - (start.kind.isCorner ? 0 : start.heightIn))
+                if !start.kind.isCorner {
+                    let w = start.widthFt
+                    let from = min(max(0, s16(start.fromFt + dx)), wall.lengthFt - w)
+                    takeoff.items[i].fromFt = from
+                    takeoff.items[i].toFt = from + w
+                }
+            case .left:
+                takeoff.items[i].fromFt = min(max(0, s16(start.fromFt + dx)), takeoff.items[i].toFt - 4.0 / 12)
+            case .right:
+                takeoff.items[i].toFt = max(min(wall.lengthFt, s16(start.toFt + dx)), takeoff.items[i].fromFt + 4.0 / 12)
+            case .top:
+                if start.kind.isBench {
+                    takeoff.items[i].heightIn = min(max(6, start.heightIn + s16(dy) * 12), wall.heightFt * 12)
+                } else {
+                    takeoff.items[i].heightIn = min(max(4, start.heightIn + s16(dy) * 12), wall.heightFt * 12 - start.bottomIn)
+                }
+            case .bottom:
+                break
+            }
+        case .opening(let id, let part):
+            guard let o = room.openings.first(where: { $0.id == id }) else { return }
+            if holdOpening == nil { holdOpening = o }
+            guard let start = holdOpening else { return }
+            let s16 = { (v: Double) in (v / self.sixteenth).rounded() * self.sixteenth }
+            let s0 = room.span(of: start)
+            let width = s0.upperBound - s0.lowerBound
+            var n = start
+            switch part {
+            case .move:
+                let left = min(max(0, snapped(s0.lowerBound + dx, to: [0, wall.lengthFt - width], pull: 1.0 / 8, step: sixteenth)),
+                               max(0, wall.lengthFt - width))
+                n.alongFt = left + width / 2
+                if start.kind != .door && start.kind != .showerDoor {
+                    n.bottomFt = min(max(0, s16(start.bottomFt + dy)), max(0, wall.heightFt - start.heightFt))
+                }
+            case .left:
+                let left = min(max(0, s16(s0.lowerBound + dx)), s0.upperBound - 1.0 / 6)
+                n = moved(start, left: left, right: s0.upperBound)
+            case .right:
+                let right = max(min(wall.lengthFt, s16(s0.upperBound + dx)), s0.lowerBound + 1.0 / 6)
+                n = moved(start, left: s0.lowerBound, right: right)
+            case .top:
+                let top = snapped(start.bottomFt + start.heightFt + dy, to: [wall.heightFt], pull: 1.0 / 8, step: sixteenth)
+                n.heightFt = min(max(start.bottomFt + 1.0 / 6, top), wall.heightFt) - start.bottomFt
+                if start.kind == .showerDoor { n.heightFt = max(n.heightFt, 3) }
+            case .bottom:
+                let top = start.bottomFt + start.heightFt
+                let bottom = min(max(0, s16(start.bottomFt + dy)), top - 1.0 / 6)
+                n.bottomFt = bottom
+                n.heightFt = top - bottom
+            }
+            onDoor(n)
+        }
+    }
+
+    /// A dimension row under the wall: ticks at the wall's ends and every
+    /// door's, window's, niche's and bench's sides, each gap measured; a
+    /// label too wide for its gap drops to a second row.
+    @ViewBuilder
+    private func chain(at: @escaping (Double, Double) -> CGPoint, origin: CGPoint) -> some View {
+        let edges: [Double] = {
+            var e: [Double] = [0, wall.lengthFt]
+            for o in room.openings where o.wallID == wall.id {
+                let sp = room.span(of: o)
+                e += [sp.lowerBound, sp.upperBound]
+            }
+            for item in itemsHere {
+                let r = itemRect(item)
+                e += [r.from, r.to]
+            }
+            var out: [Double] = []
+            for x in e.sorted() where out.last.map({ x - $0 > 1.0 / 32 }) ?? true { out.append(min(max(0, x), wall.lengthFt)) }
+            return out
+        }()
+        let y = origin.y + 12
+        let ink = Color(red: 1, green: 0.8, blue: 0.3)
+        Path { p in
+            p.move(to: CGPoint(x: at(0, 0).x, y: y)); p.addLine(to: CGPoint(x: at(wall.lengthFt, 0).x, y: y))
+            for e in edges {
+                let x = at(e, 0).x
+                p.move(to: CGPoint(x: x - 3, y: y + 3)); p.addLine(to: CGPoint(x: x + 3, y: y - 3))
+            }
+        }
+        .stroke(ink.opacity(0.85), lineWidth: 1)
+        .allowsHitTesting(false)
+        ForEach(Array(zip(edges, edges.dropFirst()).enumerated()), id: \.offset) { k, pair in
+            let a = at(pair.0, 0).x, b = at(pair.1, 0).x
+            let text = dimensionText(pair.1 - pair.0)
+            let fits = b - a > CGFloat(text.count) * 5.6 + 6
+            Text(text)
+                .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
+                .foregroundStyle(ink)
+                .padding(.horizontal, 3)
+                .background(Color(white: 0.07).opacity(0.9), in: Capsule())
+                .fixedSize()
+                .position(x: (a + b) / 2, y: fits ? y : y + 12 + CGFloat(k % 2) * 0)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// A handle that chooses a part to steer: lit when it's the one held.
+    private func grip(_ h: Hold, vertical: Bool, tint: Color, at p: CGPoint) -> some View {
+        let held = hold == h
+        return Capsule()
+            .fill(held ? tint : Color.white)
+            .overlay(Capsule().stroke(tint, lineWidth: 2.5))
+            .frame(width: vertical ? 9 : 28, height: vertical ? 28 : 9)
+            .frame(width: 34, height: 34)
+            .contentShape(Rectangle())
+            .position(p)
+            .onTapGesture { hold = held ? nil : h }
     }
 
     @ViewBuilder
@@ -2401,64 +2790,19 @@ struct WallElevation: View {
                 }
                 .foregroundStyle(Self.stone).fixedSize()
             )
+            .overlay(Rectangle().stroke(Color.green, lineWidth: hold == .opening(d.id, .move) ? 3 : 0))
             .frame(width: max(r.width, 1), height: max(r.height, 1))
             .position(x: r.midX, y: r.midY)
-            .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .named("wall")).onChanged { v in
-                let start = doorDragStart ?? s.lowerBound
-                if doorDragStart == nil { doorDragStart = s.lowerBound }
-                let left = min(max(0, snapped(start + v.translation.width / scale, to: [0, wall.lengthFt - width])), wall.lengthFt - width)
-                onDoor(moved(d, left: left, right: left + width))
-            }.onEnded { _ in doorDragStart = nil })
-        // How far the opening is from each end of the wall.
-        let dimY = origin.y - 14
-        ForEach([(0.0, s.lowerBound), (s.upperBound, wall.lengthFt)], id: \.0) { from, to in
-            if to - from > 0.01 {
-                let a = at(from, 0).x, b = at(to, 0).x
-                Path { p in
-                    p.move(to: CGPoint(x: a + 2, y: dimY)); p.addLine(to: CGPoint(x: b - 2, y: dimY))
-                    p.move(to: CGPoint(x: a + 2, y: dimY - 5)); p.addLine(to: CGPoint(x: a + 2, y: dimY + 5))
-                    p.move(to: CGPoint(x: b - 2, y: dimY - 5)); p.addLine(to: CGPoint(x: b - 2, y: dimY + 5))
-                }
-                .stroke(Color.white.opacity(0.8), lineWidth: 1)
-                .allowsHitTesting(false)
-                Text(feetAndInches(to - from))
-                    .font(.system(size: 11, weight: .bold).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Color.black.opacity(0.75), in: Capsule())
-                    .fixedSize()
-                    .position(x: (a + b) / 2, y: dimY - 12)
-                    .allowsHitTesting(false)
-            }
-        }
+            .onTapGesture { hold = hold == .opening(d.id, .move) ? nil : .opening(d.id, .move) }
         if header {
             Rectangle().fill(Self.stone).frame(width: max(r.width, 1), height: 4)
                 .position(x: r.midX, y: r.minY - 2)
                 .allowsHitTesting(false)
         }
-        // Left and right sides.
-        DoorHandle(vertical: true)
-            .position(x: r.minX, y: r.minY + r.height * 0.3)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let left = snapped((v.location.x - origin.x) / scale, to: [0])
-                onDoor(moved(d, left: min(max(0, left), s.upperBound - 1), right: s.upperBound))
-            })
-        DoorHandle(vertical: true)
-            .position(x: r.maxX, y: r.minY + r.height * 0.3)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let right = snapped((v.location.x - origin.x) / scale, to: [wall.lengthFt])
-                onDoor(moved(d, left: s.lowerBound, right: max(min(wall.lengthFt, right), s.lowerBound + 1)))
-            })
-        // Top: the header's underside; to the ceiling, no header.
-        DoorHandle(vertical: false)
-            .position(x: r.midX, y: r.minY)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let upFt = (origin.y - v.location.y) / scale
-                let inches = (snapped(upFt, to: [wall.heightFt], pull: 3.0 / 12) * 12).rounded()
-                var n = d
-                n.heightFt = min(max(36, inches) / 12, wall.heightFt) - d.bottomFt
-                onDoor(n)
-            })
+        // Its sides and top: tap one, then drag anywhere.
+        grip(.opening(d.id, .left), vertical: true, tint: Self.stone, at: CGPoint(x: r.minX, y: r.minY + r.height * 0.3))
+        grip(.opening(d.id, .right), vertical: true, tint: Self.stone, at: CGPoint(x: r.maxX, y: r.minY + r.height * 0.3))
+        grip(.opening(d.id, .top), vertical: false, tint: Self.stone, at: CGPoint(x: r.midX, y: r.minY))
     }
 
     /// What's placed on this wall and seen from this side: a niche only on
@@ -2503,7 +2847,15 @@ struct WallElevation: View {
                 .stroke(item.stone == .tile ? Color.white.opacity(0.6) : stoneColor, lineWidth: 2)
             }
             if !item.kind.isCorner, rect.width > 34, rect.height > 16 {
-                Text(item.kind.name).font(.system(size: 9, weight: .semibold)).foregroundStyle(color).fixedSize()
+                VStack(spacing: 0) {
+                    Text(item.kind.name).font(.system(size: 9, weight: .semibold))
+                    // Too narrow for the size: the chain under the wall gives it.
+                    if item.kind == .niche || item.kind == .window, rect.width > 64 {
+                        Text("\(dimensionText(item.widthFt)) × \(dimensionText(item.heightIn / 12))").font(.system(size: 8.5))
+                        Text("\(dimensionText(item.bottomIn / 12)) up").font(.system(size: 8.5))
+                    }
+                }
+                .foregroundStyle(color).fixedSize()
             }
         }
         .frame(width: rect.width, height: rect.height)
@@ -2515,7 +2867,11 @@ struct WallElevation: View {
             }
         }
         .position(x: rect.midX, y: rect.midY)
-        .onTapGesture { selectedItem.wrappedValue = item.id }
+        .onTapGesture {
+            // First tap chooses it; tapping it again takes hold of the whole thing.
+            if selectedItem.wrappedValue == item.id { hold = hold == .item(item.id, .move) ? nil : .item(item.id, .move) }
+            else { selectedItem.wrappedValue = item.id; hold = nil }
+        }
     }
 
     /// Drag handles on the chosen item: a niche or window moves whole and
@@ -2526,50 +2882,17 @@ struct WallElevation: View {
         let r = itemRect(item)
         let a = at(r.from, r.top), b = at(r.to, r.bottom)
         let rect = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
-        let origin = at(0, 0)
-        let inch = { (v: Double) in (v * 12).rounded() / 12 }
-        if item.kind == .niche || item.kind == .window || item.kind.isCorner {
-            // Move it.
-            Color.clear.contentShape(Rectangle())
-                .frame(width: max(rect.width, 30), height: max(rect.height, 30))
+        if hold == .item(item.id, .move) {
+            Rectangle().stroke(Color.green, lineWidth: 3)
+                .frame(width: max(rect.width, 4), height: max(rect.height, 4))
                 .position(x: rect.midX, y: rect.midY)
-                .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("wall")).onChanged { v in
-                    let start = itemDragStart ?? item
-                    if itemDragStart == nil { itemDragStart = item }
-                    let up = (-v.translation.height / scale * 12).rounded()
-                    takeoff.items[i].bottomIn = min(max(0, start.bottomIn + up), wall.heightFt * 12 - (item.kind.isCorner ? 0 : start.heightIn))
-                    if !item.kind.isCorner {
-                        let w = start.widthFt
-                        let from = min(max(0, inch(start.fromFt + v.translation.width / scale)), wall.lengthFt - w)
-                        takeoff.items[i].fromFt = from
-                        takeoff.items[i].toFt = from + w
-                    }
-                }.onEnded { _ in itemDragStart = nil })
+                .allowsHitTesting(false)
         }
         if !item.kind.isCorner {
             // Just outside the edges, so a small niche stays visible.
-            ItemHandle(vertical: true)
-                .position(x: rect.minX - 9, y: rect.midY)
-                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                    let ft = inch((v.location.x - origin.x) / scale)
-                    takeoff.items[i].fromFt = min(max(0, ft), takeoff.items[i].toFt - 4.0 / 12)
-                })
-            ItemHandle(vertical: true)
-                .position(x: rect.maxX + 9, y: rect.midY)
-                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                    let ft = inch((v.location.x - origin.x) / scale)
-                    takeoff.items[i].toFt = max(min(wall.lengthFt, ft), takeoff.items[i].fromFt + 4.0 / 12)
-                })
-            ItemHandle(vertical: false)
-                .position(x: rect.midX, y: rect.minY - 9)
-                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                    let up = ((origin.y - v.location.y) / scale * 12).rounded()
-                    if item.kind.isBench {
-                        takeoff.items[i].heightIn = min(max(6, up), wall.heightFt * 12)
-                    } else {
-                        takeoff.items[i].heightIn = min(max(4, up - item.bottomIn), wall.heightFt * 12 - item.bottomIn)
-                    }
-                })
+            grip(.item(item.id, .left), vertical: true, tint: .mint, at: CGPoint(x: rect.minX - 9, y: rect.midY))
+            grip(.item(item.id, .right), vertical: true, tint: .mint, at: CGPoint(x: rect.maxX + 9, y: rect.midY))
+            grip(.item(item.id, .top), vertical: false, tint: .mint, at: CGPoint(x: rect.midX, y: rect.minY - 9))
         }
     }
 
@@ -2584,21 +2907,26 @@ struct WallElevation: View {
         let off: Bool = takeoff.subtracted.contains(o.id) && !editOpenings
         let chosen: Bool = editOpenings && selectedOpening.wrappedValue == o.id
         let tint: Color = off ? .red : .cyan
-        let label: String = editOpenings ? feetAndInches(o.widthFt) + " × " + feetAndInches(o.heightFt) : (off ? "off" : "tap")
+        let size: String = dimensionText(o.widthFt) + " × " + dimensionText(o.heightFt)
+        let up: String? = o.bottomFt > 1.0 / 48 ? dimensionText(o.bottomFt) + " up" : nil
+        let label: String = editOpenings ? size : (off ? "off" : "tap")
         let symbol: String = o.kind == .window ? "window.horizontal" : "door.left.hand.closed"
         return RoundedRectangle(cornerRadius: 2)
             .fill(off ? Color(white: 0.08) : Color.cyan.opacity(0.12))
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(tint.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: off ? [] : [4, 3])))
             .overlay(VStack(spacing: 0) {
                 Image(systemName: symbol).font(.caption)
-                Text(label).font(.system(size: 9)).fixedSize()
+                if !editOpenings, w > 64 { Text(size).font(.system(size: 8.5, weight: .semibold)).fixedSize() }
+                if !editOpenings || w > 64 { Text(label).font(.system(size: 9)).fixedSize() }
+                if let up, w > 40 { Text(up).font(.system(size: 8.5)).fixedSize() }
             }.foregroundStyle(tint))
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.white, lineWidth: chosen ? 2.5 : 0))
             .frame(width: w, height: h)
             .position(x: left + w / 2, y: top + h / 2)
             .onTapGesture {
                 if editOpenings {
-                    selectedOpening.wrappedValue = o.id
+                    if selectedOpening.wrappedValue == o.id { hold = hold == .opening(o.id, .move) ? nil : .opening(o.id, .move) }
+                    else { selectedOpening.wrappedValue = o.id; hold = nil }
                 } else if off {
                     takeoff.subtracted.removeAll { $0 == o.id }
                 } else {
@@ -2612,56 +2940,17 @@ struct WallElevation: View {
         let s = room.span(of: o)
         let a = at(s.lowerBound, o.bottomFt + o.heightFt), b = at(s.upperBound, o.bottomFt)
         let r = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
-        let origin = at(0, 0)
-        let inch = { (v: Double) in (v * 12).rounded() / 12 }
-        let width = s.upperBound - s.lowerBound
-        // Move it: along the wall, and up and down unless it's on the floor (a door).
-        Color.clear.contentShape(Rectangle())
-            .frame(width: max(r.width - 20, 20), height: max(r.height - 20, 20))
-            .position(x: r.midX, y: r.midY)
-            .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("wall")).onChanged { v in
-                let start = openingDragStart ?? o
-                if openingDragStart == nil { openingDragStart = o }
-                var n = start
-                let s0 = room.span(of: start)
-                let left = min(max(0, inch(s0.lowerBound + v.translation.width / scale)), max(0, wall.lengthFt - width))
-                n.alongFt = left + width / 2
-                if start.kind != .door {
-                    n.bottomFt = min(max(0, inch(start.bottomFt - v.translation.height / scale)), max(0, wall.heightFt - start.heightFt))
-                }
-                onDoor(n)
-            }.onEnded { _ in openingDragStart = nil })
-        ItemHandle(vertical: true)
-            .position(x: r.minX - 9, y: r.midY)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let left = min(max(0, inch((v.location.x - origin.x) / scale)), s.upperBound - 1.0 / 6)
-                onDoor(moved(o, left: left, right: s.upperBound))
-            })
-        ItemHandle(vertical: true)
-            .position(x: r.maxX + 9, y: r.midY)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let right = max(min(wall.lengthFt, inch((v.location.x - origin.x) / scale)), s.lowerBound + 1.0 / 6)
-                onDoor(moved(o, left: s.lowerBound, right: right))
-            })
-        ItemHandle(vertical: false)
-            .position(x: r.midX, y: r.minY - 9)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                var n = o
-                let top = min(max(o.bottomFt + 1.0 / 6, inch((origin.y - v.location.y) / scale)), wall.heightFt)
-                n.heightFt = top - o.bottomFt
-                onDoor(n)
-            })
+        if hold == .opening(o.id, .move) {
+            Rectangle().stroke(Color.green, lineWidth: 3)
+                .frame(width: max(r.width, 4), height: max(r.height, 4))
+                .position(x: r.midX, y: r.midY)
+                .allowsHitTesting(false)
+        }
+        grip(.opening(o.id, .left), vertical: true, tint: .cyan, at: CGPoint(x: r.minX - 9, y: r.midY))
+        grip(.opening(o.id, .right), vertical: true, tint: .cyan, at: CGPoint(x: r.maxX + 9, y: r.midY))
+        grip(.opening(o.id, .top), vertical: false, tint: .cyan, at: CGPoint(x: r.midX, y: r.minY - 9))
         if o.kind != .door {
-            ItemHandle(vertical: false)
-                .position(x: r.midX, y: r.maxY + 9)
-                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                    var n = o
-                    let top = o.bottomFt + o.heightFt
-                    let bottom = min(max(0, inch((origin.y - v.location.y) / scale)), top - 1.0 / 6)
-                    n.bottomFt = bottom
-                    n.heightFt = top - bottom
-                    onDoor(n)
-                })
+            grip(.opening(o.id, .bottom), vertical: false, tint: .cyan, at: CGPoint(x: r.midX, y: r.maxY + 9))
         }
     }
 
@@ -2682,30 +2971,9 @@ struct WallElevation: View {
     private func handles(_ i: Int, scale: Double, at: @escaping (Double, Double) -> CGPoint) -> some View {
         let p = takeoff.pieces[i]
         let r = rect(p, at)
-        let origin = at(0, 0)
-        // Left side.
-        Handle(vertical: true)
-            .position(x: r.minX, y: r.midY)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let ft = snapped((v.location.x - origin.x) / scale, to: snaps)
-                takeoff.pieces[i].fromFt = min(max(0, ft), takeoff.pieces[i].toFt - 1.0 / 12)
-            })
-        // Right side.
-        Handle(vertical: true)
-            .position(x: r.maxX, y: r.midY)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let ft = snapped((v.location.x - origin.x) / scale, to: snaps)
-                takeoff.pieces[i].toFt = max(min(wall.lengthFt, ft), takeoff.pieces[i].fromFt + 1.0 / 12)
-            })
-        // Top.
-        Handle(vertical: false)
-            .position(x: r.midX, y: r.minY)
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
-                let upFt = (origin.y - v.location.y) / scale
-                let tops = [wall.heightFt] + room.openings.filter { $0.wallID == wall.id }.flatMap { [$0.bottomFt, $0.bottomFt + $0.heightFt] }
-                let inches = (snapped(upFt, to: tops, pull: 2.0 / 12) * 12).rounded()
-                takeoff.pieces[i].heightIn = min(max(1, inches), (wall.heightFt * 12).rounded())
-            })
+        grip(.piece(p.id, .left), vertical: true, tint: .blue, at: CGPoint(x: r.minX, y: r.midY))
+        grip(.piece(p.id, .right), vertical: true, tint: .blue, at: CGPoint(x: r.maxX, y: r.midY))
+        grip(.piece(p.id, .top), vertical: false, tint: .blue, at: CGPoint(x: r.midX, y: r.minY))
     }
 }
 
@@ -2753,10 +3021,11 @@ private struct Handle: View {
 /// Inches, typed, with feet and inches shown under it.
 struct InchField: View {
     let title: String
+    /// The length, in inches; shown and typed in feet and inches to the sixteenth.
     @Binding var inches: Double
     /// Empty, not "0", until something's typed (a tape measurement not taken yet).
     var blankWhenZero = false
-    /// Only set when typing ends (Done, or tapping away): for a value that
+    /// Only set when typing ends (Set, or tapping away): for a value that
     /// moves walls, where "9" on the way to "96" would wreck the room.
     var applyWhenDone = false
     @State private var text = ""
@@ -2764,13 +3033,16 @@ struct InchField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             HStack(spacing: 3) {
-                TextField(blankWhenZero ? "" : "0", text: $text)
-                    .keyboardType(.decimalPad)
+                TextField(blankWhenZero ? "" : "0\"", text: $text)
+                    .keyboardType(.numbersAndPunctuation)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.done)
                     .focused($focused)
                     .font(.body.monospacedDigit())
-                Text("in").foregroundStyle(.secondary)
+                    .minimumScaleFactor(0.7)
                 if applyWhenDone && focused {
                     Button("Set") { focused = false }
                         .font(.subheadline.weight(.semibold))
@@ -2780,30 +3052,27 @@ struct InchField: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
             .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-            // Feet and inches, once it's a foot or more.
-            Text(inches >= 12 ? feetAndInches(inches / 12) : " ").font(.caption2).foregroundStyle(.secondary)
         }
         .onAppear { text = shown(inches) }
         .onChange(of: inches) { _, v in if !focused { text = shown(v) } }
         .onChange(of: text) { _, t in
             if focused, !applyWhenDone {
-                if let v = Double(t.replacingOccurrences(of: ",", with: ".")), abs(v - inches) > 0.001 { inches = v }
+                if let v = Lengths.parse(t), abs(v - inches) > 0.0001 { inches = v }
                 else if t.isEmpty, blankWhenZero { inches = 0 }
             }
         }
         .onChange(of: focused) { _, f in
             if !f {
-                if applyWhenDone, let v = Double(text.replacingOccurrences(of: ",", with: ".")), abs(v - inches) > 0.001 {
-                    inches = v
-                }
+                if applyWhenDone, let v = Lengths.parse(text), abs(v - inches) > 0.0001 { inches = v }
                 text = shown(inches)
             }
         }
         .onSubmit { focused = false }
     }
 
-    private func shown(_ v: Double) -> String { blankWhenZero && v == 0 ? "" : Self.format(v) }
+    private func shown(_ v: Double) -> String { blankWhenZero && v == 0 ? "" : Lengths.typed(inches: v) }
 
+    /// A plain number of inches, for text that says ″ after it.
     static func format(_ v: Double) -> String {
         v.formatted(.number.precision(.fractionLength(0...1)).grouping(.never))
     }

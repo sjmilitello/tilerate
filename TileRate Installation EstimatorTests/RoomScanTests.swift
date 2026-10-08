@@ -663,6 +663,25 @@ struct RoomScanTests {
         #expect(abs(r.wall(r.walls[0].id)!.lengthFt - 12) < 1e-9)
     }
 
+    @Test func undoAndRedoStepThroughSettledChanges() {
+        var h = EditHistory(1)
+        h.settle(2)
+        h.settle(2)            // no change: no step
+        h.settle(3)
+        #expect(h.undo(from: 3) == 2)
+        #expect(h.undo(from: 2) == 1)
+        #expect(h.undo(from: 1) == nil && !h.canUndo)
+        #expect(h.redo(from: 1) == 2)
+        // Something not yet settled is settled before undoing, so it can be redone.
+        var g = EditHistory(1)
+        #expect(g.undo(from: 5) == 1)
+        #expect(g.redo(from: 1) == 5)
+        // A new change clears what could be redone.
+        _ = g.undo(from: 5)
+        g.settle(7)
+        #expect(!g.canRedo)
+    }
+
     @Test func aWallCanBeSplitAndItsTileFollows() {
         var r = dividerRoom()
         let back = r.walls[0]
@@ -723,11 +742,25 @@ struct RoomScanTests {
 
     @Test func dimensionsReadToTheQuarterInch() {
         #expect(dimensionText(9) == "9′ 0″")
-        #expect(dimensionText(106.5 / 12) == "8′ 10½″")
-        #expect(dimensionText(97.25 / 12) == "8′ 1¼″")
+        #expect(dimensionText(106.5 / 12) == "8′ 10 1/2″")
+        #expect(dimensionText(97.25 / 12) == "8′ 1 1/4″")
+        #expect(dimensionText(13.1875 / 12) == "1′ 1 3/16″")
+        #expect(dimensionText(0.25 / 12) == "1/4″")
         #expect(dimensionText(13.0 / 12) == "1′ 1″")
         #expect(dimensionText(0.5) == "6″")
-        #expect(dimensionText(95.9 / 12) == "8′ 0″")
+        #expect(dimensionText(95.9 / 12) == "7′ 11 7/8″")
+        #expect(feetAndInches(5) == "5′")
+        // Typed as a tape is read.
+        #expect(Lengths.parse("8' 10 1/2\"") == 106.5)
+        #expect(Lengths.parse("8'10-1/2") == 106.5)
+        #expect(Lengths.parse("8′ 10½") == nil || Lengths.parse("8′ 10½") == 106.5)
+        #expect(Lengths.parse("106 1/2") == 106.5)
+        #expect(Lengths.parse("106.5") == 106.5)
+        #expect(Lengths.parse("3/16") == 0.1875)
+        #expect(Lengths.parse("8'") == 96)
+        #expect(Lengths.parse("8' 1") == 97)
+        #expect(Lengths.parse("abc") == nil)
+        #expect(Lengths.typed(inches: 106.5) == "8' 10 1/2\"")
     }
 
     // MARK: Suggested areas

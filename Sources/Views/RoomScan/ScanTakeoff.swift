@@ -252,9 +252,9 @@ extension ScannedRoom {
 }
 
 /// Rounds to the nearest inch, or to a snap point within `pull` feet.
-func snapped(_ ft: Double, to points: [Double], pull: Double = 0.25) -> Double {
+func snapped(_ ft: Double, to points: [Double], pull: Double = 0.25, step: Double = 1.0 / 12) -> Double {
     if let near = points.min(by: { abs($0 - ft) < abs($1 - ft) }), abs(near - ft) <= pull { return near }
-    return (ft * 12).rounded() / 12
+    return (ft / step).rounded() * step
 }
 
 extension AreaTakeoff {
@@ -725,23 +725,11 @@ func boundingSize(_ points: [ScannedRoom.Point]) -> (Double, Double) {
     return (maxX - minX, maxY - minY)
 }
 
-/// A dimension to the nearest quarter inch: 8.875 → "8′ 10½″", 0.5 → "6″".
-func dimensionText(_ feet: Double) -> String {
-    let quarters = Int((feet * 48).rounded())
-    let ft = quarters / 48, rest = quarters % 48
-    let inch = rest / 4
-    let frac = ["", "¼", "½", "¾"][rest % 4]
-    if ft == 0 { return "\(inch)\(frac)″" }
-    return "\(ft)′ \(inch)\(frac)″"
-}
+/// A dimension, feet and inches to the sixteenth: 8′ 10 1/2″, 6″.
+func dimensionText(_ feet: Double) -> String { Lengths.text(feet: feet) }
 
-/// 7.5 → "7′ 6″"
-func feetAndInches(_ feet: Double) -> String {
-    let totalIn = Int((feet * 12).rounded())
-    let ft = totalIn / 12, inch = totalIn % 12
-    if ft == 0 { return "\(inch)″" }
-    return inch == 0 ? "\(ft)′" : "\(ft)′ \(inch)″"
-}
+/// A length to the sixteenth, a whole number of feet without "0″": 7′ 6″, 5′, 13 1/8″.
+func feetAndInches(_ feet: Double) -> String { Lengths.text(feet: feet, zeroInches: false) }
 
 // MARK: - Curbs, wall caps and jambs
 

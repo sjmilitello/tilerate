@@ -127,8 +127,8 @@ struct KneeWallSection: View {
 /// "$30/lin ft" or "4″ wide · $45/sq ft"
 func stoneSummary(_ r: StoneRate) -> String {
     func money(_ v: Double) -> String { v.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD").precision(.fractionLength(0...2))) }
-    if r.usesSqft { return "\(InchField.format(r.widthIn))″ wide · \(money(r.perSqft))/sq ft" }
-    return "\(money(r.perLinFt))/lin ft" + (r.widthIn > 0 ? " · \(InchField.format(r.widthIn))″ wide" : "")
+    if r.usesSqft { return "\(feetAndInches(r.widthIn / 12)) wide · \(money(r.perSqft))/sq ft" }
+    return "\(money(r.perLinFt))/lin ft" + (r.widthIn > 0 ? " · \(feetAndInches(r.widthIn / 12)) wide" : "")
 }
 
 /// One stone piece's price: per linear foot, a usual width, and — with a
@@ -150,7 +150,7 @@ struct StoneRateEditor: View {
                 }
             } footer: {
                 Text(rate.widthIn > 0
-                     ? "Square feet are the length × \(InchField.format(rate.widthIn))″."
+                     ? "Square feet are the length × \(feetAndInches(rate.widthIn / 12))."
                      : "Enter its usual width to be able to price it by the square foot.")
             }
         }

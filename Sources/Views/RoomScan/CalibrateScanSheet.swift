@@ -55,7 +55,7 @@ struct CalibrateScanSheet: View {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Wall \(w.label)").font(.body.weight(.semibold))
-                                Text("Scan \(feetAndInches(w.lengthFt)) (\(InchField.format(w.lengthFt * 12))″)")
+                                Text("Scan \(dimensionText(w.lengthFt))")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -85,7 +85,7 @@ struct CalibrateScanSheet: View {
                             let after = w.lengthFt * c.lengthFactor(of: w) * 12
                             let off = after - (entered[w.id] ?? 0)
                             LabeledContent("Wall \(w.label)",
-                                           value: abs(off) < 0.125 ? "matches the tape" : "\(off > 0 ? "+" : "−")\(InchField.format(abs(off)))″ from the tape")
+                                           value: abs(off) < 1.0 / 32 ? "matches the tape" : "\(off > 0 ? "+" : "−")\(feetAndInches(abs(off) / 12)) from the tape")
                         }
                     }
                 }

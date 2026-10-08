@@ -403,7 +403,7 @@ pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
 this area's tile blue, other areas' orange), the chosen wall face-on below
 (`WallElevation`: drag a piece's sides and top; ends snap to the inch and to
 corners, openings, the tub and other areas' ends; tap a door or window to
-take it off), height chips, From/To/Height typed in inches, Add tile,
+take it off), height chips, From/To/Height typed in feet and inches, Add tile,
 Split, Remove tile. A new piece takes the wall's longest free stretch at a
 starting height (backsplash 18″, tub 84″, else full height). The scanner
 only runs on a real LiDAR iPhone; in DEBUG builds without LiDAR a "Use a
@@ -477,6 +477,39 @@ scanned room answers the physical ones on its model instead of in fields.
   (owner's rule, 2026-10-08; tub surrounds were 84″).
 - Calibrating or deleting a wall re-measures only areas measured on the
   model; typed numbers are never overwritten.
+
+## Holding, steering, lengths and undo on the model (2026-10-08)
+
+Borrowed from the owner's other app, FabSpecPro. This replaces the drag
+handles described above wherever they differ.
+
+- **Tap to hold, then drag anywhere** (owner: a thumb on top of a wall hides
+  where it's going). On the plan (`PlanCanvas.Hold`) tap a wall, a wall's end
+  ring, the shower floor or, with the floor held, one of its edges; on the
+  wall face-on (`WallElevation.Hold`) tap a piece's side or top grip, or tap
+  a niche, window, door or opening a second time to hold all of it. Then a
+  drag anywhere on that drawing moves what is held; a strip at the top gives
+  its live measurements. Tapping empty space lets go. With nothing held a
+  drag pans.
+- **Speed-based steering** (`Steering.gain`): a slow finger moves things at
+  0.3 of its travel, a fast one 1:1 (2 to 16 pt per event), so fine
+  adjustments are easy. Steered lengths snap to the sixteenth.
+- **Zoom** (`PlanViewport`): pinch about the fingers, pan clamped to half a
+  screen past the plan, Fit resets; the held thing is kept on screen.
+- **Lengths** (`Lengths`): everything on the model and in the calibration
+  sheet reads in feet and inches to 1/16″ (8′ 10 1/2″, 13 1/8″), and is typed
+  the way a tape is read (8' 10 1/2", 8'10-1/2, 106 1/2, 106.5, 3/4).
+  `dimensionText`/`feetAndInches` both go through it.
+- **Undo and redo** (icons at the top of the model; `EditHistory`, up to 100
+  steps): the room and the area's takeoff together, one step per change once
+  it has been still for 0.6 s. Selections that no longer exist are cleared.
+- **Dimensions** (the ruler button): every wall on the plan (scanned ones
+  outside the room, drawn-in ones beside themselves), the shower floor's
+  width and depth inside it, the curb's length outside it, framed benches'
+  length and depth. Labels are placed so they don't overlap. Under the wall
+  face-on, a chain of distances between every door, window, opening, niche
+  and window item's edges; each one is labelled with its size and how far up
+  it starts, when it's wide enough.
 
 ## Estimate wording templates (roadmap Phase 3)
 
