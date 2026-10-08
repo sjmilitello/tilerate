@@ -51,6 +51,8 @@ struct ScanEditor: View {
     @State private var placeNote: String? = nil
     /// The room in 3-D instead of the plan.
     @State private var show3D = false
+    /// Wall lengths on the plan and the 3-D view.
+    @State private var showDimensions = true
     /// Waiting for a tap in 3-D on the wall where this goes.
     @State private var placing3D: Place3D? = nil
 
@@ -120,7 +122,7 @@ struct ScanEditor: View {
         let stoneParts = Set(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn).filter(\.stone).map(\.key))
         return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile, others: others,
                              curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
-                             showFixtures: showFixtures, selectedItem: selectedItem)
+                             showFixtures: showFixtures, selectedItem: selectedItem, showDimensions: showDimensions)
     }
     private var otherPieces: [AreaTakeoff.Piece] { others.flatMap(\.pieces) }
 
@@ -153,6 +155,7 @@ struct ScanEditor: View {
                            onResetFloor: placeShowerFloor,
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
                            items: takeoff.items,
+                           showDimensions: showDimensions,
                            hint: addingWall ? nil : (usesWalls ? "Tap a wall to tile it · pinch to zoom" : "Pinch to zoom"),
                            addingWall: addingWall,
                            onAddWall: { a, b in addDrawnWall(from: a, to: b) },
@@ -181,14 +184,20 @@ struct ScanEditor: View {
                 }
                 .frame(height: 250)
                 }
-                Picker("View", selection: $show3D) {
-                    Text("2D").tag(false)
-                    Text("3D").tag(true)
+                HStack(spacing: 8) {
+                    Toggle(isOn: $showDimensions) { Image(systemName: "ruler") }
+                        .toggleStyle(.button)
+                        .font(.caption)
+                        .accessibilityLabel("Dimensions")
+                    Picker("View", selection: $show3D) {
+                        Text("2D").tag(false)
+                        Text("3D").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 100)
+                    .disabled(addingWall || placingBench || placing3D != nil)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 100)
                 .padding(8)
-                .disabled(addingWall || placingBench || placing3D != nil)
                 }
                 .background(Color(white: 0.09))
                 .overlay(alignment: .top) {
@@ -1217,6 +1226,8 @@ struct PlanCanvas: View {
     var curbEdges: [(ScannedRoom.Point, ScannedRoom.Point)] = []
     /// Benches, niches, windows and corner pieces placed on the walls.
     var items: [AreaTakeoff.Item] = []
+    /// Dimension lines outside each wall with its length.
+    var showDimensions = false
     var hint: String? = nil
     /// Drawing a new wall: a drag on the plan from its start to its end.
     var addingWall = false
@@ -1287,7 +1298,9 @@ struct PlanCanvas: View {
         let t = pts.map { f.turned($0) }
         let tx = t.map(\.0), ty = t.map(\.1)
         let minX = tx.min() ?? -1, maxX = tx.max() ?? 1, minY = ty.min() ?? -1, maxY = ty.max() ?? 1
-        let fit = min((size.width - 60) / max(maxX - minX, 1), (size.height - 60) / max(maxY - minY, 1))
+        // Room round the edge for the dimension lines.
+        let margin: CGFloat = interactive && showDimensions ? 110 : 60
+        let fit = min((size.width - margin) / max(maxX - minX, 1), (size.height - margin) / max(maxY - minY, 1))
         // Centre the turned room.
         let ox = (minX + maxX) / 2, oy = (minY + maxY) / 2
         f = Frame(size: size, scale: fit * zoom,
@@ -1787,10 +1800,65 @@ struct PlanCanvas: View {
             let len = max((dx * dx + dy * dy).squareRoot(), 1e-9)
             let inward = Double(interactive ? 16 : 9) / Double(f.scale)
             let toward = ScannedRoom.Point(x: mid.x + dx / len * inward, y: mid.y + dy / len * inward)
-            let label = Text(interactive ? "\(w.label)  \(feetAndInches(w.lengthFt))" : w.label)
+            let label = Text(interactive && !showDimensions ? "\(w.label)  \(feetAndInches(w.lengthFt))" : w.label)
                 .font(.system(size: interactive ? 11 : 10, weight: .semibold))
                 .foregroundColor(mine.contains { $0.wallID == w.id } ? .blue : Color(white: 0.75))
             ctx.draw(label, at: f.at(toward))
+        }
+        if interactive && showDimensions { drawDimensions(ctx, f, center: .init(x: cx, y: cy)) }
+    }
+
+    /// Architectural dimension lines: outside each scanned wall, and beside
+    /// each wall drawn in (on the side away from the shower floor), with
+    /// extension lines, slash ticks, and the length to the quarter inch.
+    private func drawDimensions(_ ctx: GraphicsContext, _ f: Frame, center: ScannedRoom.Point) {
+        let ink = Color(red: 1, green: 0.8, blue: 0.3)
+        let floorMid: ScannedRoom.Point? = (floorRect?.wrappedValue ?? floorRectShown).map { r in
+            let c = r.corners
+            return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+        }
+        for w in room.walls where w.lengthFt > 0.05 {
+            let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+            var n = ScannedRoom.Point(x: -dy / w.lengthFt, y: dx / w.lengthFt)
+            let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
+            // Away from the room (a scanned wall), or from the shower (one drawn in).
+            let from = w.planned ? (floorMid ?? center) : center
+            if (from.x - mid.x) * n.x + (from.y - mid.y) * n.y > 0 { n = .init(x: -n.x, y: -n.y) }
+            let pa = f.at(w.start), pb = f.at(w.end)
+            let q = f.at(.init(x: w.start.x + n.x, y: w.start.y + n.y))
+            let ln = max(hypot(q.x - pa.x, q.y - pa.y), 1e-6)
+            let ns = CGPoint(x: (q.x - pa.x) / ln, y: (q.y - pa.y) / ln)
+            let gap: CGFloat = w.planned ? 6 + w.thicknessIn / 24 * f.scale : 6
+            let off: CGFloat = w.planned ? gap + 14 : 24
+            func shifted(_ p: CGPoint, _ d: CGFloat) -> CGPoint { CGPoint(x: p.x + ns.x * d, y: p.y + ns.y * d) }
+            var lines = Path()
+            // Extension lines.
+            lines.move(to: shifted(pa, gap)); lines.addLine(to: shifted(pa, off + 5))
+            lines.move(to: shifted(pb, gap)); lines.addLine(to: shifted(pb, off + 5))
+            // The dimension line.
+            let a = shifted(pa, off), b = shifted(pb, off)
+            lines.move(to: a); lines.addLine(to: b)
+            ctx.stroke(lines, with: .color(ink.opacity(0.85)), lineWidth: 1)
+            // Slash ticks.
+            let ux = (b.x - a.x) / max(hypot(b.x - a.x, b.y - a.y), 1e-6), uy = (b.y - a.y) / max(hypot(b.x - a.x, b.y - a.y), 1e-6)
+            var ticks = Path()
+            for p in [a, b] {
+                let tx = (ux + ns.x) * 4, ty = (uy + ns.y) * 4
+                ticks.move(to: CGPoint(x: p.x - tx, y: p.y - ty)); ticks.addLine(to: CGPoint(x: p.x + tx, y: p.y + ty))
+            }
+            ctx.stroke(ticks, with: .color(ink), lineWidth: 1.8)
+            // The length, upright along the line, on a dark patch.
+            var angle = atan2(b.y - a.y, b.x - a.x)
+            if angle > .pi / 2 { angle -= .pi } else if angle < -.pi / 2 { angle += .pi }
+            let text = ctx.resolve(Text(dimensionText(w.lengthFt)).font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundColor(ink))
+            let size = text.measure(in: CGSize(width: 200, height: 40))
+            var c = ctx
+            c.translateBy(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            c.rotate(by: .radians(angle))
+            c.fill(Path(roundedRect: CGRect(x: -size.width / 2 - 4, y: -size.height / 2 - 1, width: size.width + 8, height: size.height + 2),
+                        cornerRadius: 4), with: .color(Color(white: 0.09)))
+            c.draw(text, at: .zero)
         }
     }
 }

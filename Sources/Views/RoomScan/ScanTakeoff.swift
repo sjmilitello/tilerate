@@ -728,6 +728,16 @@ func boundingSize(_ points: [ScannedRoom.Point]) -> (Double, Double) {
     return (maxX - minX, maxY - minY)
 }
 
+/// A dimension to the nearest quarter inch: 8.875 → "8′ 10½″", 0.5 → "6″".
+func dimensionText(_ feet: Double) -> String {
+    let quarters = Int((feet * 48).rounded())
+    let ft = quarters / 48, rest = quarters % 48
+    let inch = rest / 4
+    let frac = ["", "¼", "½", "¾"][rest % 4]
+    if ft == 0 { return "\(inch)\(frac)″" }
+    return "\(ft)′ \(inch)\(frac)″"
+}
+
 /// 7.5 → "7′ 6″"
 func feetAndInches(_ feet: Double) -> String {
     let totalIn = Int((feet * 12).rounded())

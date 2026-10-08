@@ -23,6 +23,8 @@ struct Room3DContent: Equatable {
     var showFixtures: Bool
     /// The chosen item, lit up.
     var selectedItem: UUID? = nil
+    /// Wall lengths drawn on the model (never on the PDF pictures).
+    var showDimensions = false
 }
 
 extension Room3DContent {
@@ -397,6 +399,8 @@ enum Room3DScene {
             }
         }
 
+        if c.showDimensions { addDimensions(to: root, room: room) }
+
         // Fixtures the scanner found.
         if c.showFixtures {
             var found = room.fixtures
@@ -417,6 +421,69 @@ enum Room3DScene {
             }
         }
         return scene
+    }
+
+    // MARK: Dimensions
+
+    private static let dimensionInk = UIColor(red: 1, green: 0.8, blue: 0.3, alpha: 1)
+
+    /// Each wall's length along its top, on the room side: a line with end
+    /// ticks and a label that always faces the camera and shows through.
+    private static func addDimensions(to root: SCNNode, room: ScannedRoom) {
+        for w in room.walls where w.lengthFt > 0.05 {
+            let node = wallFrame(w)
+            let side = Double(faceSign(w, face: 0, room: room))
+            let t = thickness(w)
+            let y = w.heightFt + (room.isKneeWall(w) ? 0.35 : 0.2)
+            let z = w.planned ? 0 : side * (t / 2 + 0.25)
+            let ink = plain(dimensionInk)
+            ink.lightingModel = .constant
+            let line = SCNBox(width: w.lengthFt, height: 0.025, length: 0.025, chamferRadius: 0)
+            line.firstMaterial = ink
+            let ln = SCNNode(geometry: line)
+            ln.position = SCNVector3(w.lengthFt / 2, y, z)
+            node.addChildNode(ln)
+            for x in [0, w.lengthFt] {
+                let tick = SCNBox(width: 0.025, height: 0.35, length: 0.025, chamferRadius: 0)
+                tick.firstMaterial = ink
+                let tn = SCNNode(geometry: tick)
+                tn.position = SCNVector3(x, y, z)
+                node.addChildNode(tn)
+            }
+            let image = label(dimensionText(w.lengthFt))
+            let h = 0.55, wd = h * Double(image.size.width / image.size.height)
+            let plane = SCNPlane(width: wd, height: h)
+            let m = SCNMaterial()
+            m.diffuse.contents = image
+            m.lightingModel = .constant
+            m.readsFromDepthBuffer = false
+            m.isDoubleSided = true
+            plane.firstMaterial = m
+            let tag = SCNNode(geometry: plane)
+            tag.position = SCNVector3(w.lengthFt / 2, y + 0.4, z)
+            tag.renderingOrder = 100
+            tag.constraints = [SCNBillboardConstraint()]
+            node.addChildNode(tag)
+            root.addChildNode(node)
+        }
+    }
+
+    private static var labels: [String: UIImage] = [:]
+
+    /// A dimension's text on a dark rounded patch.
+    private static func label(_ text: String) -> UIImage {
+        if let l = labels[text] { return l }
+        let font = UIFont.monospacedDigitSystemFont(ofSize: 44, weight: .semibold)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: dimensionInk]
+        let size = (text as NSString).size(withAttributes: attrs)
+        let box = CGSize(width: ceil(size.width) + 28, height: ceil(size.height) + 12)
+        let image = UIGraphicsImageRenderer(size: box).image { _ in
+            UIColor(white: 0.08, alpha: 0.85).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: box), cornerRadius: box.height / 2).fill()
+            (text as NSString).draw(at: CGPoint(x: 14, y: 6), withAttributes: attrs)
+        }
+        labels[text] = image
+        return image
     }
 
     // MARK: Pictures

@@ -636,6 +636,15 @@ struct RoomScanTests {
         #expect(fixed.calibrations.first == c)
     }
 
+    @Test func dimensionsReadToTheQuarterInch() {
+        #expect(dimensionText(9) == "9′ 0″")
+        #expect(dimensionText(106.5 / 12) == "8′ 10½″")
+        #expect(dimensionText(97.25 / 12) == "8′ 1¼″")
+        #expect(dimensionText(13.0 / 12) == "1′ 1″")
+        #expect(dimensionText(0.5) == "6″")
+        #expect(dimensionText(95.9 / 12) == "8′ 0″")
+    }
+
     @Test func aRoomIsDrawnForThePDF() throws {
         var t = AreaTakeoff()
         t.pieces = [piece(A, 0, 9, 96), piece(B, 0, 3, 96)]

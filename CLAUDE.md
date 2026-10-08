@@ -373,6 +373,14 @@ starter) and pictures per page (1, 2 or 4; 2 to start): when on, pages headed
 with PDFKit so the layouts themselves — Classic's pixel check — are
 untouched). The layout preview doesn't show them.
 
+Dimensions (owner asked 2026-10-07; wall lengths first): the editor's
+ruler button shows each wall's length to the quarter inch
+(`dimensionText`) — on the 2-D plan as architectural dimension lines
+outside each scanned wall and beside each wall drawn in, away from the
+shower (`PlanCanvas.drawDimensions`); in 3-D as a line along each wall's
+top with a label that faces the camera (`Room3DScene.addDimensions`,
+`Room3DContent.showDimensions`). Never on the PDF pictures (owner's call).
+
 A scan can be calibrated with a tape measure (owner asked 2026-10-07;
 `CalibrateScanSheet`, Measure step → "Calibrate with a tape measure"): tape
 any scanned walls (one, or better one each way) and optionally the ceiling.
