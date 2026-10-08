@@ -449,7 +449,11 @@ scanned room answers the physical ones on its model instead of in fields.
   on the plan or in 3-D; drag its middle to slide it (`moveWall`, square to
   itself, to the inch) or an end to lengthen it (`moveWallEnd`); type length
   and height; split it in two (`splitWall`, `Wall.splitFrom`/`splitAtFt`);
-  delete it. The room stays joined: a wall sharing a corner stretches to
+  delete it. The chosen wall shows face-on with its doors, windows and
+  openings (`WallElevation.editOpenings`): tap one to choose it, drag it
+  along (and a window up and down), drag its sides, top or bottom; type
+  kind, width, height, off the floor and the distance to each end ("To wall
+  B"); delete it; Add door / window / opening (`openingEditor`). The room stays joined: a wall sharing a corner stretches to
   follow (dragging a shower/closet divider stretches the closet's door wall),
   an end meeting the middle of another wall slides along it (the back wall
   keeps its length), a wall running into the moved one follows; doors and

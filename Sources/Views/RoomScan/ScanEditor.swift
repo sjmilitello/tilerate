@@ -58,6 +58,8 @@ struct ScanEditor: View {
     /// worked out from them.
     @State private var dragBase: (room: ScannedRoom, takeoff: AreaTakeoff)? = nil
     @State private var splitAtIn: Double = 0
+    /// The door, window or opening chosen in Edit walls.
+    @State private var selectedOpening: UUID? = nil
     @State private var confirmDeleteScanned = false
     /// Waiting for a tap on the wall a framed bench goes against.
     @State private var placingBench = false
@@ -375,7 +377,7 @@ struct ScanEditor: View {
     private func tapWall(_ id: UUID) {
         guard let wall = room.wall(id) else { return }
         if editingWalls && mode == .measure {
-            if selectedWall != id { face = 0 }
+            if selectedWall != id { face = 0; selectedOpening = nil }
             selectedWall = id
             splitAtIn = (wall.lengthFt * 12 / 2).rounded()
             return
@@ -921,6 +923,19 @@ struct ScanEditor: View {
                     .font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
             }
+            // The wall face-on, to move and resize its doors, windows and openings.
+            Text(wall.planned ? "Seen from the \(room.faceName(of: wall, face: face).replacingOccurrences(of: "Side", with: "side"))"
+                              : "Seen from inside the room")
+                .font(.caption).foregroundStyle(.secondary)
+            WallElevation(room: room, wall: wall, face: face, takeoff: $takeoff, selectedPiece: .constant(nil),
+                          endNames: (cornerName(wall, atStart: true), cornerName(wall, atStart: false)),
+                          others: others, snaps: [],
+                          onDoor: { d in
+                              if let i = room.openings.firstIndex(where: { $0.id == d.id }) { room.openings[i] = d }
+                          },
+                          editOpenings: true, selectedOpening: $selectedOpening)
+                .frame(height: 210)
+            openingEditor(on: wall)
             if wall.planned {
                 plannedWallControls(wall)
             } else {
@@ -963,6 +978,97 @@ struct ScanEditor: View {
                 }
             }
         }
+    }
+
+    /// Doors, windows and openings in a wall: add one; the chosen one's kind,
+    /// size, height off the floor and distance to each end, typed; delete it.
+    @ViewBuilder
+    private func openingEditor(on wall: ScannedRoom.Wall) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    Button { addOpening(.door, on: wall) } label: { Label("Add door", systemImage: "door.left.hand.closed") }
+                    Button { addOpening(.window, on: wall) } label: { Label("Add window", systemImage: "window.horizontal") }
+                    Button { addOpening(.opening, on: wall) } label: { Label("Add opening", systemImage: "rectangle.portrait") }
+                }
+                .fixedSize()
+            }
+            .buttonStyle(.bordered)
+            .font(.subheadline)
+            if let id = selectedOpening, let i = room.openings.firstIndex(where: { $0.id == id && $0.wallID == wall.id }),
+               room.openings[i].kind != .showerDoor {
+                let o = room.openings[i]
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Picker("Kind", selection: Binding(get: { room.openings[i].kind }, set: { k in
+                            room.openings[i].kind = k
+                            if k == .door { room.openings[i].bottomFt = 0 }
+                        })) {
+                            Text("Door").tag(ScannedRoom.OpeningKind.door)
+                            Text("Window").tag(ScannedRoom.OpeningKind.window)
+                            Text("Opening").tag(ScannedRoom.OpeningKind.opening)
+                        }
+                        .pickerStyle(.segmented)
+                        Button(role: .destructive) {
+                            room.openings.remove(at: i)
+                            selectedOpening = nil
+                        } label: { Image(systemName: "trash") }
+                    }
+                    HStack(spacing: 12) {
+                        InchField(title: "Width", inches: Binding(get: { room.openings[i].widthFt * 12 }, set: { v in
+                            let w = min(max(4, v) / 12, wall.lengthFt)
+                            let left = room.span(of: room.openings[i]).lowerBound
+                            room.openings[i].widthFt = w
+                            room.openings[i].alongFt = min(left, wall.lengthFt - w) + w / 2
+                        }))
+                        InchField(title: "Height", inches: Binding(get: { room.openings[i].heightFt * 12 }, set: { v in
+                            room.openings[i].heightFt = min(max(4, v) / 12, wall.heightFt - room.openings[i].bottomFt)
+                        }))
+                        if o.kind != .door {
+                            InchField(title: "Off the floor", inches: Binding(get: { room.openings[i].bottomFt * 12 }, set: { v in
+                                room.openings[i].bottomFt = min(max(0, v / 12), wall.heightFt - room.openings[i].heightFt)
+                            }))
+                        }
+                    }
+                    HStack(spacing: 12) {
+                        InchField(title: "To \(cornerName(wall, atStart: true))", inches: Binding(
+                            get: { room.span(of: room.openings[i]).lowerBound * 12 },
+                            set: { v in
+                                let w = room.openings[i].widthFt
+                                room.openings[i].alongFt = min(max(0, v / 12), wall.lengthFt - w) + w / 2
+                            }))
+                        InchField(title: "To \(cornerName(wall, atStart: false))", inches: Binding(
+                            get: { (wall.lengthFt - room.span(of: room.openings[i]).upperBound) * 12 },
+                            set: { v in
+                                let w = room.openings[i].widthFt
+                                room.openings[i].alongFt = wall.lengthFt - min(max(0, v / 12), wall.lengthFt - w) - w / 2
+                            }))
+                    }
+                    Text("Drag it on the wall above to move it; drag its sides, top or bottom to resize it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background(Color.cyan.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            } else if room.openings.contains(where: { $0.wallID == wall.id && $0.kind != .showerDoor }) {
+                Text("Tap a door, window or opening on the wall above to change it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// A door, window or opening added in the middle of a wall's free part.
+    private func addOpening(_ kind: ScannedRoom.OpeningKind, on wall: ScannedRoom.Wall) {
+        let (w, h, bottom): (Double, Double, Double) = switch kind {
+        case .door: (32, 80, 0)
+        case .window: (36, 36, 36)
+        default: (36, 80, 0)
+        }
+        let width = min(w / 12, wall.lengthFt)
+        let o = ScannedRoom.Opening(kind: kind, wallID: wall.id, widthFt: width,
+                                    heightFt: min(h / 12, wall.heightFt - bottom / 12), bottomFt: bottom / 12,
+                                    alongFt: wall.lengthFt / 2)
+        room.openings.append(o)
+        selectedOpening = o.id
     }
 
     /// A wall drawn in: its height, thickness and length, and deleting it.
@@ -2117,9 +2223,14 @@ struct WallElevation: View {
     /// The chosen bench, niche, window or corner piece (its handles show
     /// instead of the tile's).
     var selectedItem: Binding<UUID?> = .constant(nil)
+    /// Editing the room: tapping a door, window or opening chooses it to
+    /// move and resize (instead of taking it off the tile).
+    var editOpenings = false
+    var selectedOpening: Binding<UUID?> = .constant(nil)
 
     private let inset: CGFloat = 14
     @State private var itemDragStart: AreaTakeoff.Item? = nil
+    @State private var openingDragStart: ScannedRoom.Opening? = nil
     private static let stone = Color(red: 0.85, green: 0.78, blue: 0.62)
     @State private var doorDragStart: Double? = nil
 
@@ -2177,26 +2288,13 @@ struct WallElevation: View {
 
                 // Doors and windows.
                 ForEach(room.openings.filter { $0.wallID == wall.id && $0.kind != .showerDoor }) { o in
-                    let s = room.span(of: o)
-                    let r = CGRect(x: at(s.lowerBound, 0).x, y: at(0, o.bottomFt + o.heightFt).y,
-                                   width: (s.upperBound - s.lowerBound) * scale, height: o.heightFt * scale)
-                    let off = takeoff.subtracted.contains(o.id)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(off ? Color(white: 0.08) : Color.cyan.opacity(0.12))
-                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(off ? Color.red.opacity(0.8) : Color.cyan.opacity(0.8),
-                                                                          style: StrokeStyle(lineWidth: 1.5, dash: off ? [] : [4, 3])))
-                        .overlay(
-                            VStack(spacing: 0) {
-                                Image(systemName: o.kind == .window ? "window.horizontal" : "door.left.hand.closed").font(.caption)
-                                Text(off ? "off" : "tap").font(.system(size: 9))
-                            }
-                            .foregroundStyle(off ? .red : .cyan)
-                        )
-                        .frame(width: r.width, height: r.height)
-                        .position(x: r.midX, y: r.midY)
-                        .onTapGesture {
-                            if off { takeoff.subtracted.removeAll { $0 == o.id } } else { takeoff.subtracted.append(o.id) }
-                        }
+                    openingView(o, scale: scale, at: at)
+                }
+
+                // The chosen door, window or opening: move it, drag its sides, top and bottom.
+                if editOpenings, let id = selectedOpening.wrappedValue,
+                   let o = room.openings.first(where: { $0.id == id && $0.wallID == wall.id && $0.kind != .showerDoor }) {
+                    openingHandles(o, scale: scale, at: at)
                 }
 
                 // Shower doors: drag along, drag the sides and the top.
@@ -2427,6 +2525,98 @@ struct WallElevation: View {
                     } else {
                         takeoff.items[i].heightIn = min(max(4, up - item.bottomIn), wall.heightFt * 12 - item.bottomIn)
                     }
+                })
+        }
+    }
+
+    /// A door, window or opening on the wall: tap to take it off the tile,
+    /// or (editing the room) to choose it.
+    private func openingView(_ o: ScannedRoom.Opening, scale: Double, at: @escaping (Double, Double) -> CGPoint) -> some View {
+        let s = room.span(of: o)
+        let left: CGFloat = at(s.lowerBound, 0).x
+        let top: CGFloat = at(0, o.bottomFt + o.heightFt).y
+        let w: CGFloat = max((s.upperBound - s.lowerBound) * scale, 2)
+        let h: CGFloat = max(o.heightFt * scale, 2)
+        let off: Bool = takeoff.subtracted.contains(o.id) && !editOpenings
+        let chosen: Bool = editOpenings && selectedOpening.wrappedValue == o.id
+        let tint: Color = off ? .red : .cyan
+        let label: String = editOpenings ? feetAndInches(o.widthFt) + " × " + feetAndInches(o.heightFt) : (off ? "off" : "tap")
+        let symbol: String = o.kind == .window ? "window.horizontal" : "door.left.hand.closed"
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(off ? Color(white: 0.08) : Color.cyan.opacity(0.12))
+            .overlay(RoundedRectangle(cornerRadius: 2).stroke(tint.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: off ? [] : [4, 3])))
+            .overlay(VStack(spacing: 0) {
+                Image(systemName: symbol).font(.caption)
+                Text(label).font(.system(size: 9)).fixedSize()
+            }.foregroundStyle(tint))
+            .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.white, lineWidth: chosen ? 2.5 : 0))
+            .frame(width: w, height: h)
+            .position(x: left + w / 2, y: top + h / 2)
+            .onTapGesture {
+                if editOpenings {
+                    selectedOpening.wrappedValue = o.id
+                } else if off {
+                    takeoff.subtracted.removeAll { $0 == o.id }
+                } else {
+                    takeoff.subtracted.append(o.id)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func openingHandles(_ o: ScannedRoom.Opening, scale: Double, at: @escaping (Double, Double) -> CGPoint) -> some View {
+        let s = room.span(of: o)
+        let a = at(s.lowerBound, o.bottomFt + o.heightFt), b = at(s.upperBound, o.bottomFt)
+        let r = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+        let origin = at(0, 0)
+        let inch = { (v: Double) in (v * 12).rounded() / 12 }
+        let width = s.upperBound - s.lowerBound
+        // Move it: along the wall, and up and down unless it's on the floor (a door).
+        Color.clear.contentShape(Rectangle())
+            .frame(width: max(r.width - 20, 20), height: max(r.height - 20, 20))
+            .position(x: r.midX, y: r.midY)
+            .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("wall")).onChanged { v in
+                let start = openingDragStart ?? o
+                if openingDragStart == nil { openingDragStart = o }
+                var n = start
+                let s0 = room.span(of: start)
+                let left = min(max(0, inch(s0.lowerBound + v.translation.width / scale)), max(0, wall.lengthFt - width))
+                n.alongFt = left + width / 2
+                if start.kind != .door {
+                    n.bottomFt = min(max(0, inch(start.bottomFt - v.translation.height / scale)), max(0, wall.heightFt - start.heightFt))
+                }
+                onDoor(n)
+            }.onEnded { _ in openingDragStart = nil })
+        ItemHandle(vertical: true)
+            .position(x: r.minX - 9, y: r.midY)
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
+                let left = min(max(0, inch((v.location.x - origin.x) / scale)), s.upperBound - 1.0 / 6)
+                onDoor(moved(o, left: left, right: s.upperBound))
+            })
+        ItemHandle(vertical: true)
+            .position(x: r.maxX + 9, y: r.midY)
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
+                let right = max(min(wall.lengthFt, inch((v.location.x - origin.x) / scale)), s.lowerBound + 1.0 / 6)
+                onDoor(moved(o, left: s.lowerBound, right: right))
+            })
+        ItemHandle(vertical: false)
+            .position(x: r.midX, y: r.minY - 9)
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
+                var n = o
+                let top = min(max(o.bottomFt + 1.0 / 6, inch((origin.y - v.location.y) / scale)), wall.heightFt)
+                n.heightFt = top - o.bottomFt
+                onDoor(n)
+            })
+        if o.kind != .door {
+            ItemHandle(vertical: false)
+                .position(x: r.midX, y: r.maxY + 9)
+                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("wall")).onChanged { v in
+                    var n = o
+                    let top = o.bottomFt + o.heightFt
+                    let bottom = min(max(0, inch((origin.y - v.location.y) / scale)), top - 1.0 / 6)
+                    n.bottomFt = bottom
+                    n.heightFt = top - bottom
+                    onDoor(n)
                 })
         }
     }
