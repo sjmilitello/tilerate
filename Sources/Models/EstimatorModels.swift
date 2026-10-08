@@ -846,6 +846,8 @@ struct ScannedRoom: Codable, Hashable, Equatable {
     var tubOutline: [Point] = []
     /// Toilets, sinks, vanities and the like the scanner found, for the 3-D view.
     var fixtures: [Fixture] = []
+    /// Corrections from tape measurements, oldest first (the last can be undone).
+    var calibrations: [ScanCalibration] = []
 
     /// Something the scanner found in the room: its footprint and height.
     struct Fixture: Codable, Hashable, Equatable {
@@ -1540,6 +1542,37 @@ extension ScannedRoom {
         c.read(.tubLengthFt, into: &tubLengthFt)
         c.read(.tubOutline, into: &tubOutline)
         c.read(.fixtures, into: &fixtures)
+        c.read(.calibrations, into: &calibrations)
+    }
+}
+
+/// A scan corrected to tape measurements: stretched or shrunk along the
+/// room's two square directions (`angle`, the squaring angle) about
+/// `center`, and up and down by `sz`.
+struct ScanCalibration: Codable, Equatable, Hashable {
+    var angle: Double = 0
+    var sx: Double = 1
+    var sy: Double = 1
+    var sz: Double = 1
+    var center = ScannedRoom.Point()
+    /// The tape measurements it came from: wall id → inches.
+    var tapeIn: [String: Double] = [:]
+    var ceilingIn: Double? = nil
+    var date = Date()
+}
+
+extension ScanCalibration {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.angle, into: &angle)
+        c.read(.sx, into: &sx)
+        c.read(.sy, into: &sy)
+        c.read(.sz, into: &sz)
+        c.read(.center, into: &center)
+        c.read(.tapeIn, into: &tapeIn)
+        c.read(.ceilingIn, into: &ceilingIn)
+        c.read(.date, into: &date)
     }
 }
 

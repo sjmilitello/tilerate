@@ -1009,3 +1009,156 @@ extension AreaTakeoff {
             .reduce(0) { $0 + $1.lengthFt }
     }
 }
+
+
+// MARK: - Calibrating a scan to tape measurements
+
+extension ScanCalibration {
+    /// A plan point moved by the correction.
+    func map(_ p: ScannedRoom.Point) -> ScannedRoom.Point {
+        let c = cos(angle), s = sin(angle)
+        let dx = p.x - center.x, dy = p.y - center.y
+        let a = (dx * c + dy * s) * sx, b = (-dx * s + dy * c) * sy
+        return .init(x: center.x + a * c - b * s, y: center.y + a * s + b * c)
+    }
+
+    /// A direction on the plan stretched by the correction (not moved).
+    func mapVector(_ v: ScannedRoom.Point) -> ScannedRoom.Point {
+        let c = cos(angle), s = sin(angle)
+        let a = (v.x * c + v.y * s) * sx, b = (-v.x * s + v.y * c) * sy
+        return .init(x: a * c - b * s, y: a * s + b * c)
+    }
+
+    /// Undoes it.
+    var inverse: ScanCalibration {
+        var i = self
+        i.sx = 1 / sx; i.sy = 1 / sy; i.sz = 1 / sz
+        return i
+    }
+
+    /// What it does to a wall: how much longer (1.01 = 1% longer).
+    func lengthFactor(of w: ScannedRoom.Wall) -> Double {
+        let d = mapVector(.init(x: w.end.x - w.start.x, y: w.end.y - w.start.y))
+        return w.lengthFt > 0 ? hypot(d.x, d.y) / w.lengthFt : 1
+    }
+
+    /// The correction that makes the scan match tape measurements (wall id →
+    /// inches) and, if given, the ceiling height. Walls running one way set
+    /// that way's scale, walls the other way the other's; with walls only
+    /// one way (or slanting), the scale is the same both ways.
+    static func solve(_ room: ScannedRoom, tapeIn: [UUID: Double], ceilingIn: Double? = nil) -> ScanCalibration {
+        var c = ScanCalibration()
+        c.angle = room.squaringAngle
+        let pts = room.floorOutline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : room.floorOutline
+        c.center = .init(x: pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1)),
+                         y: pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1)))
+        let u = ScannedRoom.Point(x: cos(c.angle), y: sin(c.angle))
+        var along: [Double] = [], across: [Double] = [], slanting: [Double] = []
+        for (id, inches) in tapeIn where inches > 0 {
+            guard let w = room.wall(id), w.lengthFt > 0 else { continue }
+            let ratio = inches / (w.lengthFt * 12)
+            let du = abs((w.end.x - w.start.x) * u.x + (w.end.y - w.start.y) * u.y) / w.lengthFt
+            if du > 0.9 { along.append(ratio) } else if du < 0.44 { across.append(ratio) } else { slanting.append(ratio) }
+        }
+        func mean(_ v: [Double]) -> Double? { v.isEmpty ? nil : v.reduce(0, +) / Double(v.count) }
+        let both = mean(along + across + slanting) ?? 1
+        c.sx = mean(along) ?? both
+        c.sy = mean(across) ?? both
+        if let ceilingIn, ceilingIn > 0 { c.sz = ceilingIn / (room.ceilingFt * 12) }
+        c.tapeIn = Dictionary(uniqueKeysWithValues: tapeIn.map { ($0.key.uuidString, $0.value) })
+        c.ceilingIn = ceilingIn
+        return c
+    }
+}
+
+extension ScannedRoom {
+    /// The room corrected: every wall, door, window, the floor, the tub and
+    /// fixtures. A shower door and walls drawn in keep their size and
+    /// thickness (they're the owner's choices) and move with the room.
+    func calibrated(_ c: ScanCalibration, recording: Bool = true) -> ScannedRoom {
+        var r = self
+        var factor: [UUID: Double] = [:]
+        for i in r.walls.indices {
+            let w = r.walls[i]
+            factor[w.id] = c.lengthFactor(of: w)
+            r.walls[i].start = c.map(w.start)
+            r.walls[i].end = c.map(w.end)
+            r.walls[i].lengthFt = hypot(r.walls[i].end.x - r.walls[i].start.x, r.walls[i].end.y - r.walls[i].start.y)
+            if !w.planned { r.walls[i].heightFt = w.heightFt * c.sz }
+        }
+        for i in r.openings.indices {
+            let o = r.openings[i]
+            let k = o.wallID.flatMap { factor[$0] } ?? 1
+            r.openings[i].alongFt = o.alongFt.map { $0 * k }
+            if o.kind != .showerDoor {
+                r.openings[i].widthFt = o.widthFt * k
+                r.openings[i].heightFt = o.heightFt * c.sz
+                r.openings[i].bottomFt = o.bottomFt * c.sz
+            }
+        }
+        r.floorOutline = floorOutline.map(c.map)
+        r.floorSqft = floorOutline.count > 2 ? ScannedRoom.area(r.floorOutline) : floorSqft * c.sx * c.sy
+        r.tubOutline = tubOutline.map(c.map)
+        if r.tubOutline.count == 4 {
+            let t = r.tubOutline
+            r.tubLengthFt = max(hypot(t[1].x - t[0].x, t[1].y - t[0].y), hypot(t[3].x - t[0].x, t[3].y - t[0].y))
+        }
+        r.fixtures = fixtures.map { f in
+            var f = f
+            f.outline = f.outline.map(c.map)
+            f.heightFt *= c.sz
+            return f
+        }
+        if recording { r.calibrations.append(c) }
+        return r
+    }
+
+    /// The last calibration taken back off.
+    var uncalibrated: ScannedRoom? {
+        guard let last = calibrations.last else { return nil }
+        var r = calibrated(last.inverse, recording: false)
+        r.calibrations.removeLast()
+        return r
+    }
+}
+
+extension AreaTakeoff {
+    /// This area's choices moved with a corrected scan (`before` is the scan
+    /// they were made on): tile stretches along their walls, a full-height
+    /// piece staying full height, items along their walls and the shower
+    /// floor's rectangle. Sizes the owner chose — tile heights, niches,
+    /// windows, benches, corner pieces — are kept.
+    func calibrated(_ c: ScanCalibration, before: ScannedRoom) -> AreaTakeoff {
+        var t = self
+        func k(_ id: UUID) -> Double { before.wall(id).map { c.lengthFactor(of: $0) } ?? 1 }
+        for i in t.pieces.indices {
+            let p = t.pieces[i]
+            t.pieces[i].fromFt = p.fromFt * k(p.wallID)
+            t.pieces[i].toFt = p.toFt * k(p.wallID)
+            if let w = before.wall(p.wallID), !w.planned, abs(p.heightIn - w.heightFt * 12) < 1 {
+                t.pieces[i].heightIn = (w.heightFt * c.sz * 12).rounded(.down)
+            }
+        }
+        for i in t.items.indices {
+            let it = t.items[i]
+            let f = k(it.wallID)
+            if it.kind.isBench {
+                t.items[i].fromFt = it.fromFt * f
+                t.items[i].toFt = it.toFt * f
+            } else if !it.kind.isCorner {
+                // Keep its size; move its middle.
+                let mid = (it.fromFt + it.toFt) / 2 * f, half = it.widthFt / 2
+                t.items[i].fromFt = mid - half
+                t.items[i].toFt = mid + half
+            }
+        }
+        if let r = t.floorRect {
+            let u = c.mapVector(.init(x: r.u.x * r.widthFt, y: r.u.y * r.widthFt))
+            let v = c.mapVector(.init(x: r.v.x * r.depthFt, y: r.v.y * r.depthFt))
+            let lu = hypot(u.x, u.y), lv = hypot(v.x, v.y)
+            t.floorRect = FloorRect(origin: c.map(r.origin), u: .init(x: u.x / max(lu, 1e-9), y: u.y / max(lu, 1e-9)),
+                                    v: .init(x: v.x / max(lv, 1e-9), y: v.y / max(lv, 1e-9)), widthFt: lu, depthFt: lv)
+        }
+        return t
+    }
+}

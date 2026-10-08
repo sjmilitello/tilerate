@@ -373,6 +373,21 @@ starter) and pictures per page (1, 2 or 4; 2 to start): when on, pages headed
 with PDFKit so the layouts themselves — Classic's pixel check — are
 untouched). The layout preview doesn't show them.
 
+A scan can be calibrated with a tape measure (owner asked 2026-10-07;
+`CalibrateScanSheet`, Measure step → "Calibrate with a tape measure"): tape
+any scanned walls (one, or better one each way) and optionally the ceiling.
+`ScanCalibration.solve` scales the plan along the room's two square
+directions (`squaringAngle`) — walls running each way set that way's scale,
+one wall sets both — and heights by the ceiling. iPhone LiDAR apps quote
+about 1–2% (an inch or two on a wall); most of that is overall scale, which
+this removes. `ScannedRoom.calibrated` corrects walls, openings (a shower
+door and walls drawn in keep their sizes), floor, tub and fixtures, and
+records it (`calibrations`, last one undoable); `AreaTakeoff.calibrated`
+moves each area with it — tile stretches along its walls, full-height tile
+stays full, niches, windows, benches and corner pieces keep their sizes —
+and every area measured from the scan is applied again. It shows how far
+off the scan was and how close each taped wall comes out before applying.
+
 The editor (`ScanEditor`): floor plan on top (`PlanCanvas`: tap a wall,
 pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
 this area's tile blue, other areas' orange), the chosen wall face-on below

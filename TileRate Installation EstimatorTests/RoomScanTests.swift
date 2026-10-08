@@ -595,6 +595,47 @@ struct RoomScanTests {
         #expect(abs(clash[0].inches - 15) <= 1)
     }
 
+    // MARK: Calibration
+
+    @Test func oneTapeMeasurementCorrectsTheWholeScan() throws {
+        // Wall A scanned 9′; the tape says 106″ (scan 1.9% long).
+        let c = ScanCalibration.solve(room, tapeIn: [A.id: 106])
+        #expect(abs(c.sx - 106.0 / 108) < 1e-9 && abs(c.sy - c.sx) < 1e-9)
+        let fixed = room.calibrated(c)
+        #expect(abs(fixed.wall(A.id)!.lengthFt * 12 - 106) < 1e-6)
+        #expect(abs(fixed.wall(B.id)!.lengthFt - 8 * 106.0 / 108) < 1e-6)   // the same correction every way
+        #expect(abs(fixed.floorSqft - 72 * pow(106.0 / 108, 2)) < 1e-6)
+        #expect(fixed.calibrations.count == 1)
+        // Undone, it's the scan as it was.
+        let undone = try #require(fixed.uncalibrated)
+        #expect(abs(undone.wall(A.id)!.lengthFt - 9) < 1e-9 && undone.calibrations.isEmpty)
+    }
+
+    @Test func oneWallEachWayCorrectsLengthAndWidthSeparately() {
+        // A (across) tapes 107″, B (down) tapes 97″, ceiling 95½″.
+        let c = ScanCalibration.solve(room, tapeIn: [A.id: 107, B.id: 97], ceilingIn: 95.5)
+        let fixed = room.calibrated(c)
+        #expect(abs(fixed.wall(A.id)!.lengthFt * 12 - 107) < 1e-6)
+        #expect(abs(fixed.wall(B.id)!.lengthFt * 12 - 97) < 1e-6)
+        #expect(abs(fixed.wall(C.id)!.lengthFt * 12 - 107) < 1e-6)
+        #expect(abs(fixed.walls[0].heightFt * 12 - 95.5) < 1e-6)
+        // Areas move with it: a full-height piece stays full, a 48″ one stays 48″,
+        // the shower floor stretches, a niche keeps its size.
+        var t = AreaTakeoff()
+        t.pieces = [piece(A, 0, 9, 96), piece(B, 0, 4, 48)]
+        t.floor = .drawn
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 4, depthFt: 3)
+        t.items = [.init(kind: .niche, wallID: A.id, fromFt: 4, toFt: 4 + 13.0 / 12, bottomIn: 48, heightIn: 24)]
+        let moved = t.calibrated(c, before: room)
+        #expect(abs(moved.pieces[0].toFt * 12 - 107) < 1e-6 && moved.pieces[0].heightIn == 95)
+        #expect(moved.pieces[1].heightIn == 48 && abs(moved.pieces[1].toFt * 12 - 48 * 97.0 / 96) < 1e-6)
+        #expect(abs(moved.floorRect!.widthFt - 4 * 107.0 / 108) < 1e-6 && abs(moved.floorRect!.depthFt - 3 * 97.0 / 96) < 1e-6)
+        #expect(abs(moved.items[0].widthFt * 12 - 13) < 1e-6)
+        // Saved and read back; old scans have none.
+        #expect(fixed.calibrations.first == c)
+    }
+
     @Test func aRoomIsDrawnForThePDF() throws {
         var t = AreaTakeoff()
         t.pieces = [piece(A, 0, 9, 96), piece(B, 0, 3, 96)]

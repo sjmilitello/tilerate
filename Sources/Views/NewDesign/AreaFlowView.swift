@@ -12,6 +12,7 @@ struct AreaFlowView: View {
     @State private var step = 0
     @State private var scanning: ScanTarget? = nil
     @State private var measuringOnPlan = false
+    @State private var calibrating = false
 
     /// Where a new scan is kept: on the room for all its areas, or on this
     /// area alone (e.g. scanned from inside a shower).
@@ -289,6 +290,36 @@ struct AreaFlowView: View {
         return AreaTakeoff.starting(for: section.area, room: scan, otherAreas: others)
     }
 
+    /// The scan corrected to tape measurements, and every area measured from
+    /// it moved to match and measured again.
+    private func applyCalibration(_ c: ScanCalibration) {
+        guard let before = activeScan else { return }
+        recalibrate(before: before, after: before.calibrated(c), by: c)
+    }
+
+    private func undoCalibration() {
+        guard let before = activeScan, let last = before.calibrations.last, let after = before.uncalibrated else { return }
+        recalibrate(before: before, after: after, by: last.inverse)
+    }
+
+    private func recalibrate(before: ScannedRoom, after: ScannedRoom, by c: ScanCalibration) {
+        let prices = StonePrices(rates: store.pricingRates)
+        if section.roomScan != nil {
+            var s = section
+            s.roomScan = after
+            if let t = s.scanTakeoff { t.calibrated(c, before: before).apply(after, to: &s, prices: prices) }
+            sec.wrappedValue = s
+        } else if let r = roomIndex {
+            store.doc.rooms[r].scan = after
+            for i in store.doc.rooms[r].sections.indices {
+                var s = store.doc.rooms[r].sections[i]
+                guard s.roomScan == nil, let t = s.scanTakeoff else { continue }
+                t.calibrated(c, before: before).apply(after, to: &s, prices: prices)
+                store.doc.rooms[r].sections[i] = s
+            }
+        }
+    }
+
     /// Scanning the room with the iPhone's LiDAR, and measuring this area on
     /// the plan it makes.
     @ViewBuilder
@@ -324,6 +355,15 @@ struct AreaFlowView: View {
                     .buttonStyle(.plain)
                     if let t = section.scanTakeoff {
                         Text(scanSummary(t, scan)).font(.system(size: 14)).foregroundStyle(ND.secondary)
+                    }
+                    Button { calibrating = true } label: {
+                        Label(scan.calibrations.isEmpty ? "Calibrate with a tape measure" : "Calibrated · check or calibrate again",
+                              systemImage: scan.calibrations.isEmpty ? "ruler" : "checkmark.seal")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .sheet(isPresented: $calibrating) {
+                        CalibrateScanSheet(room: scan, onApply: { applyCalibration($0) },
+                                           onUndo: scan.calibrations.isEmpty ? nil : { undoCalibration() })
                     }
                     Button { measuringOnPlan = true } label: {
                         Label(section.scanTakeoff == nil ? "Measure on the plan" : "Adjust on the plan", systemImage: "ruler")

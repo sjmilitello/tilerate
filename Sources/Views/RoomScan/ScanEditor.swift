@@ -2219,6 +2219,8 @@ private struct Handle: View {
 struct InchField: View {
     let title: String
     @Binding var inches: Double
+    /// Empty, not "0", until something's typed (a tape measurement not taken yet).
+    var blankWhenZero = false
     @State private var text = ""
     @FocusState private var focused: Bool
 
@@ -2226,7 +2228,7 @@ struct InchField: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 3) {
-                TextField("0", text: $text)
+                TextField(blankWhenZero ? "" : "0", text: $text)
                     .keyboardType(.decimalPad)
                     .focused($focused)
                     .font(.body.monospacedDigit())
@@ -2237,13 +2239,18 @@ struct InchField: View {
             // Feet and inches, once it's a foot or more.
             Text(inches >= 12 ? feetAndInches(inches / 12) : " ").font(.caption2).foregroundStyle(.secondary)
         }
-        .onAppear { text = Self.format(inches) }
-        .onChange(of: inches) { _, v in if !focused { text = Self.format(v) } }
+        .onAppear { text = shown(inches) }
+        .onChange(of: inches) { _, v in if !focused { text = shown(v) } }
         .onChange(of: text) { _, t in
-            if focused, let v = Double(t.replacingOccurrences(of: ",", with: ".")), abs(v - inches) > 0.001 { inches = v }
+            if focused {
+                if let v = Double(t.replacingOccurrences(of: ",", with: ".")), abs(v - inches) > 0.001 { inches = v }
+                else if t.isEmpty, blankWhenZero { inches = 0 }
+            }
         }
-        .onChange(of: focused) { _, f in if !f { text = Self.format(inches) } }
+        .onChange(of: focused) { _, f in if !f { text = shown(inches) } }
     }
+
+    private func shown(_ v: Double) -> String { blankWhenZero && v == 0 ? "" : Self.format(v) }
 
     static func format(_ v: Double) -> String {
         v.formatted(.number.precision(.fractionLength(0...1)).grouping(.never))
