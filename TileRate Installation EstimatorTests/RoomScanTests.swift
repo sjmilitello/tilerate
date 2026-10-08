@@ -611,6 +611,69 @@ struct RoomScanTests {
         #expect(abs(undone.wall(A.id)!.lengthFt - 9) < 1e-9 && undone.calibrations.isEmpty)
     }
 
+    // MARK: Editing scanned walls
+
+    /// The owner's bathroom, simplified: a 12′ back wall (y = 0); a divider
+    /// from it at x = 5 down to y = 4 between the shower (left) and closet
+    /// (right); from the divider's corner the closet's door wall runs right
+    /// to x = 12.
+    private func dividerRoom() -> ScannedRoom {
+        var r = ScannedRoom()
+        func wall(_ l: String, _ a: (Double, Double), _ b: (Double, Double)) -> ScannedRoom.Wall {
+            ScannedRoom.Wall(label: l, lengthFt: hypot(b.0 - a.0, b.1 - a.1), heightFt: 8,
+                             start: .init(x: a.0, y: a.1), end: .init(x: b.0, y: b.1))
+        }
+        r.walls = [wall("A", (0, 0), (12, 0)), wall("B", (5, 0), (5, 4)), wall("C", (5, 4), (12, 4)),
+                   wall("D", (12, 4), (12, 0))]
+        r.openings = [.init(kind: .door, wallID: r.walls[2].id, widthFt: 2.5, heightFt: 80.0 / 12, alongFt: 4)]
+        return r
+    }
+
+    @Test func draggingTheDividerStretchesTheClosetWallAndKeepsTheBackWall() {
+        var r = dividerRoom()
+        let back = r.walls[0], divider = r.walls[1], closet = r.walls[2]
+        var t = AreaTakeoff()
+        t.pieces = [piece(back, 0, 5, 96), piece(divider, 0, 4, 96)]   // the shower: back wall to the divider, and the divider
+        let before = r
+        // Divider dragged 1′ toward the closet (to x = 6): the shower grows, the closet shrinks.
+        r.moveWall(divider.id, by: .init(x: 1.04, y: 0.3))   // only the sideways part counts, to the inch
+        let d = r.wall(divider.id)!
+        #expect(abs(d.start.x - 6) < 1e-9 && abs(d.end.x - 6) < 1e-9 && abs(d.start.y) < 1e-9 && abs(d.end.y - 4) < 1e-9)
+        #expect(abs(r.wall(back.id)!.lengthFt - 12) < 1e-9)          // the back wall is untouched
+        let c = r.wall(closet.id)!
+        #expect(abs(c.start.x - 6) < 1e-9 && abs(c.lengthFt - 6) < 1e-9)   // the closet wall follows its corner
+        // The closet door stays where it was in the room (its along shifts by the 1′ the wall's start moved).
+        #expect(abs((r.openings[0].alongFt ?? 0) - 3) < 1e-9)
+        // The shower's tile follows: the back-wall piece is unchanged (that wall didn't move)…
+        let moved = t.following(old: before, new: r)
+        #expect(moved.pieces.first { $0.wallID == back.id }?.toFt == 5)
+        // …so the owner stretches it to the divider; the divider piece keeps its 4′.
+        #expect(abs((moved.pieces.first { $0.wallID == divider.id }?.toFt ?? 0) - 4) < 1e-9)
+    }
+
+    @Test func aWallCanBeSplitAndItsTileFollows() {
+        var r = dividerRoom()
+        let back = r.walls[0]
+        var t = AreaTakeoff()
+        t.pieces = [piece(back, 0, 12, 96)]
+        let before = r
+        let second = r.splitWall(back.id, atFt: 5)!
+        #expect(abs(r.wall(back.id)!.lengthFt - 5) < 1e-9 && abs(second.lengthFt - 7) < 1e-9)
+        let moved = t.following(old: before, new: r)
+        #expect(moved.pieces.count == 2)
+        #expect(moved.pieces.contains { $0.wallID == back.id && $0.toFt == 5 })
+        #expect(moved.pieces.contains { $0.wallID == second.id && $0.fromFt == 0 && abs($0.toFt - 7) < 1e-9 })
+        #expect(abs(moved.wallsSqft(in: r) - 12 * 8) < 1e-9)
+    }
+
+    @Test func draggingAWallEndMovesTheCornerItShares() {
+        var r = dividerRoom()
+        let closet = r.walls[2], east = r.walls[3]
+        r.moveWallEnd(closet.id, start: false, to: .init(x: 13, y: 4))
+        #expect(abs(r.wall(closet.id)!.lengthFt - 8) < 1e-9)
+        #expect(abs(r.wall(east.id)!.start.x - 13) < 1e-9)   // the wall from that corner went with it
+    }
+
     @Test func calibratingAgainKeepsWhatWasTapedBefore() {
         // A 102″, B 90″; then A again at 101″ with B's earlier tape still there.
         let first = room.calibrated(ScanCalibration.solve(room, tapeIn: [A.id: 102, B.id: 90]))

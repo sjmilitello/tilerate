@@ -51,6 +51,14 @@ struct ScanEditor: View {
     @State private var addingFullWall = false
     /// Waiting for a tap on the corner the shower goes in.
     @State private var placingShower = false
+    /// Tapping a wall chooses it to change its shape (any wall, scanned or
+    /// drawn in), rather than tiling it.
+    @State private var editingWalls = false
+    /// The room and this area as a drag began: each step of the drag is
+    /// worked out from them.
+    @State private var dragBase: (room: ScannedRoom, takeoff: AreaTakeoff)? = nil
+    @State private var splitAtIn: Double = 0
+    @State private var confirmDeleteScanned = false
     /// Waiting for a tap on the wall a framed bench goes against.
     @State private var placingBench = false
     /// The chosen bench, niche, window or corner piece.
@@ -173,7 +181,8 @@ struct ScanEditor: View {
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
                            items: takeoff.items,
                            showDimensions: showDimensions,
-                           hint: addingWall ? nil : (!usesWalls ? "Pinch to zoom"
+                           hint: addingWall ? nil : (editingWalls && mode == .measure ? "Tap a wall to change it · pinch to zoom"
+                                : !usesWalls ? "Pinch to zoom"
                                 : mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"),
                            addingWall: addingWall,
                            onAddWall: { a, b in addDrawnWall(from: a, to: b) },
@@ -185,6 +194,10 @@ struct ScanEditor: View {
                                let guides = takeoff.newWallLines(in: room, thicknessIn: original.thicknessIn).flatMap { [$0.0, $0.1] }
                                room.movePlannedWall(original, by: d, guides: guides)
                            },
+                           editAnyWall: editingWalls && mode == .measure,
+                           onMoveWall: { id, d in editRoom { $0.moveWall(id, by: d) } },
+                           onMoveWallEnd: { id, start, p in editRoom { $0.moveWallEnd(id, start: start, to: p) } },
+                           onWallDragEnded: { dragBase = nil },
                            openSides: openSides.map { ($0.a, $0.b) },
                            onTapOpenSide: { i in
                                if addingWall {
@@ -280,7 +293,17 @@ struct ScanEditor: View {
                                  ? "Choose the walls, floor and ceiling being tiled. Add walls and doors that aren't built yet."
                                  : "Add niches, windows, benches and corner pieces on the walls, and choose tile or stone for each piece.")
                                 .font(.footnote).foregroundStyle(.secondary)
-                            if usesWalls {
+                            if mode == .measure {
+                                Picker("Walls", selection: $editingWalls) {
+                                    Text(usesWalls ? "Tile walls" : "Floor").tag(false)
+                                    Text("Edit walls").tag(true)
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                            if editingWalls && mode == .measure {
+                                addWallMenu
+                                wallPanel.id("wall")
+                            } else if usesWalls {
                                 if mode == .measure { addWallMenu }
                                 wallPanel.id("wall")
                             } else if let id = selectedWall, let w = room.wall(id), w.planned {
@@ -291,7 +314,7 @@ struct ScanEditor: View {
                                 }
                                 .id("wall")
                             }
-                            if mode == .measure, area == .floor || area == .shower || area == .tub { floorPanel }
+                            if mode == .measure, !editingWalls || area == .shower, area == .floor || area == .shower || area == .tub { floorPanel }
                             if mode == .extras { trimPanel }
                         }
                         .padding(16)
@@ -319,11 +342,15 @@ struct ScanEditor: View {
                     Button("Cancel") {
                         if room != openedRoom || takeoff != openedTakeoff { askDiscard = true } else { dismiss() }
                     }
-                    .confirmationDialog("Discard your changes?", isPresented: $askDiscard, titleVisibility: .visible) {
+                    .confirmationDialog("Apply your changes?", isPresented: $askDiscard, titleVisibility: .visible) {
+                        Button("Apply changes") {
+                            onUse(takeoff, room)
+                            dismiss()
+                        }
                         Button("Discard changes", role: .destructive) { dismiss() }
                         Button("Keep editing", role: .cancel) {}
                     } message: {
-                        Text("Walls added or deleted and tile changed here won't be kept. The area keeps the measurements it had.")
+                        Text("Apply keeps what you changed here, everywhere it's used. Discard goes back to how it was.")
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
@@ -347,6 +374,12 @@ struct ScanEditor: View {
 
     private func tapWall(_ id: UUID) {
         guard let wall = room.wall(id) else { return }
+        if editingWalls && mode == .measure {
+            if selectedWall != id { face = 0 }
+            selectedWall = id
+            splitAtIn = (wall.lengthFt * 12 / 2).rounded()
+            return
+        }
         if placingBench {
             placingBench = false
             addBench(on: wall, floating: false)
@@ -759,7 +792,17 @@ struct ScanEditor: View {
 
     @ViewBuilder
     private var wallPanel: some View {
-        if let wallID = selectedWall, let wall = room.wall(wallID) {
+        if editingWalls && mode == .measure {
+            if let wallID = selectedWall, let wall = room.wall(wallID) {
+                wallShapePanel(wall)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Edit walls").font(.ndTitle(20))
+                    Text("Tap any wall on the plan (or in 3-D) to move it, change its length or height, split it in two or delete it. Walls joined to it follow.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+        } else if let wallID = selectedWall, let wall = room.wall(wallID) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(room.name(of: wall)).font(.ndTitle(20))
@@ -845,6 +888,79 @@ struct ScanEditor: View {
                      ? "Tap each wall on the plan that gets tile for this \(area?.rawValue.lowercased() ?? "area"). Then drag the tile on the wall to where it starts and stops, and up to its height."
                      : "Tap a wall on the plan (or in 3-D) to add a niche, window, bench or corner piece to it.")
                     .font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// A room change worked out from the room as the drag began (so each
+    /// step is from the start, not added up), with this area following.
+    private func editRoom(_ change: (inout ScannedRoom) -> Void) {
+        if dragBase == nil { dragBase = (room, takeoff) }
+        guard let base = dragBase else { return }
+        var r = base.room
+        change(&r)
+        takeoff = base.takeoff.following(old: base.room, new: r)
+        room = r
+    }
+
+    /// A one-off room change (typed, split, delete), this area following.
+    private func editRoomOnce(_ change: (inout ScannedRoom) -> Void) {
+        dragBase = nil
+        editRoom(change)
+        dragBase = nil
+    }
+
+    /// Any wall's shape: for one drawn in, its usual controls; for a scanned
+    /// wall, length, height, split and delete. Dragging is on the plan.
+    @ViewBuilder
+    private func wallShapePanel(_ wall: ScannedRoom.Wall) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(room.name(of: wall)).font(.ndTitle(20))
+                Text("\(dimensionText(wall.lengthFt)) long · \(dimensionText(wall.heightFt)) high")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+            }
+            if wall.planned {
+                plannedWallControls(wall)
+            } else {
+                Text("On the plan, drag the handle in its middle to slide it, or its ends to lengthen it. Walls joined at its corners stretch to follow; an end meeting another wall slides along it.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    InchField(title: "Length", inches: Binding(get: { wall.lengthFt * 12 }, set: { v in
+                        let l = max(6, v) / 12
+                        editRoomOnce { r in
+                            guard let w = r.wall(wall.id) else { return }
+                            let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y, cur = max(hypot(dx, dy), 1e-9)
+                            r.moveWallEnd(w.id, start: false, to: .init(x: w.start.x + dx / cur * l, y: w.start.y + dy / cur * l))
+                        }
+                    }))
+                    InchField(title: "Height", inches: Binding(get: { wall.heightFt * 12 }, set: { v in
+                        editRoomOnce { r in
+                            if let i = r.walls.firstIndex(where: { $0.id == wall.id }) { r.walls[i].heightFt = max(12, v) / 12 }
+                        }
+                    }))
+                }
+                HStack(spacing: 10) {
+                    InchField(title: "Split at (from the \(cornerName(wall, atStart: true)) end)", inches: $splitAtIn)
+                        .frame(maxWidth: 200)
+                    Button {
+                        editRoomOnce { _ = $0.splitWall(wall.id, atFt: splitAtIn / 12) }
+                    } label: { Label("Split", systemImage: "scissors") }
+                    .buttonStyle(.bordered)
+                    .disabled(splitAtIn / 12 < 0.25 || splitAtIn / 12 > wall.lengthFt - 0.25)
+                }
+                Text("Split a wall the scanner drew as one into two, e.g. where a divider meets it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(role: .destructive) { confirmDeleteScanned = true } label: {
+                    Label("Delete this wall", systemImage: "trash")
+                }
+                .font(.subheadline)
+                .confirmationDialog("Delete wall \(wall.label)?", isPresented: $confirmDeleteScanned, titleVisibility: .visible) {
+                    Button("Delete", role: .destructive) { deleteWall(wall.id) }
+                } message: {
+                    Text("For a wall the scanner found that isn't there. Its doors, windows and any tile on it go too.")
+                }
             }
         }
     }
@@ -1314,6 +1430,12 @@ struct PlanCanvas: View {
     var onMovePlannedEnd: (UUID, Bool, ScannedRoom.Point) -> Void = { _, _, _ in }
     /// Dragging a whole planned wall: where it started, and how far, in plan feet.
     var onMovePlannedWall: (ScannedRoom.Wall, ScannedRoom.Point) -> Void = { _, _ in }
+    /// Any wall's handles show (not only walls drawn in): dragging a scanned
+    /// wall's middle slides it, its ends lengthen it.
+    var editAnyWall = false
+    var onMoveWall: (UUID, ScannedRoom.Point) -> Void = { _, _ in }
+    var onMoveWallEnd: (UUID, Bool, ScannedRoom.Point) -> Void = { _, _, _ in }
+    var onWallDragEnded: () -> Void = {}
     /// The shower floor's open sides; tapping one offers to add a wall there.
     var openSides: [(ScannedRoom.Point, ScannedRoom.Point)] = []
     var onTapOpenSide: (Int) -> Void = { _ in }
@@ -1699,17 +1821,19 @@ struct PlanCanvas: View {
     /// middle to move it whole.
     @ViewBuilder
     private func plannedEndHandles(_ f: Frame) -> some View {
-        if !addingWall, let id = selectedWall, let w = room.wall(id), w.planned {
+        if !addingWall, let id = selectedWall, let w = room.wall(id), w.planned || editAnyWall {
             ZStack {
-                FloorHandle(symbol: "arrow.up.and.down.and.arrow.left.and.right")
+                FloorHandle(symbol: w.planned ? "arrow.up.and.down.and.arrow.left.and.right" : "arrow.left.and.right")
                     .scaleEffect(0.85)
+                    .rotationEffect(w.planned ? .zero : .radians(atan2(Double(f.at(w.end).y - f.at(w.start).y),
+                                                                       Double(f.at(w.end).x - f.at(w.start).x)) + .pi / 2))
                     .position(midpoint(w.start, w.end, f))
                     .highPriorityGesture(DragGesture(minimumDistance: 2).onChanged { v in
                         let start = wallDragStart ?? w
                         if wallDragStart == nil { wallDragStart = w }
                         let (x, y) = f.feet(v.translation)
-                        onMovePlannedWall(start, .init(x: x, y: y))
-                    }.onEnded { _ in wallDragStart = nil })
+                        if w.planned { onMovePlannedWall(start, .init(x: x, y: y)) } else { onMoveWall(id, .init(x: x, y: y)) }
+                    }.onEnded { _ in wallDragStart = nil; onWallDragEnded() })
                 ForEach([true, false], id: \.self) { isStart in
                     let p = isStart ? w.start : w.end
                     Circle().fill(Color.white).overlay(Circle().stroke(Color.green, lineWidth: 3))
@@ -1717,10 +1841,13 @@ struct PlanCanvas: View {
                         .frame(width: 44, height: 44).contentShape(Rectangle())
                         .position(f.at(p))
                         .highPriorityGesture(DragGesture(minimumDistance: 0).onChanged { v in
-                            let other = isStart ? w.end : w.start
+                            let base = wallDragStart ?? w
+                            if wallDragStart == nil { wallDragStart = w }
+                            let other = isStart ? base.end : base.start
                             let target = f.point(at: v.location)
-                            onMovePlannedEnd(id, isStart, room.plannedEnd(from: other, toward: target, except: id))
-                        })
+                            let p = room.plannedEnd(from: other, toward: target, except: id)
+                            if w.planned { onMovePlannedEnd(id, isStart, p) } else { onMoveWallEnd(id, isStart, p) }
+                        }.onEnded { _ in wallDragStart = nil; onWallDragEnded() })
                 }
             }
         }

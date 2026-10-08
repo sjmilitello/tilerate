@@ -812,6 +812,10 @@ struct ScannedRoom: Codable, Hashable, Equatable {
         var planned: Bool = false
         /// A planned wall's thickness, in inches.
         var thicknessIn: Double = 0
+        /// Split off another wall at this many feet along it (`splitWall`):
+        /// so areas measured from the scan move their tile onto this part.
+        var splitFrom: UUID? = nil
+        var splitAtFt: Double = 0
     }
 
     enum OpeningKind: String, Codable, CaseIterable {
@@ -1621,6 +1625,8 @@ extension ScannedRoom.Wall {
         c.read(.end, into: &end)
         c.read(.planned, into: &planned)
         c.read(.thicknessIn, into: &thicknessIn)
+        c.read(.splitFrom, into: &splitFrom)
+        c.read(.splitAtFt, into: &splitAtFt)
     }
 }
 

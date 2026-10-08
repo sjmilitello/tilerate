@@ -1398,3 +1398,201 @@ extension AreaTakeoff {
         items.removeAll { item in room.wall(item.wallID).map { !$0.planned } == true && !kept.contains { $0.wallID == item.wallID } }
     }
 }
+
+
+// MARK: - Editing the scanned room
+
+extension ScannedRoom {
+    private static func dist(_ a: Point, _ b: Point) -> Double { hypot(a.x - b.x, a.y - b.y) }
+
+    /// Where two lines cross (a point and direction each); nil if parallel.
+    private static func intersect(_ p: Point, _ u: Point, _ q: Point, _ v: Point) -> Point? {
+        let den = u.x * v.y - u.y * v.x
+        guard abs(den) > 1e-9 else { return nil }
+        let t = ((q.x - p.x) * v.y - (q.y - p.y) * v.x) / den
+        return .init(x: p.x + u.x * t, y: p.y + u.y * t)
+    }
+
+    private static func unit(_ w: Wall) -> Point {
+        let l = max(dist(w.start, w.end), 1e-9)
+        return .init(x: (w.end.x - w.start.x) / l, y: (w.end.y - w.start.y) / l)
+    }
+
+    /// True when `p` lies on wall `w`'s run, away from its ends.
+    private func onRun(_ p: Point, _ w: Wall) -> Bool {
+        distanceToWall(p, w) < 0.35 && Self.dist(p, w.start) > 0.35 && Self.dist(p, w.end) > 0.35
+    }
+
+    /// A wall slid sideways (square to itself) by `d` feet on the plan,
+    /// rounded to the inch, keeping the room joined: a wall sharing a corner
+    /// stretches to follow; an end that meets the middle of another wall slides
+    /// along it; a wall running into this one follows it. Doors and windows
+    /// keep their places in their walls, and the floor outline follows.
+    mutating func moveWall(_ id: UUID, by d: Point) {
+        guard let w = wall(id) else { return }
+        let u = Self.unit(w), n = Point(x: -u.y, y: u.x)
+        let off = ((d.x * n.x + d.y * n.y) * 12).rounded() / 12
+        guard abs(off) > 1e-9 else { return }
+        let before = self
+        let shift = Point(x: n.x * off, y: n.y * off)
+        let lineP = Point(x: w.start.x + shift.x, y: w.start.y + shift.y)
+        // Each end: on another wall's run, it slides along that wall; else it moves with the wall.
+        func newEnd(_ old: Point) -> Point {
+            if let host = walls.first(where: { $0.id != id && onRun(old, $0) }),
+               let p = Self.intersect(lineP, u, host.start, Self.unit(host)) { return p }
+            return Point(x: old.x + shift.x, y: old.y + shift.y)
+        }
+        setEnds(id, start: newEnd(w.start), end: newEnd(w.end), from: before)
+        // Walls running into this one follow it.
+        for j in walls.indices where walls[j].id != id {
+            let o = walls[j]
+            for isStart in [true, false] {
+                let p = isStart ? o.start : o.end
+                guard before.onRun(p, w), let q = Self.intersect(lineP, u, o.start, Self.unit(o)) else { continue }
+                if isStart { walls[j].start = q } else { walls[j].end = q }
+            }
+            walls[j].lengthFt = Self.dist(walls[j].start, walls[j].end)
+        }
+        followAll(from: before)
+    }
+
+    /// One end of a wall moved to `p`: a wall sharing that corner follows.
+    mutating func moveWallEnd(_ id: UUID, start: Bool, to p: Point) {
+        guard let w = wall(id) else { return }
+        let before = self
+        setEnds(id, start: start ? p : w.start, end: start ? w.end : p, from: before)
+        followAll(from: before)
+    }
+
+    /// A wall's ends set, and the walls sharing each old corner moved with it.
+    private mutating func setEnds(_ id: UUID, start s: Point, end e: Point, from before: ScannedRoom) {
+        guard let i = walls.firstIndex(where: { $0.id == id }) else { return }
+        let old = walls[i]
+        for (oldP, newP) in [(old.start, s), (old.end, e)] where Self.dist(oldP, newP) > 1e-9 {
+            for j in walls.indices where j != i {
+                if Self.dist(walls[j].start, oldP) < 0.35 { walls[j].start = newP }
+                if Self.dist(walls[j].end, oldP) < 0.35 { walls[j].end = newP }
+                walls[j].lengthFt = Self.dist(walls[j].start, walls[j].end)
+            }
+        }
+        walls[i].start = s
+        walls[i].end = e
+        walls[i].lengthFt = Self.dist(s, e)
+    }
+
+    /// After walls moved: doors and windows keep their places along their
+    /// walls (and stay on them), and floor-outline corners at moved wall
+    /// ends move with them.
+    private mutating func followAll(from before: ScannedRoom) {
+        for i in openings.indices {
+            guard let id = openings[i].wallID, let old = before.wall(id), let new = wall(id),
+                  let a = openings[i].alongFt else { continue }
+            let u = Self.unit(old)
+            let startShift = (new.start.x - old.start.x) * u.x + (new.start.y - old.start.y) * u.y
+            let half = openings[i].widthFt / 2
+            openings[i].alongFt = min(max(a - startShift, half), max(half, new.lengthFt - half))
+        }
+        var moved: [(Point, Point)] = []
+        for w in before.walls {
+            guard let n = wall(w.id) else { continue }
+            if Self.dist(w.start, n.start) > 1e-9 { moved.append((w.start, n.start)) }
+            if Self.dist(w.end, n.end) > 1e-9 { moved.append((w.end, n.end)) }
+        }
+        if floorOutline.count > 2, !moved.isEmpty {
+            floorOutline = floorOutline.map { p in moved.first { Self.dist($0.0, p) < 0.5 }?.1 ?? p }
+            floorSqft = Self.area(floorOutline)
+        }
+    }
+
+    /// A wall cut in two at `atFt` along it; doors and windows past the cut
+    /// go on the second part. Returns the new wall.
+    @discardableResult
+    mutating func splitWall(_ id: UUID, atFt at: Double) -> Wall? {
+        guard let i = walls.firstIndex(where: { $0.id == id }) else { return nil }
+        let w = walls[i]
+        guard at > 0.25, at < w.lengthFt - 0.25 else { return nil }
+        let cut = point(on: w, along: at)
+        var second = Wall(label: nextWallLabel, lengthFt: w.lengthFt - at, heightFt: w.heightFt, start: cut, end: w.end,
+                          planned: w.planned, thicknessIn: w.thicknessIn)
+        second.splitFrom = w.id
+        second.splitAtFt = at
+        walls[i].end = cut
+        walls[i].lengthFt = at
+        walls.insert(second, at: i + 1)
+        for j in openings.indices where openings[j].wallID == id {
+            if let a = openings[j].alongFt, a > at {
+                openings[j].wallID = second.id
+                openings[j].alongFt = a - at
+            }
+        }
+        return second
+    }
+}
+
+extension AreaTakeoff {
+    /// This area's choices moved with walls edited on the model (`old` is
+    /// the room before): split walls take their part of the tile and items,
+    /// tile and items keep their places along walls whose start moved, and
+    /// stay on walls that got shorter; a full-height piece stays full height.
+    func following(old: ScannedRoom, new: ScannedRoom) -> AreaTakeoff {
+        var t = self
+        // Splits first, in the old wall's measure.
+        for w in new.walls {
+            guard let from = w.splitFrom, old.wall(from) != nil, old.wall(w.id) == nil else { continue }
+            let at = w.splitAtFt
+            var moved: [Piece] = []
+            for i in t.pieces.indices where t.pieces[i].wallID == from {
+                let p = t.pieces[i]
+                if p.fromFt >= at - 1e-9 {
+                    t.pieces[i].wallID = w.id
+                    t.pieces[i].fromFt -= at
+                    t.pieces[i].toFt -= at
+                } else if p.toFt > at + 1e-9 {
+                    t.pieces[i].toFt = at
+                    var rest = p
+                    rest.id = UUID()
+                    rest.wallID = w.id
+                    rest.fromFt = 0
+                    rest.toFt = p.toFt - at
+                    moved.append(rest)
+                }
+            }
+            t.pieces += moved
+            for i in t.items.indices where t.items[i].wallID == from && t.items[i].fromFt >= at - 1e-9 {
+                t.items[i].wallID = w.id
+                t.items[i].fromFt -= at
+                t.items[i].toFt -= at
+            }
+        }
+        // Walls whose start moved or that changed length.
+        for w in new.walls {
+            let before = old.wall(w.id) ?? (w.splitFrom.flatMap { old.wall($0) }.map { o -> ScannedRoom.Wall in
+                var part = o; part.start = old.point(on: o, along: w.splitAtFt); part.lengthFt = o.lengthFt - w.splitAtFt; return part
+            })
+            guard let o = before else { continue }
+            let l = max(hypot(o.end.x - o.start.x, o.end.y - o.start.y), 1e-9)
+            let u = ScannedRoom.Point(x: (o.end.x - o.start.x) / l, y: (o.end.y - o.start.y) / l)
+            let shift = (w.start.x - o.start.x) * u.x + (w.start.y - o.start.y) * u.y
+            for i in t.pieces.indices where t.pieces[i].wallID == w.id {
+                let full = abs(t.pieces[i].heightIn - (o.heightFt * 12).rounded(.down)) < 1
+                t.pieces[i].fromFt = min(max(0, t.pieces[i].fromFt - shift), w.lengthFt)
+                t.pieces[i].toFt = min(max(0, t.pieces[i].toFt - shift), w.lengthFt)
+                if full { t.pieces[i].heightIn = (w.heightFt * 12).rounded(.down) }
+            }
+            for i in t.items.indices where t.items[i].wallID == w.id && !t.items[i].kind.isCorner {
+                let width = t.items[i].widthFt
+                let from = min(max(0, t.items[i].fromFt - shift), max(0, w.lengthFt - width))
+                if t.items[i].kind.isBench {
+                    t.items[i].fromFt = min(max(0, t.items[i].fromFt - shift), w.lengthFt)
+                    t.items[i].toFt = min(max(0, t.items[i].toFt - shift), w.lengthFt)
+                } else {
+                    t.items[i].fromFt = from
+                    t.items[i].toFt = from + width
+                }
+            }
+        }
+        t.pieces.removeAll { p in new.wall(p.wallID) == nil || p.toFt - p.fromFt < 1.0 / 24 }
+        t.items.removeAll { new.wall($0.wallID) == nil }
+        return t
+    }
+}

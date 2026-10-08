@@ -444,6 +444,22 @@ scanned room answers the physical ones on its model instead of in fields.
   windows, benches, corner pieces, stone for every piece); bands, borders,
   inlays and other charges are the same as by hand. Using the model sets the
   area's counts (`itemsPlaced`).
+- **Edit walls** (Measure, any area; owner asked 2026-10-08): every wall,
+  scanned or drawn in, can be changed after scanning and calibrating. Tap it
+  on the plan or in 3-D; drag its middle to slide it (`moveWall`, square to
+  itself, to the inch) or an end to lengthen it (`moveWallEnd`); type length
+  and height; split it in two (`splitWall`, `Wall.splitFrom`/`splitAtFt`);
+  delete it. The room stays joined: a wall sharing a corner stretches to
+  follow (dragging a shower/closet divider stretches the closet's door wall),
+  an end meeting the middle of another wall slides along it (the back wall
+  keeps its length), a wall running into the moved one follows; doors and
+  windows keep their places, floor-outline corners move with wall ends.
+  Every area measured on the model follows (`AreaTakeoff.following`: split
+  walls take their part of the tile, pieces and items keep their places,
+  full-height tile stays full height) and is measured again. Drags work from
+  the room as the drag began (`dragBase`). Leaving the model with changes
+  asks Apply changes / Discard changes / Keep editing; 2-D and 3-D are the
+  same model, so switching between them needs no prompt.
 - Wall tile starts at the top of the wall everywhere except backsplashes
   (owner's rule, 2026-10-08; tub surrounds were 84″).
 - Calibrating or deleting a wall re-measures only areas measured on the
