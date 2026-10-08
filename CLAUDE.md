@@ -470,6 +470,9 @@ scanned room answers the physical ones on its model instead of in fields.
   the room as the drag began (`dragBase`). Leaving the model with changes
   asks Apply changes / Discard changes / Keep editing; 2-D and 3-D are the
   same model, so switching between them needs no prompt.
+- The model opens in the mode of the step it came from, and a **Measure |
+  Extras** switch at its top changes mode without leaving it (owner asked
+  2026-10-08).
 - Wall tile starts at the top of the wall everywhere except backsplashes
   (owner's rule, 2026-10-08; tub surrounds were 84″).
 - Calibrating or deleting a wall re-measures only areas measured on the

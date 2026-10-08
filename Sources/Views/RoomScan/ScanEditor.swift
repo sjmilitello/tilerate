@@ -24,7 +24,8 @@ struct ScanEditor: View {
     enum Mode: String, Identifiable { case measure, extras; var id: String { rawValue } }
 
     let area: Area?
-    var mode: Mode = .measure
+    /// Measure or Extras: opened from that step, switchable inside the model.
+    @State private var mode: Mode
     let title: String
     let others: [OtherAreaPieces]
     /// A new knee wall's thickness, from Admin.
@@ -125,7 +126,7 @@ struct ScanEditor: View {
         self.floorTile = floorTile
         self.onAddPicture = onAddPicture
         self.area = area
-        self.mode = mode
+        _mode = State(initialValue: mode)
         self.title = title
         self.others = others
         self.onUse = onUse
@@ -291,6 +292,20 @@ struct ScanEditor: View {
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
+                            Picker("Step", selection: Binding(get: { mode }, set: { new in
+                                mode = new
+                                editingWalls = false
+                                addingWall = false
+                                placingBench = false
+                                placingShower = false
+                                placing3D = nil
+                                selectedItem = nil
+                                selectedOpening = nil
+                            })) {
+                                Text("Measure").tag(Mode.measure)
+                                Text("Extras").tag(Mode.extras)
+                            }
+                            .pickerStyle(.segmented)
                             Text(mode == .measure
                                  ? "Choose the walls, floor and ceiling being tiled. Add walls and doors that aren't built yet."
                                  : "Add niches, windows, benches and corner pieces on the walls, and choose tile or stone for each piece.")
