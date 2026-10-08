@@ -601,6 +601,83 @@ extension AreaTakeoff {
         return (lo + hi) / 2
     }
 
+    /// The unit vector from a wall into the shower (toward its floor's
+    /// middle), else into the room; a planned wall's from the face given.
+    func inward(_ w: ScannedRoom.Wall, face: Int, in room: ScannedRoom) -> ScannedRoom.Point {
+        let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+        let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+        var n = ScannedRoom.Point(x: -dy / l, y: dx / l)
+        if w.planned { return face == 0 ? n : .init(x: -n.x, y: -n.y) }
+        var target: ScannedRoom.Point
+        if floor == .drawn, let r = floorRect {
+            let c = r.corners
+            target = .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+        } else {
+            let pts = room.floorOutline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : room.floorOutline
+            target = .init(x: pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1)), y: pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1)))
+        }
+        let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
+        if (target.x - mid.x) * n.x + (target.y - mid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+        return n
+    }
+
+    /// A bench's or corner piece's footprint on the plan.
+    func footprint(_ item: Item, in room: ScannedRoom) -> [ScannedRoom.Point]? {
+        guard let w = room.wall(item.wallID) else { return nil }
+        let n = inward(w, face: item.face, in: room)
+        let skin = w.planned ? w.thicknessIn / 24 : 0
+        func pt(_ along: Double, _ out: Double) -> ScannedRoom.Point {
+            let p = room.point(on: w, along: along)
+            return .init(x: p.x + n.x * out, y: p.y + n.y * out)
+        }
+        switch item.kind {
+        case .framedBench, .floatingBench:
+            let d = skin + item.depthIn / 12
+            return [pt(item.fromFt, skin), pt(item.toFt, skin), pt(item.toFt, d), pt(item.fromFt, d)]
+        case .cornerShelf, .cornerFootrest, .cornerSeat:
+            let size = item.sizeIn / 12
+            let corner = item.atStart ? 0.0 : w.lengthFt
+            let along = item.atStart ? size : w.lengthFt - size
+            return [pt(corner, skin), pt(along, skin), pt(corner, skin + size)]
+        default:
+            return nil
+        }
+    }
+
+    /// Benches and corner pieces low enough to walk into that reach into a
+    /// shower door's opening: what, and how many inches of the opening.
+    func doorClashes(_ door: ScannedRoom.Opening, in room: ScannedRoom) -> [(name: String, inches: Double)] {
+        guard let w = door.wallID.flatMap({ room.wall($0) }) else { return [] }
+        let s = room.span(of: door)
+        let steps = max(2, Int(((s.upperBound - s.lowerBound) * 12).rounded()))
+        var out: [(String, Double)] = []
+        for item in items where item.wallID != w.id && (item.kind.isBench || item.kind == .cornerSeat || item.kind == .cornerFootrest) {
+            guard let poly = footprint(item, in: room), let iw = room.wall(item.wallID) else { continue }
+            var inside = 0
+            for k in 0...steps {
+                let p = room.point(on: w, along: s.lowerBound + (s.upperBound - s.lowerBound) * Double(k) / Double(steps))
+                if Self.contains(poly, p) { inside += 1 }
+            }
+            if inside > 1 {
+                let wallName = room.name(of: iw)
+                out.append(("The \(item.kind.name.lowercased()) on \(wallName.prefix(1).lowercased() + wallName.dropFirst())", Double(inside - 1)))
+            }
+        }
+        return out
+    }
+
+    /// Point in a polygon (on the edge counts).
+    static func contains(_ poly: [ScannedRoom.Point], _ p: ScannedRoom.Point) -> Bool {
+        var sign = 0.0
+        for i in poly.indices {
+            let a = poly[i], b = poly[(i + 1) % poly.count]
+            let cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+            if abs(cross) < 1e-6 { continue }
+            if sign == 0 { sign = cross } else if (sign > 0) != (cross > 0) { return false }
+        }
+        return true
+    }
+
     /// The end of a wall a corner piece starts at: one that meets another
     /// wall, preferring the start.
     func cornerEnd(of wall: ScannedRoom.Wall, in room: ScannedRoom) -> Bool {

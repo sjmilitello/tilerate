@@ -721,7 +721,11 @@ struct ScanEditor: View {
                     }
                     .pickerStyle(.segmented)
                 }
+                Text(wall.planned ? "Seen from the \(room.faceName(of: wall, face: face).replacingOccurrences(of: "Side", with: "side"))"
+                                  : (area == .shower ? "Seen from inside the shower" : "Seen from inside the room"))
+                    .font(.caption).foregroundStyle(.secondary)
                 WallElevation(room: room, wall: wall, face: face, takeoff: $takeoff, selectedPiece: $selectedPiece,
+                              endNames: (cornerName(wall, atStart: true), cornerName(wall, atStart: false)),
                               others: others, snaps: room.snapPoints(on: wall, others: otherPieces.filter { $0.face == face }),
                               onDoor: { d in
                                   if let i = room.openings.firstIndex(where: { $0.id == d.id }) { room.openings[i] = d }
@@ -962,11 +966,14 @@ struct ScanEditor: View {
     /// "wall D corner" for the end of a wall that meets another.
     private func cornerName(_ wall: ScannedRoom.Wall, atStart: Bool) -> String {
         let end = atStart ? wall.start : wall.end
+        // The wall this end touches (anywhere along it), else the nearest corner.
+        let touching = room.walls.filter { $0.id != wall.id }.min { room.distanceToWall(end, $0) < room.distanceToWall(end, $1) }
+        if let touching, room.distanceToWall(end, touching) < 0.6 { return "wall \(touching.label)" }
         let near = room.walls.filter { $0.id != wall.id }.min { a, b in
             min(dist(a.start, end), dist(a.end, end)) < min(dist(b.start, end), dist(b.end, end))
         }
         if let near, min(dist(near.start, end), dist(near.end, end)) < 1.5 { return "wall \(near.label)" }
-        return atStart ? "left" : "right"
+        return atStart ? "left end" : "right end"
     }
 
     private func dist(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point) -> Double {
@@ -1001,14 +1008,14 @@ struct ScanEditor: View {
                         set: { room.openings[i].heightFt = min(max(36, $0) / 12, wall.heightFt) }))
                 }
                 HStack(spacing: 12) {
-                    InchField(title: "Left of door", inches: Binding(
+                    InchField(title: "To \(cornerName(wall, atStart: true))", inches: Binding(
                         get: { room.span(of: room.openings[i]).lowerBound * 12 },
                         set: { v in
                             let width = room.openings[i].widthFt
                             let left = min(max(0, v / 12), wall.lengthFt - width)
                             room.openings[i].alongFt = left + width / 2
                         }))
-                    InchField(title: "Right of door", inches: Binding(
+                    InchField(title: "To \(cornerName(wall, atStart: false))", inches: Binding(
                         get: { (wall.lengthFt - room.span(of: room.openings[i]).upperBound) * 12 },
                         set: { v in
                             let width = room.openings[i].widthFt
@@ -1016,8 +1023,13 @@ struct ScanEditor: View {
                             room.openings[i].alongFt = wall.lengthFt - right - width / 2
                         }))
                 }
-                Text("Left and right as the wall is drawn above.")
+                Text("From the door's edge to each end of the wall.")
                     .font(.caption2).foregroundStyle(.secondary)
+                ForEach(Array(takeoff.doorClashes(d, in: room).enumerated()), id: \.offset) { _, clash in
+                    Label("\(clash.name) reaches \(Int(clash.inches))″ into the doorway.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
                 Button {
                     room.openings[i].heightFt = header ? wall.heightFt : min(stone.doorHeightIn / 12, wall.heightFt)
                 } label: {
@@ -1795,6 +1807,8 @@ struct WallElevation: View {
     var face: Int = 0
     @Binding var takeoff: AreaTakeoff
     @Binding var selectedPiece: UUID?
+    /// What each end of the wall meets ("wall B"), shown under it.
+    var endNames: (String, String) = ("", "")
     let others: [OtherAreaPieces]
     let snaps: [Double]
     /// A shower door moved or resized.
@@ -1810,7 +1824,7 @@ struct WallElevation: View {
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width - 2 * inset, h = geo.size.height - 2 * inset - 14
+            let w = geo.size.width - 2 * inset, h = geo.size.height - 2 * inset - 30
             let scale = min(w / max(wall.lengthFt, 0.5), h / max(wall.heightFt, 0.5))
             let width = wall.lengthFt * scale, height = wall.heightFt * scale
             let origin = CGPoint(x: (geo.size.width - width) / 2, y: inset + (h - height) / 2 + height)
@@ -1902,10 +1916,22 @@ struct WallElevation: View {
                     handles(i, scale: scale, at: at)
                 }
 
-                // The floor line, and the wall's length.
+                // The floor line, the wall's length, and what each end meets.
                 Text(feetAndInches(wall.lengthFt))
                     .font(.caption2).foregroundStyle(.secondary)
                     .position(x: origin.x + width / 2, y: origin.y + 10)
+                // What each end meets, on a line of its own, spread at least
+                // far enough to read under a narrow wall.
+                HStack {
+                    Label(endNames.0, systemImage: "arrow.left").labelStyle(.titleAndIcon)
+                    Spacer(minLength: 8)
+                    Label(endNames.1, systemImage: "arrow.right").labelStyle(.titleAndIcon)
+                        .environment(\.layoutDirection, .rightToLeft)
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: max(width, 170))
+                .position(x: origin.x + width / 2, y: origin.y + 25)
             }
             .coordinateSpace(name: "wall")
         }

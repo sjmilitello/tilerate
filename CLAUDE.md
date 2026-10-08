@@ -325,7 +325,13 @@ A shower door (`OpeningKind.showerDoor`, saved with the scan) goes in any
 full wall a shower tiles — "Add a full wall with a shower door" draws a new
 full-height wall with one in its middle, or Door on a wall's panel. It
 starts at Admin's size (30″ × 80″, `showerDoorWidthIn`, `showerDoorHeightIn`)
-and is dragged on the wall face-on (sides, top, or along) or typed. It is
+and is dragged on the wall face-on (sides, top, or along) or typed. Its
+distances are named by the wall each end meets ("To wall B"), never left
+or right: the face-on drawing is from one side of the wall (it says which,
+"Seen from inside the shower" / "the side facing wall C"), so left and right
+swap for someone on the other side (owner placed a door 20″ "right" and got
+the other end, 2026-10-07). A bench, seat or footrest reaching into the
+doorway is flagged under the door (`doorClashes`). It is
 never tiled — always taken off, no tick — and gives a curb across it, a left
 and right jamb from the curb to the header (to the top of the tile with no
 header), and a header as wide as the door. Dragged to the ceiling, it has no

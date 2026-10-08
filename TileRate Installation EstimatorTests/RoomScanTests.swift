@@ -572,6 +572,29 @@ struct RoomScanTests {
         #expect(try JSONDecoder().decode(EstimateDocument.self, from: JSONEncoder().encode(d)) == d)
     }
 
+    @Test func aBenchReachingIntoTheDoorwayIsFlagged() {
+        // Shower in the A/B corner, 4′ × 3′, closed by new full walls E (x = 5)
+        // and F (y = 3, running from wall B to E), door in F; a 15″ framed bench along B.
+        var r = room
+        _ = r.addPlannedWall(from: .init(x: 5, y: 0), to: .init(x: 5, y: 3), heightIn: 96, thicknessIn: 4.5)
+        let front = r.addPlannedWall(from: .init(x: 9, y: 3), to: .init(x: 5, y: 3), heightIn: 96, thicknessIn: 4.5)
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 5, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 4, depthFt: 3)
+        t.items = [.init(kind: .framedBench, wallID: B.id, fromFt: 0, toFt: 3, heightIn: 20, depthIn: 15)]
+        // Door 20″ from wall B: clear of the 15″ bench.
+        var door = r.addShowerDoor(on: front, along: (20 + 15) / 12.0, widthIn: 30, heightIn: 80)
+        #expect(t.doorClashes(door, in: r).isEmpty)
+        // Door 20″ from the other end (wall E): in a 48″ wall that pushes it
+        // against wall B, so the whole 15″ bench is in the doorway.
+        r.openings.removeAll { $0.id == door.id }
+        door = r.addShowerDoor(on: front, along: 4 - (20 + 15) / 12.0, widthIn: 30, heightIn: 80)
+        let clash = t.doorClashes(door, in: r)
+        #expect(clash.count == 1 && clash[0].name == "The framed bench on wall B")
+        #expect(abs(clash[0].inches - 15) <= 1)
+    }
+
     @Test func aRoomIsDrawnForThePDF() throws {
         var t = AreaTakeoff()
         t.pieces = [piece(A, 0, 9, 96), piece(B, 0, 3, 96)]
