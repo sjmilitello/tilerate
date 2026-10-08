@@ -1280,3 +1280,121 @@ extension ScannedRoom {
         return out
     }
 }
+
+
+// MARK: - Placing and turning the shower floor
+
+extension AreaTakeoff.FloorRect {
+    var center: ScannedRoom.Point {
+        let c = corners
+        return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+    }
+
+    /// Turned a quarter turn, staying in its corner: width and depth swap,
+    /// the corner it was placed from stays put (so a floor in a corner of
+    /// walls stays against them).
+    var turned: AreaTakeoff.FloorRect {
+        var r = self
+        r.widthFt = depthFt
+        r.depthFt = widthFt
+        return r
+    }
+}
+
+extension ScannedRoom {
+    /// Inside corners of the room, where two scanned walls meet: the corner
+    /// and the direction along each wall away from it.
+    func insideCorners() -> [(at: Point, a: Point, b: Point)] {
+        let real = walls.filter { !$0.planned }
+        func d(_ p: Point, _ q: Point) -> Double { hypot(p.x - q.x, p.y - q.y) }
+        func away(_ w: Wall, from p: Point) -> Point? {
+            let (near, far) = d(w.start, p) < 0.4 ? (w.start, w.end) : d(w.end, p) < 0.4 ? (w.end, w.start) : (nil, nil)
+            guard let near, let far else { return nil }
+            let l = max(hypot(far.x - near.x, far.y - near.y), 1e-9)
+            return .init(x: (far.x - near.x) / l, y: (far.y - near.y) / l)
+        }
+        var out: [(Point, Point, Point)] = []
+        for (i, w1) in real.enumerated() {
+            for p in [w1.start, w1.end] {
+                for w2 in real[(i + 1)...] {
+                    guard let a = away(w1, from: p), let b = away(w2, from: p),
+                          abs(a.x * b.x + a.y * b.y) < 0.3 else { continue }
+                    // Inside the room: a step in along both walls is on the floor.
+                    let probe = Point(x: p.x + (a.x + b.x) * 0.5, y: p.y + (a.y + b.y) * 0.5)
+                    if floorOutline.count > 2, !AreaTakeoff.inside(floorOutline, probe) { continue }
+                    out.append((p, a, b))
+                }
+            }
+        }
+        return out
+    }
+}
+
+extension AreaTakeoff {
+    /// Point in any polygon (even–odd).
+    static func inside(_ poly: [ScannedRoom.Point], _ p: ScannedRoom.Point) -> Bool {
+        var c = false
+        var j = poly.count - 1
+        for i in poly.indices {
+            let a = poly[i], b = poly[j]
+            if (a.y > p.y) != (b.y > p.y), p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x { c.toggle() }
+            j = i
+        }
+        return c
+    }
+
+    /// The shower moved to the room's inside corner nearest `tap`: its floor
+    /// there at its present size (5′ × 3′ if it has none), the long side along
+    /// the longer wall, and the walls round it tiled. nil with no corner.
+    mutating func placeShower(near tap: ScannedRoom.Point, in room: ScannedRoom) -> Bool {
+        guard let corner = room.insideCorners().min(by: {
+            hypot($0.at.x - tap.x, $0.at.y - tap.y) < hypot($1.at.x - tap.x, $1.at.y - tap.y)
+        }) else { return false }
+        let long = max(floorRect?.widthFt ?? 5, floorRect?.depthFt ?? 3)
+        let short = min(floorRect?.widthFt ?? 5, floorRect?.depthFt ?? 3)
+        // Along each wall from the corner, as far as it goes.
+        func reach(_ dir: ScannedRoom.Point) -> Double {
+            room.walls.filter { !$0.planned }.compactMap { w -> Double? in
+                // The wall running that way from the corner.
+                let wx = (w.end.x - w.start.x) / max(w.lengthFt, 1e-9), wy = (w.end.y - w.start.y) / max(w.lengthFt, 1e-9)
+                guard abs(wx * dir.x + wy * dir.y) > 0.9 else { return nil }
+                let mid = ScannedRoom.Point(x: corner.at.x + dir.x * 0.2, y: corner.at.y + dir.y * 0.2)
+                return room.distanceToWall(mid, w) < 0.3 ? w.lengthFt : nil
+            }.max() ?? long
+        }
+        let ra = reach(corner.a), rb = reach(corner.b)
+        let (u, v, along, deep) = ra >= rb ? (corner.a, corner.b, ra, rb) : (corner.b, corner.a, rb, ra)
+        floor = .drawn
+        floorRect = FloorRect(origin: corner.at, u: u, v: v, widthFt: min(long, along), depthFt: min(short, deep))
+        tileWallsAroundFloor(in: room)
+        return true
+    }
+
+    /// The scanned walls the shower floor stands against, tiled along the
+    /// floor's sides: each keeps the height its tile had (else the top of the
+    /// wall); walls drawn in and other walls' tile are left alone.
+    mutating func tileWallsAroundFloor(in room: ScannedRoom) {
+        guard floor == .drawn, let r = floorRect else { return }
+        let c = r.corners
+        var kept: [Piece] = pieces.filter { room.wall($0.wallID)?.planned == true }
+        var used = Set<UUID>()
+        for i in 0..<4 {
+            let a = c[i], b = c[(i + 1) % 4]
+            let dx = b.x - a.x, dy = b.y - a.y, l = max(hypot(dx, dy), 1e-9)
+            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            guard let w = room.walls.first(where: { w in
+                guard !w.planned else { return false }
+                let wx = w.end.x - w.start.x, wy = w.end.y - w.start.y, wl = max(hypot(wx, wy), 1e-9)
+                return abs((dx * wx + dy * wy) / (l * wl)) > 0.95 && room.distanceToWall(mid, w) < 0.4
+            }) else { continue }
+            let lo = min(room.along(a, on: w), room.along(b, on: w)), hi = max(room.along(a, on: w), room.along(b, on: w))
+            guard hi - lo > 0.1 else { continue }
+            let height = pieces.first { $0.wallID == w.id }?.heightIn ?? Self.startingHeight(for: .shower, wall: w)
+            let id = used.contains(w.id) ? UUID() : (pieces.first { $0.wallID == w.id }?.id ?? UUID())
+            used.insert(w.id)
+            kept.append(Piece(id: id, wallID: w.id, fromFt: lo, toFt: hi, heightIn: height))
+        }
+        pieces = kept
+        items.removeAll { item in room.wall(item.wallID).map { !$0.planned } == true && !kept.contains { $0.wallID == item.wallID } }
+    }
+}

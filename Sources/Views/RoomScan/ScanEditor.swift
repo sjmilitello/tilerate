@@ -49,6 +49,8 @@ struct ScanEditor: View {
     @State private var addingWall = false
     /// The wall being placed is a full wall (else a half wall).
     @State private var addingFullWall = false
+    /// Waiting for a tap on the corner the shower goes in.
+    @State private var placingShower = false
     /// Waiting for a tap on the wall a framed bench goes against.
     @State private var placingBench = false
     /// The chosen bench, niche, window or corner piece.
@@ -160,7 +162,14 @@ struct ScanEditor: View {
                 } else {
                 PlanCanvas(room: room, mine: takeoff.pieces, others: others, selectedWall: selectedWall,
                            floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
+                           onTapPoint: placingShower ? { p in
+                               placingShower = false
+                               if !takeoff.placeShower(near: p, in: room) {
+                                   placeNote = "There's no corner there. Tap near the corner where the shower goes."
+                               }
+                           } : nil,
                            onResetFloor: placeShowerFloor,
+                           onFloorChanged: area == .shower ? { takeoff.tileWallsAroundFloor(in: room) } : nil,
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
                            items: takeoff.items,
                            showDimensions: showDimensions,
@@ -212,7 +221,16 @@ struct ScanEditor: View {
                 }
                 .background(Color(white: 0.09))
                 .overlay(alignment: .top) {
-                    if let p = placing3D {
+                    if placingShower {
+                        HStack(spacing: 10) {
+                            Image(systemName: "hand.tap")
+                            Text("Tap the corner where the shower goes.").font(.caption)
+                            Button("Cancel") { placingShower = false }.font(.caption.weight(.semibold))
+                        }
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(8)
+                    } else if let p = placing3D {
                         HStack(spacing: 10) {
                             Image(systemName: "hand.tap")
                             Text("Tap the wall where the \(p.title.lowercased()) goes.").font(.caption)
@@ -1160,22 +1178,39 @@ struct ScanEditor: View {
                 }
                 if takeoff.floor == .drawn {
                     if let r = takeoff.floorRect {
-                        Text("On the plan, drag the green handle to move the floor. Tap it to resize: drag any edge, and edges snap to walls.")
-                            .font(.footnote).foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            Button {
+                                show3D = false
+                                placingShower = true
+                            } label: {
+                                Label("Put the shower here", systemImage: "hand.tap")
+                            }
+                            Button {
+                                takeoff.floorRect = r.turned
+                                takeoff.tileWallsAroundFloor(in: room)
+                            } label: {
+                                Label("Rotate", systemImage: "rotate.right")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .font(.subheadline)
+                        Text("Put the shower here: tap the corner it goes in and its floor, walls and curb move there. Rotate turns it in its corner. Drag the green handle to move it, tap it to drag an edge. The curb is always on the open sides.")
+                            .font(.caption).foregroundStyle(.secondary)
+
                         HStack(spacing: 12) {
                             InchField(title: "Width", inches: Binding(get: { r.widthFt * 12 }, set: { takeoff.floorRect?.widthFt = max(1, $0) / 12 }))
                             InchField(title: "Depth", inches: Binding(get: { r.depthFt * 12 }, set: { takeoff.floorRect?.depthFt = max(1, $0) / 12 }))
                         }
+                    } else {
                         Button {
-                            placeShowerFloor()
+                            show3D = false
+                            placingShower = true
                         } label: {
-                            Label("Reset to the shower walls", systemImage: "arrow.counterclockwise")
+                            Label("Put the shower here", systemImage: "hand.tap")
                         }
                         .buttonStyle(.bordered)
                         .font(.subheadline)
-                        .disabled(takeoff.pieces.isEmpty)
-                    } else {
-                        Text("Choose the shower's walls on the plan and the floor is placed in their corner, ready to drag.")
+                        Text("Tap the corner the shower goes in, or choose its walls on the plan and the floor goes in their corner.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -1257,10 +1292,14 @@ struct PlanCanvas: View {
     /// A floor rectangle shown on the plan, and dragged when editable.
     var floorRect: Binding<AreaTakeoff.FloorRect?>? = nil
     var floorRectShown: AreaTakeoff.FloorRect? = nil
+    /// Waiting for a tap on the plan (e.g. the corner the shower goes in).
+    var onTapPoint: ((ScannedRoom.Point) -> Void)? = nil
     /// Areas suggested from the scan, outlined and named on the plan.
     var highlights: [(name: String, outline: [ScannedRoom.Point])] = []
     /// Puts the floor back where it started (Reset while editing it).
     var onResetFloor: (() -> Void)? = nil
+    /// The floor moved, resized or turned: its walls follow.
+    var onFloorChanged: (() -> Void)? = nil
     /// The shower's curb: open sides of its floor.
     var curbEdges: [(ScannedRoom.Point, ScannedRoom.Point)] = []
     /// Benches, niches, windows and corner pieces placed on the walls.
@@ -1388,6 +1427,7 @@ struct PlanCanvas: View {
                         withAnimation(.easeOut(duration: 0.25)) { zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero }
                     }
                     .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                        if let onTapPoint { onTapPoint(f.point(at: location)); return }
                         if editingFloor { withAnimation(.easeOut(duration: 0.15)) { editingFloor = false }; return }
                         if let side = openSide(at: location, f) { onTapOpenSide(side); return }
                         if let id = wall(at: location, f) { onTapWall(id) }
@@ -1423,6 +1463,14 @@ struct PlanCanvas: View {
                     .font(.caption.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.green)
                 Spacer(minLength: 4)
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        floorRect?.wrappedValue = r.turned
+                        onFloorChanged?()
+                    }
+                } label: {
+                    Label("Rotate", systemImage: "rotate.right")
+                }
                 if let onResetFloor {
                     Button {
                         withAnimation(.easeOut(duration: 0.2)) { onResetFloor() }
@@ -1472,7 +1520,7 @@ struct PlanCanvas: View {
                             let b = (along(v.translation, start.v, f) * 12).rounded() / 12
                             binding.wrappedValue?.origin = .init(x: start.origin.x + start.u.x * a + start.v.x * b,
                                                                  y: start.origin.y + start.u.y * a + start.v.y * b)
-                        }.onEnded { _ in dragStart = nil }
+                        }.onEnded { _ in dragStart = nil; onFloorChanged?() }
                         .exclusively(before: TapGesture().onEnded {
                             withAnimation(.easeOut(duration: 0.15)) { editingFloor.toggle() }
                         })
@@ -1515,7 +1563,7 @@ struct PlanCanvas: View {
                 updated.origin = .init(x: start.origin.x - dir.x * (length - old), y: start.origin.y - dir.y * (length - old))
             }
             binding.wrappedValue = updated
-        }.onEnded { _ in dragStart = nil })
+        }.onEnded { _ in dragStart = nil; onFloorChanged?() })
     }
 
     /// A length rounded to the inch, or to where it would meet a wall when

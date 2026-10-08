@@ -422,6 +422,13 @@ scanned room answers the physical ones on its model instead of in fields.
   tubs and cabinets but no shower). Choosing a suggested area starts it with
   what the scan found. You always choose; nothing is added by itself.
 - **Tile**: the same screen either way.
+- A wrong shower guess is fixed with **Put the shower here** (tap the
+  corner it goes in: `AreaTakeoff.placeShower`, the floor at its size with
+  its long side along the longer wall, walls round it tiled) and **Rotate**
+  (`FloorRect.turned`: width and depth swap, staying in its corner). Moving,
+  resizing or turning the floor makes its scanned walls follow
+  (`tileWallsAroundFloor`, keeping each wall's tile height); the curb is
+  always on the floor's open sides.
 - **Measure**: a scanned area opens its model straight away the first time
   (`ScanEditor`, mode `.measure`: walls and tile heights, shower floor and
   curb, ceiling, walls drawn in, doors). Afterwards the step shows what came
