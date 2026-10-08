@@ -340,6 +340,13 @@ struct ScanEditor: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                    .fontWeight(.semibold)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         if room != openedRoom || takeoff != openedTakeoff { askDiscard = true } else { dismiss() }
@@ -935,6 +942,7 @@ struct ScanEditor: View {
                           },
                           editOpenings: true, selectedOpening: $selectedOpening)
                 .frame(height: 210)
+            wallDistances(wall)
             openingEditor(on: wall)
             if wall.planned {
                 plannedWallControls(wall)
@@ -949,12 +957,12 @@ struct ScanEditor: View {
                             let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y, cur = max(hypot(dx, dy), 1e-9)
                             r.moveWallEnd(w.id, start: false, to: .init(x: w.start.x + dx / cur * l, y: w.start.y + dy / cur * l))
                         }
-                    }))
+                    }), applyWhenDone: true)
                     InchField(title: "Height", inches: Binding(get: { wall.heightFt * 12 }, set: { v in
                         editRoomOnce { r in
                             if let i = r.walls.firstIndex(where: { $0.id == wall.id }) { r.walls[i].heightFt = max(12, v) / 12 }
                         }
-                    }))
+                    }), applyWhenDone: true)
                 }
                 HStack(spacing: 10) {
                     InchField(title: "Split at (from the \(cornerName(wall, atStart: true)) end)", inches: $splitAtIn)
@@ -976,6 +984,27 @@ struct ScanEditor: View {
                 } message: {
                     Text("For a wall the scanner found that isn't there. Its doors, windows and any tile on it go too.")
                 }
+            }
+        }
+    }
+
+    /// The distance from this wall to the nearest wall running the same way
+    /// on each side; typing one slides this wall there (the room follows).
+    @ViewBuilder
+    private func wallDistances(_ wall: ScannedRoom.Wall) -> some View {
+        let near = room.parallelNeighbors(of: wall.id)
+        if !near.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    ForEach(near, id: \.wall.id) { n in
+                        InchField(title: "To wall \(n.wall.label)", inches: Binding(
+                            get: { (abs(n.offset) * 12 * 4).rounded() / 4 },
+                            set: { v in editRoomOnce { $0.setDistance(of: wall.id, from: n.wall.id, to: v / 12) } }),
+                                  applyWhenDone: true)
+                    }
+                }
+                Text("Wall to wall, square across. Type what you measured and this wall moves there; walls joined to it follow.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -2712,6 +2741,9 @@ struct InchField: View {
     @Binding var inches: Double
     /// Empty, not "0", until something's typed (a tape measurement not taken yet).
     var blankWhenZero = false
+    /// Only set when typing ends (Done, or tapping away): for a value that
+    /// moves walls, where "9" on the way to "96" would wreck the room.
+    var applyWhenDone = false
     @State private var text = ""
     @FocusState private var focused: Bool
 
@@ -2724,6 +2756,12 @@ struct InchField: View {
                     .focused($focused)
                     .font(.body.monospacedDigit())
                 Text("in").foregroundStyle(.secondary)
+                if applyWhenDone && focused {
+                    Button("Set") { focused = false }
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
             .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
@@ -2733,12 +2771,20 @@ struct InchField: View {
         .onAppear { text = shown(inches) }
         .onChange(of: inches) { _, v in if !focused { text = shown(v) } }
         .onChange(of: text) { _, t in
-            if focused {
+            if focused, !applyWhenDone {
                 if let v = Double(t.replacingOccurrences(of: ",", with: ".")), abs(v - inches) > 0.001 { inches = v }
                 else if t.isEmpty, blankWhenZero { inches = 0 }
             }
         }
-        .onChange(of: focused) { _, f in if !f { text = shown(inches) } }
+        .onChange(of: focused) { _, f in
+            if !f {
+                if applyWhenDone, let v = Double(text.replacingOccurrences(of: ",", with: ".")), abs(v - inches) > 0.001 {
+                    inches = v
+                }
+                text = shown(inches)
+            }
+        }
+        .onSubmit { focused = false }
     }
 
     private func shown(_ v: Double) -> String { blankWhenZero && v == 0 ? "" : Self.format(v) }

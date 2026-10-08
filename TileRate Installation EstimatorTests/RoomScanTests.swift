@@ -651,6 +651,18 @@ struct RoomScanTests {
         #expect(abs((moved.pieces.first { $0.wallID == divider.id }?.toFt ?? 0) - 4) < 1e-9)
     }
 
+    @Test func typingTheDistanceToAParallelWallMovesIt() {
+        var r = dividerRoom()
+        let divider = r.walls[1], east = r.walls[3], closet = r.walls[2]
+        let near = r.parallelNeighbors(of: divider.id)
+        #expect(near.count == 1 && near[0].wall.id == east.id && abs(abs(near[0].offset) - 7) < 1e-9)
+        // The closet measures 6′ wide: the divider goes to x = 6, the closet wall follows.
+        r.setDistance(of: divider.id, from: east.id, to: 6)
+        #expect(abs(r.wall(divider.id)!.start.x - 6) < 1e-9)
+        #expect(abs(r.wall(closet.id)!.lengthFt - 6) < 1e-9)
+        #expect(abs(r.wall(r.walls[0].id)!.lengthFt - 12) < 1e-9)
+    }
+
     @Test func aWallCanBeSplitAndItsTileFollows() {
         var r = dividerRoom()
         let back = r.walls[0]

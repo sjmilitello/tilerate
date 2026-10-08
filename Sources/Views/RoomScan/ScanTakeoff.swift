@@ -1596,3 +1596,39 @@ extension AreaTakeoff {
         return t
     }
 }
+
+
+// MARK: - Typed distances between walls
+
+extension ScannedRoom {
+    /// The nearest wall running the same way on each side of a wall, and how
+    /// far apart they are (square to them, in feet; `offset` is signed, along
+    /// the wall's left-hand normal).
+    func parallelNeighbors(of id: UUID) -> [(wall: Wall, offset: Double)] {
+        guard let w = wall(id), w.lengthFt > 0 else { return [] }
+        let u = Point(x: (w.end.x - w.start.x) / w.lengthFt, y: (w.end.y - w.start.y) / w.lengthFt)
+        let n = Point(x: -u.y, y: u.x)
+        var best: [Bool: (Wall, Double)] = [:]
+        for o in walls where o.id != id && o.lengthFt > 0.25 {
+            let ou = Point(x: (o.end.x - o.start.x) / o.lengthFt, y: (o.end.y - o.start.y) / o.lengthFt)
+            guard abs(u.x * ou.x + u.y * ou.y) > 0.98 else { continue }
+            let mid = Point(x: (o.start.x + o.end.x) / 2, y: (o.start.y + o.end.y) / 2)
+            let off = (mid.x - w.start.x) * n.x + (mid.y - w.start.y) * n.y
+            guard abs(off) > 0.1 else { continue }
+            let side = off > 0
+            if best[side].map({ abs(off) < abs($0.1) }) ?? true { best[side] = (o, off) }
+        }
+        return best.values.sorted { $0.1 < $1.1 }.map { (wall: $0.0, offset: $0.1) }
+    }
+
+    /// A wall slid square to itself so it's `feet` from `other` (a wall
+    /// running the same way), on the side it's on now; the room stays joined.
+    mutating func setDistance(of id: UUID, from other: UUID, to feet: Double) {
+        guard let w = wall(id), w.lengthFt > 0,
+              let off = parallelNeighbors(of: id).first(where: { $0.wall.id == other })?.offset else { return }
+        let u = Point(x: (w.end.x - w.start.x) / w.lengthFt, y: (w.end.y - w.start.y) / w.lengthFt)
+        let n = Point(x: -u.y, y: u.x)
+        let delta = off - (off > 0 ? 1 : -1) * max(feet, 1.0 / 12)
+        moveWall(id, by: .init(x: n.x * delta, y: n.y * delta))
+    }
+}

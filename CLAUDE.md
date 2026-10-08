@@ -453,7 +453,13 @@ scanned room answers the physical ones on its model instead of in fields.
   openings (`WallElevation.editOpenings`): tap one to choose it, drag it
   along (and a window up and down), drag its sides, top or bottom; type
   kind, width, height, off the floor and the distance to each end ("To wall
-  B"); delete it; Add door / window / opening (`openingEditor`). The room stays joined: a wall sharing a corner stretches to
+  B"); delete it; Add door / window / opening (`openingEditor`). Its
+  distance to the nearest wall running the same way on each side ("To wall
+  D", `parallelNeighbors`) can be typed; the wall slides there
+  (`setDistance`, via `moveWall`, so the room follows). Fields that move
+  walls (distance, length, height) apply only when typing ends — a Set
+  button by the field (`InchField.applyWhenDone`) — since "9" on the way to
+  "96" would collapse the room. The room stays joined: a wall sharing a corner stretches to
   follow (dragging a shower/closet divider stretches the closet's door wall),
   an end meeting the middle of another wall slides along it (the back wall
   keeps its length), a wall running into the moved one follows; doors and
