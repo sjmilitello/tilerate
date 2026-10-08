@@ -15,7 +15,7 @@ import CoreGraphics
 //  - Stagger: numbers on parallel lines close together don't sit side by side.
 //  - Hierarchy: inside stretches and things in the room nearest their edges;
 //    a wall's overall length always furthest out.
-// Each dimension tries rungs 14 pt apart, and along each rung the middle,
+// Each dimension tries rungs 13 pt apart, and along each rung the middle,
 // then either side; a number too long for its line sits beside it, else
 // past an end. If
 // nothing is clean it takes the least crowded spot — a dimension is never
@@ -55,7 +55,8 @@ struct PlanDimensionPlacer {
     /// The screen. A number for something on screen stays on it.
     var page: CGRect?
 
-    static let step: CGFloat = 14
+    /// Rungs apart: room for a 9.5 pt number between two dimension lines.
+    static let step: CGFloat = 13
     static let rungs = 5
 
     mutating func claim(_ rect: CGRect) { boxes.append(rect) }

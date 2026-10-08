@@ -41,12 +41,12 @@ enum WallDimensions {
             for k in 1..<along.count {
                 let len = along[k] - along[k - 1]
                 out.append(PlanDimension(id: "along-\(k)", kind: .chain, a: p(along[k - 1], 0), b: p(along[k], 0),
-                                         side: down, value: len, text: dimensionText(len), ink: .wall,
+                                         side: down, value: len, text: inchText(len), ink: .wall,
                                          wallID: alongID, outsideRow: true, offset: 12))
             }
         }
         out.append(PlanDimension(id: "length", kind: .overall, a: p(0, 0), b: p(lengthFt, 0), side: down,
-                                 value: lengthFt, text: dimensionText(lengthFt), ink: .wall,
+                                 value: lengthFt, text: inchText(lengthFt), ink: .wall,
                                  wallID: alongID, offset: 12))
 
         // Up the right-hand end.
@@ -55,22 +55,22 @@ enum WallDimensions {
             for k in 1..<up.count {
                 let len = up[k] - up[k - 1]
                 out.append(PlanDimension(id: "up-\(k)", kind: .chain, a: p(lengthFt, up[k - 1]), b: p(lengthFt, up[k]),
-                                         side: right, value: len, text: dimensionText(len), ink: .wall,
+                                         side: right, value: len, text: inchText(len), ink: .wall,
                                          wallID: upID, outsideRow: true, offset: 12))
             }
         }
         out.append(PlanDimension(id: "height", kind: .overall, a: p(lengthFt, 0), b: p(lengthFt, heightFt), side: right,
-                                 value: heightFt, text: dimensionText(heightFt), ink: .wall,
+                                 value: heightFt, text: inchText(heightFt), ink: .wall,
                                  wallID: upID, offset: 12))
 
         // The chosen one's own size.
         if let c = chosen, c.to - c.from > 1.0 / 32, c.top - c.bottom > 1.0 / 32 {
             let w = c.to - c.from, h = c.top - c.bottom
             out.append(PlanDimension(id: "chosen-width", kind: .feature, a: p(c.from, c.top), b: p(c.to, c.top),
-                                     side: .init(x: 0, y: 1), value: w, text: dimensionText(w), ink: .opening,
+                                     side: .init(x: 0, y: 1), value: w, text: inchText(w), ink: .opening,
                                      gap: 2, eitherSide: true, offset: 10))
             out.append(PlanDimension(id: "chosen-height", kind: .feature, a: p(c.from, c.bottom), b: p(c.from, c.top),
-                                     side: .init(x: -1, y: 0), value: h, text: dimensionText(h), ink: .opening,
+                                     side: .init(x: -1, y: 0), value: h, text: inchText(h), ink: .opening,
                                      gap: 2, eitherSide: true, offset: 10))
         }
         return out

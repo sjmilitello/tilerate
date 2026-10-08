@@ -75,7 +75,7 @@ enum PlanDimensions {
             if dot(sub(from, mid), n) > 0 { n = neg(n) }
             out.append(PlanDimension(id: "wall-\(w.id)", kind: w.planned ? .feature : .overall,
                                      a: w.start, b: w.end, side: n, value: w.lengthFt,
-                                     text: dimensionText(w.lengthFt), ink: .wall,
+                                     text: inchText(w.lengthFt), ink: .wall,
                                      gap: w.planned ? 4 + w.thicknessIn / 24 : 4, wallID: w.id,
                                      eitherSide: w.planned || isPartition(w, in: room)))
             // Its stretches, where other walls run into it partway.
@@ -86,7 +86,7 @@ enum PlanDimensions {
                     out.append(PlanDimension(id: "chain-\(w.id)-\(k)-\(i)", kind: .chain,
                                              a: room.point(on: w, along: chain.at[i - 1]),
                                              b: room.point(on: w, along: chain.at[i]),
-                                             side: chain.side, value: len, text: dimensionText(len),
+                                             side: chain.side, value: len, text: inchText(len),
                                              ink: .wall, wallID: w.id, outsideRow: outside))
                 }
             }
@@ -116,7 +116,7 @@ enum PlanDimensions {
                 let (e0, e1) = isCurb(p, q) && !isCurb(alt.0, alt.1) ? alt : (p, q)
                 let toward = unit(halfway(e0, e1), mid)
                 out.append(PlanDimension(id: "floor-\(name)", kind: .feature, a: e0, b: e1, side: toward,
-                                         value: value, text: dimensionText(value), ink: .floor, gap: -2))
+                                         value: value, text: inchText(value), ink: .floor, gap: -2))
             }
         }
 
@@ -128,7 +128,7 @@ enum PlanDimensions {
             var n = ScannedRoom.Point(x: -u.y, y: u.x)
             if let m = floorMid, dot(sub(halfway(a, b), m), n) < 0 { n = neg(n) }
             out.append(PlanDimension(id: "curb-\(k)", kind: .feature, a: a, b: b, side: n, value: len,
-                                     text: "Curb \(dimensionText(len))", shortText: dimensionText(len), ink: .curb))
+                                     text: "Curb \(inchText(len))", shortText: inchText(len), ink: .curb))
         }
 
         // Framed benches: length along the front, depth at the end.
@@ -143,13 +143,13 @@ enum PlanDimensions {
             }
             out.append(PlanDimension(id: "bench-\(item.id)", kind: .feature,
                                      a: pt(item.fromFt, d), b: pt(item.toFt, d), side: n,
-                                     value: item.widthFt, text: dimensionText(item.widthFt), ink: .bench, gap: 2))
+                                     value: item.widthFt, text: inchText(item.widthFt), ink: .bench, gap: 2))
             // Its depth, across its far end.
             let u = unit(w.start, w.end)
             let end = item.toFt
             out.append(PlanDimension(id: "bench-depth-\(item.id)", kind: .feature,
                                      a: pt(end, skin), b: pt(end, d), side: u,
-                                     value: item.depthIn / 12, text: dimensionText(item.depthIn / 12),
+                                     value: item.depthIn / 12, text: inchText(item.depthIn / 12),
                                      ink: .bench, gap: 2))
         }
         return out

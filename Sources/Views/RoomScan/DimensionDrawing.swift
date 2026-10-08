@@ -4,9 +4,8 @@ import SwiftUI
 /// the plan and on the face-on wall: extension lines, slash ticks, and the
 /// number on a dark patch along its line.
 enum DimensionDrawing {
-    static let font = Font.system(size: 11, weight: .semibold).monospacedDigit()
-    /// The face-on wall is drawn smaller than the plan, so its numbers are too.
-    static let smallFont = Font.system(size: 9.5, weight: .semibold).monospacedDigit()
+    /// 9.5 pt on the plan and the wall alike (owner's call, 2026-10-08: 11 pt crowded the plan).
+    static let font = Font.system(size: 9.5, weight: .semibold).monospacedDigit()
 
     static func ink(_ i: PlanDimension.Ink) -> Color {
         switch i {

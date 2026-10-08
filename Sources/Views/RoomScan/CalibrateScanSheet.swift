@@ -55,7 +55,7 @@ struct CalibrateScanSheet: View {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Wall \(w.label)").font(.body.weight(.semibold))
-                                Text("Scan \(dimensionText(w.lengthFt))")
+                                Text("Scan \(inchText(w.lengthFt))")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -69,7 +69,7 @@ struct CalibrateScanSheet: View {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Ceiling height").font(.body.weight(.semibold))
-                            Text("Scan \(feetAndInches(room.ceilingFt))").font(.caption).foregroundStyle(.secondary)
+                            Text("Scan \(inchText(room.ceilingFt))").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         InchField(title: "Tape", inches: $ceilingIn, blankWhenZero: true).frame(width: 120)
@@ -85,7 +85,7 @@ struct CalibrateScanSheet: View {
                             let after = w.lengthFt * c.lengthFactor(of: w) * 12
                             let off = after - (entered[w.id] ?? 0)
                             LabeledContent("Wall \(w.label)",
-                                           value: abs(off) < 1.0 / 32 ? "matches the tape" : "\(off > 0 ? "+" : "−")\(feetAndInches(abs(off) / 12)) from the tape")
+                                           value: abs(off) < 1.0 / 32 ? "matches the tape" : "\(off > 0 ? "+" : "−")\(inchText(abs(off) / 12)) from the tape")
                         }
                     }
                 }

@@ -365,7 +365,7 @@ struct ScanEditor: View {
                 Button("Full wall (with a door)") { closeSide(side, door: true) }
                 Button("Half wall") { closeSide(side, door: false) }
             } message: { side in
-                Text("Along the open side of the shower, \(feetAndInches(side.lengthFt)). Move or resize it after.")
+                Text("Along the open side of the shower, \(inchText(side.lengthFt)). Move or resize it after.")
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -770,7 +770,7 @@ struct ScanEditor: View {
                     .pickerStyle(.segmented)
                     let ft = AreaTakeoff.nicheStoneFt(takeoff.items[i])
                     if ft > 0 {
-                        Text("Stone: \(feetAndInches(ft)) (\(item.stone == .all ? "top, sides, base shelf and dividers" : "base shelf and dividers"))")
+                        Text("Stone: \(inchText(ft)) (\(item.stone == .all ? "top, sides, base shelf and dividers" : "base shelf and dividers"))")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } else {
@@ -883,7 +883,7 @@ struct ScanEditor: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(room.name(of: wall)).font(.ndTitle(20))
-                    Text("\(feetAndInches(wall.lengthFt)) long · \(feetAndInches(wall.heightFt)) high")
+                    Text("\(inchText(wall.lengthFt)) long · \(inchText(wall.heightFt)) high")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Spacer()
                 }
@@ -994,7 +994,7 @@ struct ScanEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(room.name(of: wall)).font(.ndTitle(20))
-                Text("\(dimensionText(wall.lengthFt)) long · \(dimensionText(wall.heightFt)) high")
+                Text("\(inchText(wall.lengthFt)) long · \(inchText(wall.heightFt)) high")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
             }
@@ -1185,7 +1185,7 @@ struct ScanEditor: View {
                                 takeoff.pieces[i].heightIn = h
                             }
                         } label: {
-                            Text(h == roomHeight ? "Full \(feetAndInches(h / 12))" : "\(Int(h))″ high")
+                            Text(h == roomHeight ? "Full \(inchText(h / 12))" : "\(Int(h))″ high")
                                 .font(.subheadline.weight(on ? .semibold : .regular))
                                 .padding(.horizontal, 12).padding(.vertical, 7)
                                 .background(on ? Color.green.opacity(0.3) : Color.white.opacity(0.08), in: Capsule())
@@ -1244,7 +1244,7 @@ struct ScanEditor: View {
                             Label("Half Wall", systemImage: "rectangle.bottomhalf.filled")
                         }
                     } label: {
-                        Label("Add a wall on the curb (\(feetAndInches(side.lengthFt)) open)", systemImage: "plus.rectangle.on.rectangle")
+                        Label("Add a wall on the curb (\(inchText(side.lengthFt)) open)", systemImage: "plus.rectangle.on.rectangle")
                     }
                     .buttonStyle(.bordered)
                     .font(.subheadline)
@@ -1274,7 +1274,7 @@ struct ScanEditor: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(piece.name).font(.subheadline.weight(.semibold))
-                    Text(feetAndInches(piece.lengthFt) + (abs(piece.lengthFt - piece.measuredFt) > 0.01 ? " (measured \(feetAndInches(piece.measuredFt)))" : ""))
+                    Text(inchText(piece.lengthFt) + (abs(piece.lengthFt - piece.measuredFt) > 0.01 ? " (measured \(inchText(piece.measuredFt)))" : ""))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -1313,7 +1313,7 @@ struct ScanEditor: View {
                         Button {
                             piece.wrappedValue.heightIn = h
                         } label: {
-                            Text(h == full ? "Full \(feetAndInches(h / 12))" : "\(Int(h))″")
+                            Text(h == full ? "Full \(inchText(h / 12))" : "\(Int(h))″")
                                 .font(.subheadline.weight(on ? .semibold : .regular))
                                 .padding(.horizontal, 12).padding(.vertical, 7)
                                 .background(on ? ND.link.opacity(0.3) : Color.white.opacity(0.08), in: Capsule())
@@ -1416,7 +1416,7 @@ struct ScanEditor: View {
                 Button {
                     room.openings[i].heightFt = header ? wall.heightFt : min(stone.doorHeightIn / 12, wall.heightFt)
                 } label: {
-                    Label(header ? "No header (open to the ceiling)" : "Add a header at \(feetAndInches(min(stone.doorHeightIn / 12, wall.heightFt)))",
+                    Label(header ? "No header (open to the ceiling)" : "Add a header at \(inchText(min(stone.doorHeightIn / 12, wall.heightFt)))",
                           systemImage: header ? "arrow.up.to.line" : "rectangle.tophalf.inset.filled")
                 }
                 .buttonStyle(.bordered)
@@ -1443,8 +1443,8 @@ struct ScanEditor: View {
                         })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Take off the \(o.kind.rawValue.lowercased())")
-                            Text("\(feetAndInches(o.widthFt)) × \(feetAndInches(o.heightFt))"
-                                 + (o.bottomFt > 0.1 ? ", \(feetAndInches(o.bottomFt)) off the floor" : ""))
+                            Text("\(inchText(o.widthFt)) × \(inchText(o.heightFt))"
+                                 + (o.bottomFt > 0.1 ? ", \(inchText(o.bottomFt)) off the floor" : ""))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -1542,7 +1542,7 @@ struct ScanEditor: View {
                                 takeoff.floorWidthFt = s.width
                                 takeoff.floorDepthFt = s.depth
                             } label: {
-                                Label("Size from the shower walls: \(feetAndInches(s.width)) × \(feetAndInches(s.depth))",
+                                Label("Size from the shower walls: \(inchText(s.width)) × \(inchText(s.depth))",
                                       systemImage: "arrow.down.right.and.arrow.up.left")
                             }
                             .buttonStyle(.bordered)
@@ -1724,7 +1724,7 @@ struct PlanCanvas: View {
         let rows = interactive && showDimensions && room.walls.contains { w in
             !w.planned && !PlanDimensions.isPartition(w, in: room) && !PlanDimensions.stretches(of: w, in: room).isEmpty
         }
-        let margin: CGFloat = interactive && showDimensions ? (rows ? 130 : 110) : 60
+        let margin: CGFloat = interactive && showDimensions ? (rows ? 118 : 100) : 60
         // And a strip along the bottom kept for the hint and the 2D/3D switch.
         let below: CGFloat = interactive && showDimensions ? Self.controlStrip : 0
         let fit = min((size.width - margin) / max(maxX - minX, 1), (size.height - margin - below) / max(maxY - minY, 1))
@@ -1816,11 +1816,11 @@ struct PlanCanvas: View {
             switch hold {
             case .wall(let id), .wallEnd(let id, _):
                 guard let w = room.wall(id) else { return nil }
-                let near = room.parallelNeighbors(of: id).map { "to wall \($0.wall.label) \(dimensionText(abs($0.offset)))" }
-                return (["\(room.name(of: w)) \(dimensionText(w.lengthFt))"] + near).joined(separator: " · ")
+                let near = room.parallelNeighbors(of: id).map { "to wall \($0.wall.label) \(inchText(abs($0.offset)))" }
+                return (["\(room.name(of: w)) \(inchText(w.lengthFt))"] + near).joined(separator: " · ")
             case .floor, .floorEdge:
                 guard let r = floorRect?.wrappedValue else { return nil }
-                return "Shower floor \(dimensionText(r.widthFt)) × \(dimensionText(r.depthFt))"
+                return "Shower floor \(inchText(r.widthFt)) × \(inchText(r.depthFt))"
             case nil:
                 return nil
             }
@@ -2157,7 +2157,7 @@ struct PlanCanvas: View {
             line.addLine(to: f.at(b))
             ctx.stroke(line, with: .color(.green), style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [8, 6]))
             let len = ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot()
-            ctx.draw(Text(feetAndInches(len)).font(.caption.weight(.semibold)).foregroundColor(.green),
+            ctx.draw(Text(inchText(len)).font(.caption.weight(.semibold)).foregroundColor(.green),
                      at: CGPoint(x: (f.at(a).x + f.at(b).x) / 2, y: (f.at(a).y + f.at(b).y) / 2 - 14))
         }
         // Walls.
@@ -2321,7 +2321,7 @@ struct PlanCanvas: View {
         let cy = room.walls.map { ($0.start.y + $0.end.y) / 2 }.reduce(0, +) / Double(max(room.walls.count, 1))
         for w in room.walls {
             let toward = letterSpot(w, f, center: .init(x: cx, y: cy))
-            let label = Text(interactive && !showDimensions ? "\(w.label)  \(feetAndInches(w.lengthFt))" : w.label)
+            let label = Text(interactive && !showDimensions ? "\(w.label)  \(inchText(w.lengthFt))" : w.label)
                 .font(.system(size: interactive ? 11 : 10, weight: .semibold))
                 .foregroundColor(mine.contains { $0.wallID == w.id } ? .blue : Color(white: 0.75))
             ctx.draw(label, at: f.at(toward))
@@ -2461,7 +2461,7 @@ struct WallElevation: View {
                     Rectangle().fill(Color.blue.opacity(selected ? 0.42 : 0.28))
                         .overlay(Rectangle().stroke(Color.blue, lineWidth: selected ? 2 : 1))
                         .overlay(alignment: .bottom) {
-                            Text("\(feetAndInches(p.toFt - p.fromFt)) × \(feetAndInches(p.heightIn / 12))")
+                            Text("\(inchText(p.toFt - p.fromFt)) × \(inchText(p.heightIn / 12))")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 5).padding(.vertical, 2)
@@ -2709,10 +2709,8 @@ struct WallElevation: View {
         box(CGPoint(x: origin.x + width / 2, y: origin.y + Self.belowWall - 6), max(width, 170), 14)
         box(CGPoint(x: 120, y: 12), 240, 22)
 
-        let small = DimensionDrawing.smallFont
         DimensionDrawing.draw(ctx, placer.layout(dims, at: { at($0.x, $0.y) },
-                                                 measure: { DimensionDrawing.measure(ctx, $0, font: small) }),
-                              font: small)
+                                                 measure: { DimensionDrawing.measure(ctx, $0) }))
     }
 
     /// Where the grips of whatever is chosen sit.
@@ -2994,10 +2992,11 @@ private struct Handle: View {
 
 // MARK: - Number fields
 
-/// Inches, typed, with feet and inches shown under it.
+/// A length, typed: shown in inches, typed either way.
 struct InchField: View {
     let title: String
-    /// The length, in inches; shown and typed in feet and inches to the sixteenth.
+    /// The length, in inches, to the sixteenth: shown in inches, typed in
+    /// inches or feet and inches.
     @Binding var inches: Double
     /// Empty, not "0", until something's typed (a tape measurement not taken yet).
     var blankWhenZero = false
@@ -3046,7 +3045,9 @@ struct InchField: View {
         .onSubmit { focused = false }
     }
 
-    private func shown(_ v: Double) -> String { blankWhenZero && v == 0 ? "" : Lengths.typed(inches: v) }
+    private func shown(_ v: Double) -> String {
+        blankWhenZero && v == 0 ? "" : Lengths.typedInches(v)
+    }
 
     /// A plain number of inches, for text that says ″ after it.
     static func format(_ v: Double) -> String {

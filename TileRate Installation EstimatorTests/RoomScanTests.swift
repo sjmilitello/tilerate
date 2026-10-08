@@ -740,16 +740,15 @@ struct RoomScanTests {
         #expect(fixed.calibrations.first == c)
     }
 
-    @Test func dimensionsReadToTheQuarterInch() {
-        #expect(dimensionText(9) == "9′ 0″")
-        #expect(dimensionText(106.5 / 12) == "8′ 10 1/2″")
-        #expect(dimensionText(97.25 / 12) == "8′ 1 1/4″")
-        #expect(dimensionText(13.1875 / 12) == "1′ 1 3/16″")
-        #expect(dimensionText(0.25 / 12) == "1/4″")
-        #expect(dimensionText(13.0 / 12) == "1′ 1″")
-        #expect(dimensionText(0.5) == "6″")
-        #expect(dimensionText(95.9 / 12) == "7′ 11 7/8″")
-        #expect(feetAndInches(5) == "5′")
+    @Test func lengthsReadInInchesToTheSixteenth() {
+        #expect(inchText(9) == "108″")
+        #expect(inchText(106.5 / 12) == "106 1/2″")
+        #expect(inchText(97.25 / 12) == "97 1/4″")
+        #expect(inchText(13.1875 / 12) == "13 3/16″")
+        #expect(inchText(0.25 / 12) == "1/4″")
+        #expect(inchText(0.5) == "6″")
+        #expect(inchText(95.9 / 12) == "95 7/8″")
+        #expect(inchText(0) == "0″")
         // Typed as a tape is read.
         #expect(Lengths.parse("8' 10 1/2\"") == 106.5)
         #expect(Lengths.parse("8'10-1/2") == 106.5)
@@ -760,7 +759,7 @@ struct RoomScanTests {
         #expect(Lengths.parse("8'") == 96)
         #expect(Lengths.parse("8' 1") == 97)
         #expect(Lengths.parse("abc") == nil)
-        #expect(Lengths.typed(inches: 106.5) == "8' 10 1/2\"")
+        #expect(Lengths.typedInches(106.5) == "106 1/2\"")
     }
 
     // MARK: Suggested areas
@@ -890,7 +889,7 @@ struct RoomScanTests {
         // Rooms saved before scans existed still load.
         let old = try JSONDecoder().decode(EstimateRoom.self, from: Data(#"{"name":"Kitchen","sections":[]}"#.utf8))
         #expect(old.scan == nil && old.name == "Kitchen")
-        #expect(feetAndInches(7.5) == "7′ 6″")
-        #expect(feetAndInches(0.5) == "6″")
+        #expect(inchText(7.5) == "90″")
+        #expect(inchText(0.5) == "6″")
     }
 }

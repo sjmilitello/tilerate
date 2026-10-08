@@ -540,7 +540,7 @@ extension AreaTakeoff {
         f.sized = items.compactMap { i in
             switch i.kind {
             case .framedBench, .floatingBench:
-                return SizedFeature(kind: .bench, label: "\(i.kind.name) \(feetAndInches(i.widthFt))", linFt: i.widthFt)
+                return SizedFeature(kind: .bench, label: "\(i.kind.name) \(inchText(i.widthFt))", linFt: i.widthFt)
             case .niche:
                 let stone = i.stone == .all ? ", stone all around" : i.stone == .shelves ? ", stone shelves" : ""
                 return SizedFeature(kind: .niche, label: "Niche \(inches(i.widthFt * 12)) × \(inches(i.heightIn))\(stone)",
@@ -725,11 +725,9 @@ func boundingSize(_ points: [ScannedRoom.Point]) -> (Double, Double) {
     return (maxX - minX, maxY - minY)
 }
 
-/// A dimension, feet and inches to the sixteenth: 8′ 10 1/2″, 6″.
-func dimensionText(_ feet: Double) -> String { Lengths.text(feet: feet) }
-
-/// A length to the sixteenth, a whole number of feet without "0″": 7′ 6″, 5′, 13 1/8″.
-func feetAndInches(_ feet: Double) -> String { Lengths.text(feet: feet, zeroInches: false) }
+/// Every length shown, in inches to the sixteenth: 106 1/2″, 13 1/8″, 3/16″
+/// (owner's call, 2026-10-08: inches for everything; see `Lengths`).
+func inchText(_ feet: Double) -> String { Lengths.inchesText(feet: feet) }
 
 // MARK: - Curbs, wall caps and jambs
 

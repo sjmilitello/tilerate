@@ -1,8 +1,10 @@
 import Foundation
 
-// Lengths on the plan and the walls (owner's call, 2026-10-08): everything in
-// feet and inches, to the nearest sixteenth — 8′ 10 1/2″, 13 1/8″, 3/16″ — and
-// typed the way a tape is read: 8' 10 1/2", 8'10-1/2, 106 1/2, 106.5, 3/4.
+// Lengths (owner's calls, 2026-10-08): every length shown in inches, to the
+// nearest sixteenth — 106 1/2″, 13 1/8″, 3/16″ (`inchText`) — and typed the
+// way a tape is read, in inches or feet and inches: 106 1/2, 106.5, 3/4,
+// 8' 10 1/2", 8'10-1/2. (Feet and inches were shown for a day; inches crowd
+// the drawings less — 2′ 10″ is 34″ — and are how a shower is talked about.)
 // The fraction reading and reducing come from FabSpecPro's MeasurementParser.
 
 enum Lengths {
@@ -24,25 +26,20 @@ enum Lengths {
         return (negative, feet, whole, num, den)
     }
 
-    /// 8′ 10 1/2″, 8′ 0″ (or 8′ when `zeroInches` is false), 13 1/8″, 3/16″.
-    static func text(feet: Double, zeroInches: Bool = true) -> String {
+    /// 106 1/2″, 13 1/8″, 3/16″, 0″.
+    static func inchesText(feet: Double) -> String {
         let p = parts(inches: feet * 12)
         let sign = p.negative && (p.feet > 0 || p.inches > 0 || p.num > 0) ? "−" : ""
+        let whole = p.feet * 12 + p.inches
         let frac = p.num > 0 ? "\(p.num)/\(p.den)" : ""
-        let inch: String
-        if p.inches > 0 && !frac.isEmpty { inch = "\(p.inches) \(frac)″" }
-        else if p.inches > 0 { inch = "\(p.inches)″" }
-        else if !frac.isEmpty { inch = "\(frac)″" }
-        else { inch = "0″" }
-        if p.feet == 0 { return sign + inch }
-        if inch == "0″" && !zeroInches { return "\(sign)\(p.feet)′" }
-        return "\(sign)\(p.feet)′ \(inch)"
+        if whole > 0 && !frac.isEmpty { return "\(sign)\(whole) \(frac)″" }
+        if !frac.isEmpty { return "\(sign)\(frac)″" }
+        return "\(sign)\(whole)″"
     }
 
-    /// The same, written with plain keys so it can be edited: 8' 10 1/2".
-    static func typed(inches: Double) -> String {
-        text(feet: inches / 12).replacingOccurrences(of: "′", with: "'").replacingOccurrences(of: "″", with: "\"")
-            .replacingOccurrences(of: "−", with: "-")
+    /// The same with plain keys, to edit: 106 1/2".
+    static func typedInches(_ inches: Double) -> String {
+        inchesText(feet: inches / 12).replacingOccurrences(of: "″", with: "\"").replacingOccurrences(of: "−", with: "-")
     }
 
     /// Inches from what was typed: feet before a ' (or ′), then inches with an

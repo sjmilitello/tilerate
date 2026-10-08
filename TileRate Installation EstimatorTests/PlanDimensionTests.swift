@@ -97,7 +97,7 @@ struct PlanDimensionTests {
         #expect(placed.count == dims.count)
         #expect(placed.filter { !$0.clean }.map(\.dimension.text) == [])
         // The curb gives the width; the depth goes along the wall, inside the floor.
-        #expect(dims.contains { $0.text == "Curb 5′ 0″" })
+        #expect(dims.contains { $0.text == "Curb 60″" })
         #expect(!dims.contains { $0.id == "floor-width" })
         let depth = dims.first { $0.id == "floor-depth" }
         #expect(depth.map { abs($0.a.x - 11) < 1e-9 && abs($0.b.x - 11) < 1e-9 } == true)
@@ -134,14 +134,14 @@ struct PlanDimensionTests {
         #expect(abs(up - 8) < 1e-9)
         // Corner, niche, gap, window, end: five stretches; floor, niche, gap, window, above: five heights.
         #expect(dims.filter { $0.id.hasPrefix("along-") }.count == 5)
-        #expect(dims.filter { $0.id.hasPrefix("up-") }.map(\.text) == ["1′ 0″", "2′ 0″", "6″", "3′ 0″", "1′ 6″"])
+        #expect(dims.filter { $0.id.hasPrefix("up-") }.map(\.text) == ["12″", "24″", "6″", "36″", "18″"])
     }
 
     @Test func aChosenWindowIsDimensionedOnItselfAndNothingOverlaps() {
         let window = WallDimensions.Span(from: 3.75, to: 6.25, bottom: 3.5, top: 6.5)
         let (dims, placed) = wallLayout(chosen: window)
-        #expect(dims.first { $0.id == "chosen-width" }?.text == "2′ 6″")
-        #expect(dims.first { $0.id == "chosen-height" }?.text == "3′ 0″")
+        #expect(dims.first { $0.id == "chosen-width" }?.text == "30″")
+        #expect(dims.first { $0.id == "chosen-height" }?.text == "36″")
         #expect(placed.count == dims.count)
         for i in placed.indices {
             for j in placed.indices where j > i {

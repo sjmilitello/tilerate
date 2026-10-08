@@ -403,7 +403,7 @@ pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
 this area's tile blue, other areas' orange), the chosen wall face-on below
 (`WallElevation`: drag a piece's sides and top; ends snap to the inch and to
 corners, openings, the tub and other areas' ends; tap a door or window to
-take it off), height chips, From/To/Height typed in feet and inches, Add tile,
+take it off), height chips, From/To/Height typed in inches, Add tile,
 Split, Remove tile. A new piece takes the wall's longest free stretch at a
 starting height (backsplash 18″, tub 84″, else full height). The scanner
 only runs on a real LiDAR iPhone; in DEBUG builds without LiDAR a "Use a
@@ -496,10 +496,11 @@ handles described above wherever they differ.
   adjustments are easy. Steered lengths snap to the sixteenth.
 - **Zoom** (`PlanViewport`): pinch about the fingers, pan clamped to half a
   screen past the plan, Fit resets; the held thing is kept on screen.
-- **Lengths** (`Lengths`): everything on the model and in the calibration
-  sheet reads in feet and inches to 1/16″ (8′ 10 1/2″, 13 1/8″), and is typed
-  the way a tape is read (8' 10 1/2", 8'10-1/2, 106 1/2, 106.5, 3/4).
-  `dimensionText`/`feetAndInches` both go through it.
+- **Lengths** (`Lengths`, `inchText`): every length shown — plan, wall,
+  fields, calibration, labels — is in inches to 1/16″ (106 1/2″, 13 1/8″);
+  owner's call, 2026-10-08, after a day of feet and inches crowded the
+  plan. Typed either way, as a tape is read (106 1/2, 106.5, 3/4,
+  8' 10 1/2", 8'10-1/2). Don't bring feet back for one place: one rule everywhere.
 - **Undo and redo** (icons at the top of the model; `EditHistory`, up to 100
   steps): the room and the area's takeoff together, one step per change once
   it has been still for 0.6 s. Selections that no longer exist are cleared.
@@ -521,23 +522,23 @@ a partition's own length on whichever side is clear (`isPartition`,
 `eitherSide`); walls drawn in beside themselves; the shower floor's width
 and depth inside it, except a side that is all curb, which the curb's own
 number gives (two numbers on sides that meet would cross in their corner);
-the curb outside the floor ("Curb 4′ 1 1/2″", or the number alone when the
+the curb outside the floor ("Curb 49 1/2″", or the number alone when the
 words don't fit, `shortText`); framed benches' length and depth.
 
 How it's placed: walls, floor, curb and tub claim their lines and the wall
 letters their boxes first; every extension line's lane is reserved; then
-nearest first, each tries rungs 14 pt apart and spots along them (beside a
+nearest first, each tries rungs 13 pt apart and spots along them (beside a
 short line, or past an end without running through a wall). Rules: numbers
 don't overlap anything, dimension lines don't cross (D1, D2), a number is
 nearest its own edge (D3), parallel numbers stagger, an overall is beyond
 its wall's stretches, a number for something on screen stays on screen
 and out of the strip with the hint and the 2D/3D switch. Nothing clean: the
 least crowded spot — never left out. The plan is 340 pt tall with
-dimensions on (250 off). `PlanDimensionTests` holds the rules.
+dimensions on (250 off). Numbers are 9.5 pt on the plan and the wall alike
+(`DimensionDrawing.font`). `PlanDimensionTests` holds the rules.
 
 The wall face-on (`WallElevation`) uses the same placer and drawing
-(`WallDimensions.swift`, `DimensionDrawing.swift`; numbers 9.5 pt, the view
-330 pt tall): along the bottom, every door, window, opening, niche, bench
+(`WallDimensions.swift`, `DimensionDrawing.swift`; the view 330 pt tall): along the bottom, every door, window, opening, niche, bench
 and corner piece's sides on one row, the wall's length beyond it; up the
 right-hand end, every bottom and top of those and this area's tile top on
 one column, the wall's height beyond it; the chosen niche, window, bench or
