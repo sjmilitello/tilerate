@@ -60,7 +60,7 @@ struct RoomScanTests {
     @Test func aNewPieceTakesTheLongestFreeStretch() {
         var shower = AreaTakeoff()
         let first = shower.addPiece(on: A, area: .tub, others: [])
-        #expect(first?.fromFt == 0 && first?.toFt == 9 && first?.heightIn == 84)
+        #expect(first?.fromFt == 0 && first?.toFt == 9 && first?.heightIn == 96)   // to the top of the wall (owner, 2026-10-08)
 
         // Another area already has A from 0 to 5 (a tub surround).
         var wainscot = AreaTakeoff()
@@ -643,6 +643,57 @@ struct RoomScanTests {
         #expect(dimensionText(13.0 / 12) == "1′ 1″")
         #expect(dimensionText(0.5) == "6″")
         #expect(dimensionText(95.9 / 12) == "8′ 0″")
+    }
+
+    // MARK: Suggested areas
+
+    @Test func aScanSuggestsTheFloorTubAndBacksplashButNotAShowerInAPlainRoom() {
+        let found = room.suggestions()
+        #expect(found.map(\.title) == ["Tub surround", "Floor", "Backsplash"])
+        // The tub surround: the walls round the tub, full height (owner's rule).
+        let tub = found[0].takeoff
+        #expect(Set(tub.pieces.map(\.wallID)) == [A.id, D.id])
+        #expect(tub.pieces.allSatisfy { $0.heightIn == 96 })
+        // The floor leaves out the tub.
+        #expect(found[1].takeoff.floor == .room && found[1].takeoff.excludeTub)
+        // Areas the room already has aren't suggested again.
+        #expect(room.suggestions(skipping: [.floor, .tub]).map(\.title) == ["Backsplash"])
+    }
+
+    @Test func anAlcoveOfThreeWallsIsAPossibleShower() {
+        // A 10′ × 8′ room with a 5′ × 3′ alcove off its top wall, between x = 2 and 7.
+        var r = ScannedRoom()
+        func wall(_ l: String, _ a: (Double, Double), _ b: (Double, Double)) -> ScannedRoom.Wall {
+            ScannedRoom.Wall(label: l, lengthFt: hypot(b.0 - a.0, b.1 - a.1), heightFt: 8,
+                             start: .init(x: a.0, y: a.1), end: .init(x: b.0, y: b.1))
+        }
+        r.walls = [wall("A", (0, 0), (2, 0)), wall("B", (2, 0), (2, -3)), wall("C", (2, -3), (7, -3)),
+                   wall("D", (7, -3), (7, 0)), wall("E", (7, 0), (10, 0)), wall("F", (10, 0), (10, 8)),
+                   wall("G", (10, 8), (0, 8)), wall("H", (0, 8), (0, 0))]
+        r.floorOutline = [.init(x: 0, y: 0), .init(x: 2, y: 0), .init(x: 2, y: -3), .init(x: 7, y: -3),
+                          .init(x: 7, y: 0), .init(x: 10, y: 0), .init(x: 10, y: 8), .init(x: 0, y: 8)]
+        let found = r.suggestions()
+        let shower = found.first { $0.area == .shower }
+        #expect(shower?.title == "Possible shower")
+        let t = shower!.takeoff
+        #expect(abs(t.floorRect!.widthFt - 5) < 1e-9 && abs(t.floorRect!.depthFt - 3) < 1e-9)
+        #expect(Set(t.pieces.map(\.wallID)) == Set([r.walls[1].id, r.walls[2].id, r.walls[3].id]))
+        #expect(abs(t.wallsSqft(in: r) - (3 + 5 + 3) * 8) < 1e-9)
+        // Just one: the room's own corners aren't alcoves.
+        #expect(found.filter { $0.area == .shower }.count == 1)
+    }
+
+    @Test func wallTileStartsFullHeightExceptBacksplashes() {
+        let w = room.walls[0]
+        #expect(AreaTakeoff.startingHeight(for: .tub, wall: w) == 96)
+        #expect(AreaTakeoff.startingHeight(for: .shower, wall: w) == 96)
+        #expect(AreaTakeoff.startingHeight(for: .wall, wall: w) == 96)
+        #expect(AreaTakeoff.startingHeight(for: .backsplash, wall: w) == 18)
+    }
+
+    @Test func areasSavedBeforeAreMeasuredFromTheModel() throws {
+        let s = try JSONDecoder().decode(EstimateSection.self, from: Data(#"{"roomName":"Bath"}"#.utf8))
+        #expect(!s.measuredByHand)
     }
 
     @Test func aRoomIsDrawnForThePDF() throws {

@@ -11,7 +11,10 @@ struct AreaFlowView: View {
 
     @State private var step = 0
     @State private var scanning: ScanTarget? = nil
-    @State private var measuringOnPlan = false
+    /// The model open from the Measure or Extras step.
+    @State private var editorMode: ScanEditor.Mode? = nil
+    /// The model opened by itself on arriving at Measure (once).
+    @State private var autoOpened = false
     @State private var calibrating = false
 
     /// Where a new scan is kept: on the room for all its areas, or on this
@@ -134,10 +137,12 @@ struct AreaFlowView: View {
             didStart = true
             step = startStep
             if startStep >= 3 { visitedExtras = true }
+            openModelIfNew()
         }
         .sheet(item: $editing) { target in
             tileSheet(target)
         }
+        .modifier(ScanCoversModifier(apply: { scanCovers($0) }))
         .sheet(item: $editingLine) { target in
             NDLineItemSheet(item: lineBinding(target), materials: target.materials) {
                 if target.materials { sec.wrappedValue.additionsMaterials.removeAll { $0.id == target.id } }
@@ -150,6 +155,15 @@ struct AreaFlowView: View {
     private func go(_ newStep: Int) {
         if step == 3 || newStep > 3 { visitedExtras = true }
         withAnimation(.easeInOut(duration: 0.2)) { step = newStep }
+        openModelIfNew()
+    }
+
+    /// A scanned room's area opens its model the first time it reaches
+    /// Measure with nothing measured yet (owner's call).
+    private func openModelIfNew() {
+        guard step == 2, !autoOpened, fromModel, section.area != nil, measuredSqft == 0 else { return }
+        autoOpened = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { editorMode = .measure }
     }
 
     // MARK: Step 1: area
@@ -157,6 +171,17 @@ struct AreaFlowView: View {
     private var areaStep: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("What are we tiling?").font(.ndTitle(26))
+            if let scan = activeScan, !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    PlanCanvas(room: scan, mine: [], others: otherScanAreas, interactive: false,
+                               highlights: suggestions.map { ($0.title, $0.outline) })
+                        .frame(height: 170)
+                        .background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 12))
+                    Text("Found in the scan: " + suggestions.map(\.title).joined(separator: ", ")
+                         + ". Choose one below, or anything else.")
+                        .font(.system(size: 13)).foregroundStyle(ND.secondary)
+                }
+            }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(Area.allCases) { area in
                     let selected = section.area == area
@@ -171,6 +196,12 @@ struct AreaFlowView: View {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.system(size: 22))
                                         .foregroundStyle(ND.link)
+                                } else if suggestions.contains(where: { $0.area == area }) {
+                                    Text("In the scan")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(.black)
+                                        .padding(.horizontal, 7).padding(.vertical, 3)
+                                        .background(Color(red: 1, green: 0.8, blue: 0.3), in: Capsule())
                                 }
                             }
                             Spacer()
@@ -195,9 +226,22 @@ struct AreaFlowView: View {
         }
     }
 
+    /// What the room's scan seems to hold that the room doesn't have yet.
+    private var suggestions: [ScanSuggestion] {
+        guard let scan = activeScan, !handMeasured, let r = roomIndex else { return [] }
+        let existing = Set(store.doc.rooms[r].sections.filter { $0.id != section.id }.compactMap(\.area))
+        return scan.suggestions(skipping: existing)
+    }
+
     private func choose(_ area: Area) {
         var s = section
         let firstTime = s.area == nil
+        // A suggested area starts with what the scan found.
+        if s.area != area, s.roomScan == nil, let found = suggestions.first(where: { $0.area == area }) {
+            s.scanTakeoff = found.takeoff
+        } else if s.area != area, !firstTime {
+            s.scanTakeoff = nil
+        }
         guard s.area != area else { go(1); return }
         if !firstTime {
             s.features = Features()
@@ -313,7 +357,9 @@ struct AreaFlowView: View {
             store.doc.rooms[r].scan = after
             for i in store.doc.rooms[r].sections.indices {
                 var s = store.doc.rooms[r].sections[i]
-                guard s.roomScan == nil, let t = s.scanTakeoff else { continue }
+                // Only areas measured on the model; typed ones keep their numbers.
+                guard s.roomScan == nil, !s.measuredByHand, let t = s.scanTakeoff,
+                      !t.pieces.isEmpty || t.floor != .none else { continue }
                 t.calibrated(c, before: before).apply(after, to: &s, prices: prices)
                 store.doc.rooms[r].sections[i] = s
             }
@@ -322,88 +368,17 @@ struct AreaFlowView: View {
 
     /// Scanning the room with the iPhone's LiDAR, and measuring this area on
     /// the plan it makes.
-    @ViewBuilder
-    private var scanBlock: some View {
-        Group {
-            if let scan = activeScan {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Label(section.roomScan != nil ? "This area's scan" : "Room scan", systemImage: "viewfinder")
-                            .font(.system(size: 15, weight: .semibold))
-                        Spacer()
-                        if RoomScanner.isAvailable {
-                            Menu {
-                                Button { scanning = .room } label: { Label("Scan the room again", systemImage: "viewfinder") }
-                                Button { scanning = .area } label: { Label("Scan just this area", systemImage: "square.dashed") }
-                            } label: {
-                                Text("Rescan").font(.system(size: 14, weight: .medium))
-                            }
-                        }
-                        #if DEBUG
-                        if !RoomScanner.isAvailable {
-                            Button("Sample room") { finishScan(ScannedRoom.sample.turned(by: 27), target: .room) }
-                                .font(.system(size: 14, weight: .medium))
-                        }
-                        #endif
-                    }
-                    Button { measuringOnPlan = true } label: {
-                        PlanCanvas(room: scan, mine: section.scanTakeoff?.pieces ?? [], others: otherScanAreas, interactive: false,
-                                   floorRectShown: section.scanTakeoff?.floor == .drawn ? section.scanTakeoff?.floorRect : nil)
-                            .frame(height: 150)
-                            .background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                    if let t = section.scanTakeoff {
-                        Text(scanSummary(t, scan)).font(.system(size: 14)).foregroundStyle(ND.secondary)
-                    }
-                    Button { calibrating = true } label: {
-                        Label(scan.calibrations.isEmpty ? "Calibrate with a tape measure" : "Calibrated · check or calibrate again",
-                              systemImage: scan.calibrations.isEmpty ? "ruler" : "checkmark.seal")
-                            .font(.system(size: 14, weight: .medium))
-                    }
-                    .sheet(isPresented: $calibrating) {
-                        CalibrateScanSheet(room: scan, onApply: { applyCalibration($0) },
-                                           onUndo: scan.calibrations.isEmpty ? nil : { undoCalibration() })
-                    }
-                    Button { measuringOnPlan = true } label: {
-                        Label(section.scanTakeoff == nil ? "Measure on the plan" : "Adjust on the plan", systemImage: "ruler")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(NDPrimaryButtonStyle())
-                }
-                .padding(14)
-                .background(ND.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
-            } else if RoomScanner.isAvailable {
-                Button { scanning = .room } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "viewfinder").font(.system(size: 26))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Scan the room").font(.system(size: 16, weight: .semibold))
-                            Text("Walk round it with the camera; every area in \(roomName.isEmpty ? "the room" : roomName) can measure from it.")
-                                .font(.system(size: 13)).foregroundStyle(ND.secondary).multilineTextAlignment(.leading)
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").foregroundStyle(ND.muted)
-                    }
-                    .padding(14)
-                    .background(ND.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
-                    .foregroundStyle(ND.text)
-                }
-                .buttonStyle(.plain)
-            } else {
-                sampleScanButton
-            }
-        }
+    /// The scanner and the room's model, open from Measure or Extras.
+    private func scanCovers<V: View>(_ v: V) -> some View {
+        v
         .fullScreenCover(item: $scanning) { target in
             RoomScanCover { room in finishScan(room, target: target) }
         }
-        .fullScreenCover(isPresented: $measuringOnPlan) {
+        .fullScreenCover(item: $editorMode) { mode in
             if let scan = activeScan {
                 ScanEditor(room: scan, area: section.area,
                            title: "\(roomName.isEmpty ? "" : roomName + " · ")\(section.area?.rawValue ?? "Area")",
-                           takeoff: takeoffForEditor(scan), others: otherScanAreas,
+                           takeoff: takeoffForEditor(scan), others: otherScanAreas, mode: mode,
                            kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
                            stone: StonePrices(rates: store.pricingRates),
                            tile: section.mainTile, floorTile: section.showerFloorTile,
@@ -423,7 +398,7 @@ struct AreaFlowView: View {
                                        let gone = Set(scan.walls.map(\.id)).subtracting(room.walls.map(\.id))
                                        for i in store.doc.rooms[r].sections.indices where store.doc.rooms[r].sections[i].id != section.id {
                                            var other = store.doc.rooms[r].sections[i]
-                                           guard other.roomScan == nil, var ot = other.scanTakeoff,
+                                           guard other.roomScan == nil, !other.measuredByHand, var ot = other.scanTakeoff,
                                                  ot.pieces.contains(where: { gone.contains($0.wallID) }) else { continue }
                                            ot.pieces.removeAll { gone.contains($0.wallID) }
                                            ot.apply(room, to: &other, prices: StonePrices(rates: store.pricingRates))
@@ -432,15 +407,98 @@ struct AreaFlowView: View {
                                    }
                                }
                                var s = section
+                               var t = t
+                               // On the model, what's placed is what's there (counts follow it).
+                               t.itemsPlaced = true
                                t.apply(room, to: &s, prices: StonePrices(rates: store.pricingRates))
                                sec.wrappedValue = s
                            },
                            onRescan: {
-                               measuringOnPlan = false
+                               editorMode = nil
                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                                    scanning = section.roomScan != nil ? .area : .room
                                }
                            })
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var scanBlock: some View {
+        Group {
+            if activeScan != nil, handMeasured {
+                NDCard {
+                    HStack(spacing: 12) {
+                        Label("Measured by hand", systemImage: "keyboard").font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Button("Use the model instead") {
+                            sec.wrappedValue.measuredByHand = false
+                            editorMode = .measure
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ND.link)
+                    }
+                    .padding(14)
+                }
+            } else if let scan = activeScan {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label(section.roomScan != nil ? "This area's scan" : "Room scan", systemImage: "viewfinder")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Menu {
+                            if RoomScanner.isAvailable {
+                                Button { scanning = .room } label: { Label("Scan the room again", systemImage: "viewfinder") }
+                                Button { scanning = .area } label: { Label("Scan just this area", systemImage: "square.dashed") }
+                            }
+                            Button { sec.wrappedValue.measuredByHand = true } label: {
+                                Label("Enter by hand instead", systemImage: "keyboard")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle").font(.system(size: 18))
+                        }
+                        #if DEBUG
+                        if !RoomScanner.isAvailable {
+                            Button("Sample room") { finishScan(ScannedRoom.sample.turned(by: 27), target: .room) }
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        #endif
+                    }
+                    Button { editorMode = .measure } label: {
+                        PlanCanvas(room: scan, mine: section.scanTakeoff?.pieces ?? [], others: otherScanAreas, interactive: false,
+                                   floorRectShown: section.scanTakeoff?.floor == .drawn ? section.scanTakeoff?.floorRect : nil)
+                            .frame(height: 150)
+                            .background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    if let t = section.scanTakeoff {
+                        Text(scanSummary(t, scan)).font(.system(size: 14)).foregroundStyle(ND.secondary)
+                    }
+                    Button { calibrating = true } label: {
+                        Label(scan.calibrations.isEmpty ? "Calibrate with a tape measure" : "Calibrated · check or calibrate again",
+                              systemImage: scan.calibrations.isEmpty ? "ruler" : "checkmark.seal")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .sheet(isPresented: $calibrating) {
+                        CalibrateScanSheet(room: scan, onApply: { applyCalibration($0) },
+                                           onUndo: scan.calibrations.isEmpty ? nil : { undoCalibration() })
+                    }
+                    Button { editorMode = .measure } label: {
+                        Label(measuredSqft > 0 ? "Edit on the model" : "Choose on the model", systemImage: "cube")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(NDPrimaryButtonStyle())
+                }
+                .padding(14)
+                .background(ND.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
+            } else if RoomScanner.isAvailable {
+                Button { scanning = .room } label: {
+                    Label("Scan this room instead", systemImage: "viewfinder").font(.system(size: 14, weight: .medium))
+                }
+                .foregroundStyle(ND.link)
+            } else {
+                sampleScanButton
             }
         }
     }
@@ -463,7 +521,7 @@ struct AreaFlowView: View {
         case .area:
             sec.wrappedValue.roomScan = room
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { measuringOnPlan = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { editorMode = .measure }
     }
 
     private func scanSummary(_ t: AreaTakeoff, _ scan: ScannedRoom) -> String {
@@ -484,7 +542,11 @@ struct AreaFlowView: View {
             get: { !section.walls.isEmpty },
             set: { on in
                 var s = section
-                if on {
+                if on, fromModel, let scan = activeScan, let t = s.scanTakeoff {
+                    // A wall each, from the model.
+                    s.walls = [TiledWall(name: "", tile: s.ndMainTile ?? TileChoice())]
+                    t.apply(scan, to: &s, prices: StonePrices(rates: store.pricingRates))
+                } else if on {
                     let tile = s.ndMainTile ?? TileChoice()
                     s.walls = ["Back wall", "Left wall", "Right wall"].map { TiledWall(name: $0, tile: tile) }
                 } else {
@@ -519,13 +581,15 @@ struct AreaFlowView: View {
                         wallRow(wall)
                     }
                 }
-                Button {
-                    let tile = section.walls.last?.tile ?? section.ndMainTile ?? TileChoice()
-                    sec.wrappedValue.walls.append(TiledWall(name: "Wall \(section.walls.count + 1)", tile: tile))
-                } label: {
-                    Label("Add wall", systemImage: "plus").font(.system(size: 15, weight: .medium))
+                if !fromModel {
+                    Button {
+                        let tile = section.walls.last?.tile ?? section.ndMainTile ?? TileChoice()
+                        sec.wrappedValue.walls.append(TiledWall(name: "Wall \(section.walls.count + 1)", tile: tile))
+                    } label: {
+                        Label("Add wall", systemImage: "plus").font(.system(size: 15, weight: .medium))
+                    }
+                    .foregroundStyle(ND.link)
                 }
-                .foregroundStyle(ND.link)
             }
         }
     }
@@ -545,15 +609,19 @@ struct AreaFlowView: View {
                 }
             }
             Spacer(minLength: 4)
-            NDNumberField(placeholder: "0", value: w.sqft, alignment: .trailing)
-                .frame(width: 76)
+            if fromModel {
+                Text(ND.number(wall.sqft)).font(.system(size: 16, weight: .semibold).monospacedDigit())
+            } else {
+                NDNumberField(placeholder: "0", value: w.sqft, alignment: .trailing)
+                    .frame(width: 76)
+            }
             Text("sq ft").font(.system(size: 13)).foregroundStyle(ND.muted)
             Menu {
                 Button { editing = .wall(wall.id) } label: { Label("Change tile", systemImage: "square.grid.2x2") }
                 Button(role: .destructive) {
                     sec.wrappedValue.walls.removeAll { $0.id == wall.id }
                 } label: { Label("Remove wall", systemImage: "trash") }
-                .disabled(section.walls.count <= 1)
+                .disabled(section.walls.count <= 1 || fromModel)
             } label: {
                 Image(systemName: "ellipsis").frame(width: 32, height: 44)
             }
@@ -654,6 +722,7 @@ struct AreaFlowView: View {
                 Spacer()
                 if section.measurements.ceilingSqft > 0 {
                     Button("Remove") {
+                        if fromModel { remeasure { $0.tileCeiling = false } }
                         sec.wrappedValue.measurements.ceilingSqft = 0
                         sec.wrappedValue.ceilingTile = nil
                     }
@@ -667,7 +736,9 @@ struct AreaFlowView: View {
                                 turnOn: { sec.wrappedValue.ceilingTile = section.ndMainTile ?? TileChoice(); editing = .ceiling },
                                 turnOff: { sec.wrappedValue.ceilingTile = nil })
             } else {
-                Button("Tile the ceiling") { sec.wrappedValue.measurements.ceilingSqft = 1 }
+                Button("Tile the ceiling") {
+                    if fromModel { remeasure { $0.tileCeiling = true } } else { sec.wrappedValue.measurements.ceilingSqft = 1 }
+                }
                     .buttonStyle(NDSecondaryButtonStyle())
             }
         }
@@ -696,11 +767,38 @@ struct AreaFlowView: View {
         }
     }
 
+    /// Measured on the room's model rather than typed.
+    private var fromModel: Bool { activeScan != nil && !handMeasured }
+
+    /// Typed, not from the model: chosen so, or measured by hand before the
+    /// room had a scan (it moves to the model only when asked).
+    private var handMeasured: Bool {
+        section.measuredByHand || (section.scanTakeoff == nil && measuredSqft > 0)
+    }
+
+    @ViewBuilder
     private func sqftField(_ value: Binding<Double>, label: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).font(.system(size: 13)).foregroundStyle(ND.secondary)
-            NDNumberField(placeholder: "0", value: value, font: .system(size: 22, weight: .semibold))
+            if fromModel {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(ND.number(value.wrappedValue)).font(.system(size: 22, weight: .semibold).monospacedDigit())
+                    Text("from the model").font(.system(size: 13)).foregroundStyle(ND.muted)
+                }
+            } else {
+                NDNumberField(placeholder: "0", value: value, font: .system(size: 22, weight: .semibold))
+            }
         }
+    }
+
+    /// A change to the model's choices for this area, measured again.
+    private func remeasure(_ change: (inout AreaTakeoff) -> Void) {
+        guard let scan = activeScan else { return }
+        var t = takeoffForEditor(scan)
+        change(&t)
+        var s = section
+        t.apply(scan, to: &s, prices: StonePrices(rates: store.pricingRates))
+        sec.wrappedValue = s
     }
 
     private func wallBinding(_ id: UUID) -> Binding<TiledWall> {
@@ -737,9 +835,56 @@ struct AreaFlowView: View {
 
     // MARK: Step 4: extras
 
+    /// A scanned area's built-ins: what's on the model, and Add on the model.
+    private var modelExtras: some View {
+        let t = section.scanTakeoff
+        let scan = activeScan
+        let stone = scan.map { s in
+            (t?.trimPieces(in: s, area: section.area, curbHeightIn: store.pricingRates.curbHeightIn) ?? []).filter(\.stone)
+        } ?? []
+        let counts: [(String, Int)] = [
+            ("niche", t?.items.filter { $0.kind == .niche }.count ?? 0),
+            ("window", t?.items.filter { $0.kind == .window }.count ?? 0),
+            ("framed bench", t?.items.filter { $0.kind == .framedBench }.count ?? 0),
+            ("floating bench", t?.items.filter { $0.kind == .floatingBench }.count ?? 0),
+            ("corner shelf", t?.items.filter { $0.kind == .cornerShelf }.count ?? 0),
+            ("corner seat", t?.items.filter { $0.kind == .cornerSeat }.count ?? 0),
+            ("corner footrest", t?.items.filter { $0.kind == .cornerFootrest }.count ?? 0),
+        ]
+        let listed = counts.filter { $0.1 > 0 }.map { "\($0.1) \($0.0)\($0.1 == 1 ? "" : ($0.0.hasSuffix("h") ? "es" : "s"))" }
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Built-ins").font(.ndTitle(22))
+            NDCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(listed.isEmpty ? "Nothing added yet." : listed.joined(separator: " · "))
+                        .font(.system(size: 15, weight: .semibold))
+                    if !stone.isEmpty {
+                        Text("Stone: " + stone.map { $0.name.lowercased() }.joined(separator: ", "))
+                            .font(.system(size: 13)).foregroundStyle(ND.muted)
+                    } else if section.area == .shower {
+                        Text("No stone pieces; the curb, caps and jambs are tile.")
+                            .font(.system(size: 13)).foregroundStyle(ND.muted)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+            }
+            Button { editorMode = .extras } label: {
+                Label("Add on the model", systemImage: "cube")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(NDPrimaryButtonStyle())
+            Text("Niches, windows, benches, corner pieces and stone are placed on the model; their counts and prices follow it.")
+                .font(.system(size: 13)).foregroundStyle(ND.muted)
+        }
+    }
+
     private var extrasStep: some View {
         let onFloor = section.area == .floor
         return VStack(alignment: .leading, spacing: 20) {
+            if fromModel && !onFloor {
+                modelExtras
+            } else {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Built-ins").font(.ndTitle(22))
                 NDCard {
@@ -755,6 +900,7 @@ struct AreaFlowView: View {
                     Text("Shelves, niches, footrests and benches aren't available for floors.")
                         .font(.system(size: 13)).foregroundStyle(ND.muted)
                 }
+            }
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -1370,4 +1516,11 @@ struct NDLineItemSheet: View {
         }
         .preferredColorScheme(.dark)
     }
+}
+
+
+/// Puts the area's scanner and model covers on a view.
+private struct ScanCoversModifier<Out: View>: ViewModifier {
+    let apply: (AnyView) -> Out
+    func body(content: Content) -> some View { apply(AnyView(content)) }
 }

@@ -990,6 +990,9 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var roomScan: ScannedRoom? = nil
     /// What this area takes from the scan, so reopening it shows its choices.
     var scanTakeoff: AreaTakeoff? = nil
+    /// In a scanned room, this area's measurements are typed instead of
+    /// taken from the model ("Enter by hand instead").
+    var measuredByHand: Bool = false
     /// The owner's own wording for this area, in place of the generated one.
     var customWording: CustomWording? = nil
     var area: Area? = nil
@@ -1306,6 +1309,7 @@ extension EstimateSection {
         c.read(.customWording, into: &customWording)
         c.read(.roomScan, into: &roomScan)
         c.read(.scanTakeoff, into: &scanTakeoff)
+        c.read(.measuredByHand, into: &measuredByHand)
         c.read(.area, into: &area)
         c.read(.tileType, into: &tileType)
         c.read(.tileSize, into: &tileSize)

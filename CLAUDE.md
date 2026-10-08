@@ -373,13 +373,11 @@ starter) and pictures per page (1, 2 or 4; 2 to start): when on, pages headed
 with PDFKit so the layouts themselves — Classic's pixel check — are
 untouched). The layout preview doesn't show them.
 
-Dimensions (owner asked 2026-10-07; wall lengths first): the editor's
-ruler button shows each wall's length to the quarter inch
-(`dimensionText`) — on the 2-D plan as architectural dimension lines
-outside each scanned wall and beside each wall drawn in, away from the
-shower (`PlanCanvas.drawDimensions`); in 3-D as a line along each wall's
-top with a label that faces the camera (`Room3DScene.addDimensions`,
-`Room3DContent.showDimensions`). Never on the PDF pictures (owner's call).
+Dimensions (owner's call, 2026-10-07): the 2-D plan's ruler button shows
+the room's perimeter — each scanned wall's length to the quarter inch
+(`dimensionText`) as an architectural dimension line outside it
+(`PlanCanvas.drawDimensions`). Walls drawn in, the 3-D view and the PDF
+pictures have none (3-D labels were tried and taken out the same day).
 
 A scan can be calibrated with a tape measure (owner asked 2026-10-07;
 `CalibrateScanSheet`, Measure step → "Calibrate with a tape measure"): tape
@@ -407,6 +405,38 @@ starting height (backsplash 18″, tub 84″, else full height). The scanner
 only runs on a real LiDAR iPhone; in DEBUG builds without LiDAR a "Use a
 sample room" button loads `ScannedRoom.sample` to try the editor.
 `RoomScanTests` covers the arithmetic.
+
+## Two ways to measure a room (owner's design, 2026-10-08)
+
+Adding a room asks **Scan the room** or **Enter measurements by hand**
+(`NewEstimateView`). Both paths ask the same questions in the same steps —
+Area, Tile, Measure, Extras, Review — and arrive at the same estimate; a
+scanned room answers the physical ones on its model instead of in fields.
+
+- **Scan**: the scanner opens, then "Tape a wall?" (`CalibrateScanSheet`,
+  `afterScan`, skippable), then the room's first area opens on the Area step.
+- **Area**: the same screen, with the scan's suggestions highlighted on the
+  room's plan and marked "In the scan" (`ScannedRoom.suggestions`: the floor,
+  a tub surround round a found tub, a backsplash behind a cabinet or sink,
+  and "Possible shower" for an alcove of three walls — Apple's scanner finds
+  tubs and cabinets but no shower). Choosing a suggested area starts it with
+  what the scan found. You always choose; nothing is added by itself.
+- **Tile**: the same screen either way.
+- **Measure**: a scanned area opens its model straight away the first time
+  (`ScanEditor`, mode `.measure`: walls and tile heights, shower floor and
+  curb, ceiling, walls drawn in, doors). Afterwards the step shows what came
+  from the model, read-only ("from the model"), with Edit on the model;
+  "Enter by hand instead" (`EstimateSection.measuredByHand`) gives the usual
+  fields. An area typed before its room had a scan stays typed until moved
+  to the model.
+- **Extras**: built-ins are "Add on the model" (mode `.extras`: niches,
+  windows, benches, corner pieces, stone for every piece); bands, borders,
+  inlays and other charges are the same as by hand. Using the model sets the
+  area's counts (`itemsPlaced`).
+- Wall tile starts at the top of the wall everywhere except backsplashes
+  (owner's rule, 2026-10-08; tub surrounds were 84″).
+- Calibrating or deleting a wall re-measures only areas measured on the
+  model; typed numbers are never overwritten.
 
 ## Estimate wording templates (roadmap Phase 3)
 

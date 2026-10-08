@@ -10,6 +10,8 @@ struct CalibrateScanSheet: View {
     let onApply: (ScanCalibration) -> Void
     /// Taking the last calibration back off, when there is one.
     let onUndo: (() -> Void)?
+    /// Offered straight after a scan: "Skip" rather than "Cancel".
+    var afterScan = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var tape: [UUID: Double] = [:]
@@ -85,10 +87,10 @@ struct CalibrateScanSheet: View {
                     }
                 }
             }
-            .navigationTitle("Calibrate the scan")
+            .navigationTitle(afterScan ? "Tape a wall?" : "Calibrate the scan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(afterScan ? "Skip" : "Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
                         if let c = calibration { onApply(c) }

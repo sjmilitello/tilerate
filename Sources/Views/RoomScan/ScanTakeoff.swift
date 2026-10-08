@@ -353,14 +353,11 @@ extension AreaTakeoff {
         return t
     }
 
-    /// The tile height a new piece starts at for this kind of area.
+    /// The tile height a new piece starts at for this kind of area: the top
+    /// of the wall, except a backsplash (owner's rule, 2026-10-08).
     static func startingHeight(for area: Area?, wall: ScannedRoom.Wall) -> Double {
         let full = (wall.heightFt * 12).rounded(.down)
-        switch area {
-        case .backsplash: return min(18, full)
-        case .tub: return min(84, full)
-        default: return full
-        }
+        return area == .backsplash ? min(18, full) : full
     }
 
     /// A new piece on a wall: its longest stretch not already used by this
@@ -1170,5 +1167,116 @@ extension AreaTakeoff {
                                     v: .init(x: v.x / max(lv, 1e-9), y: v.y / max(lv, 1e-9)), widthFt: lu, depthFt: lv)
         }
         return t
+    }
+}
+
+
+// MARK: - Areas suggested from a scan
+
+/// An area a scan seems to have: what it is, where (to highlight on the
+/// plan), and the choices it would start with.
+struct ScanSuggestion: Identifiable {
+    var id: String { title }
+    let area: Area
+    /// "Floor", "Tub surround", "Possible shower", "Backsplash".
+    let title: String
+    let outline: [ScannedRoom.Point]
+    let takeoff: AreaTakeoff
+}
+
+extension ScannedRoom {
+    /// What this scan seems to hold, leaving out kinds of area the room
+    /// already has. Apple's scanner finds tubs and cabinets but not showers:
+    /// a shower is guessed from an alcove of three walls with no tub in it.
+    func suggestions(skipping existing: Set<Area> = []) -> [ScanSuggestion] {
+        var out: [ScanSuggestion] = []
+        if !existing.contains(.shower) {
+            for alcove in showerAlcoves() {
+                out.append(ScanSuggestion(area: .shower, title: "Possible shower", outline: alcove.floorRect?.corners ?? [],
+                                          takeoff: alcove))
+            }
+        }
+        if !existing.contains(.tub), tubOutline.count > 2 {
+            var t = AreaTakeoff.starting(for: .tub, room: self, otherAreas: [])
+            for w in walls where !w.planned {
+                let near = tubOutline.filter { distanceToWall($0, w) < 0.75 }.map { along($0, on: w) }
+                guard near.count >= 2, let lo = near.min(), let hi = near.max(), hi - lo > 0.5 else { continue }
+                t.pieces.append(.init(wallID: w.id, fromFt: lo, toFt: hi, heightIn: AreaTakeoff.startingHeight(for: .tub, wall: w)))
+            }
+            out.append(ScanSuggestion(area: .tub, title: "Tub surround", outline: tubOutline, takeoff: t))
+        }
+        if !existing.contains(.floor), floorOutline.count > 2 {
+            out.append(ScanSuggestion(area: .floor, title: "Floor", outline: floorOutline,
+                                      takeoff: AreaTakeoff.starting(for: .floor, room: self, otherAreas: [])))
+        }
+        if !existing.contains(.backsplash) {
+            for f in fixtures where (f.kind == "Cabinet" || f.kind == "Sink") && f.outline.count == 4 {
+                // The cabinet's back edge against a wall.
+                for w in walls where !w.planned {
+                    let near = f.outline.filter { distanceToWall($0, w) < 0.6 }.map { along($0, on: w) }
+                    guard near.count >= 2, let lo = near.min(), let hi = near.max(), hi - lo > 1 else { continue }
+                    var t = AreaTakeoff()
+                    t.pieces = [.init(wallID: w.id, fromFt: lo, toFt: hi, heightIn: AreaTakeoff.startingHeight(for: .backsplash, wall: w))]
+                    out.append(ScanSuggestion(area: .backsplash, title: "Backsplash", outline: f.outline, takeoff: t))
+                    break
+                }
+                break
+            }
+        }
+        return out
+    }
+
+    /// Alcoves that could be a shower: a back wall 2½–7′ long with a wall at
+    /// each end running the same way into the room, 2½–7′ deep, no tub in
+    /// it, and the room going on past its open side. Each comes as a shower's
+    /// starting choices: its three walls tiled full height and its floor drawn.
+    func showerAlcoves() -> [AreaTakeoff] {
+        let pts = floorOutline.isEmpty ? walls.flatMap { [$0.start, $0.end] } : floorOutline
+        let center = Point(x: pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1)),
+                           y: pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1)))
+        func d(_ a: Point, _ b: Point) -> Double { hypot(a.x - b.x, a.y - b.y) }
+        let real = walls.filter { !$0.planned }
+        var out: [AreaTakeoff] = []
+        for back in real where back.lengthFt >= 2.5 && back.lengthFt <= 7 {
+            let ux = (back.end.x - back.start.x) / back.lengthFt, uy = (back.end.y - back.start.y) / back.lengthFt
+            var n = Point(x: -uy, y: ux)
+            let mid = Point(x: (back.start.x + back.end.x) / 2, y: (back.start.y + back.end.y) / 2)
+            if (center.x - mid.x) * n.x + (center.y - mid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+            /// The wall leaving this corner into the room, and how far it goes.
+            func side(at corner: Point) -> (Wall, Double)? {
+                for w in real where w.id != back.id {
+                    let (near, far) = d(w.start, corner) < 0.4 ? (w.start, w.end) : d(w.end, corner) < 0.4 ? (w.end, w.start) : (nil, nil)
+                    guard let near, let far else { continue }
+                    let dx = far.x - near.x, dy = far.y - near.y, l = hypot(dx, dy)
+                    guard l > 0.1, (dx * n.x + dy * n.y) / l > 0.95 else { continue }
+                    return (w, l)
+                }
+                return nil
+            }
+            guard let (s1, l1) = side(at: back.start), let (s2, l2) = side(at: back.end) else { continue }
+            let depth = min(l1, l2)
+            guard depth >= 2.5, depth <= 7 else { continue }
+            // The room goes on past the open side.
+            guard (center.x - mid.x) * n.x + (center.y - mid.y) * n.y > depth + 1 else { continue }
+            var t = AreaTakeoff()
+            t.floor = .drawn
+            t.floorRect = AreaTakeoff.FloorRect(origin: back.start, u: .init(x: ux, y: uy), v: n,
+                                                widthFt: back.lengthFt, depthFt: depth)
+            // No tub in it.
+            if tubOutline.count > 2 {
+                let tc = Point(x: tubOutline.map(\.x).reduce(0, +) / Double(tubOutline.count),
+                               y: tubOutline.map(\.y).reduce(0, +) / Double(tubOutline.count))
+                if AreaTakeoff.contains(t.floorRect!.corners, tc) { continue }
+            }
+            t.pieces.append(.init(wallID: back.id, fromFt: 0, toFt: back.lengthFt,
+                                  heightIn: AreaTakeoff.startingHeight(for: .shower, wall: back)))
+            for (w, corner) in [(s1, back.start), (s2, back.end)] {
+                let a = along(corner, on: w)
+                let lo = a < w.lengthFt / 2 ? a : max(0, a - depth), hi = a < w.lengthFt / 2 ? min(w.lengthFt, a + depth) : a
+                t.pieces.append(.init(wallID: w.id, fromFt: lo, toFt: hi, heightIn: AreaTakeoff.startingHeight(for: .shower, wall: w)))
+            }
+            out.append(t)
+        }
+        return out
     }
 }

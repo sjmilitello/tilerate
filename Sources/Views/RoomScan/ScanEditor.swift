@@ -18,7 +18,13 @@ struct OtherAreaPieces: Equatable {
 }
 
 struct ScanEditor: View {
+    /// Which step it's opened from: Measure (walls, tile, floor, ceiling,
+    /// walls drawn in, doors) or Extras (niches, windows, benches, corner
+    /// pieces, stone).
+    enum Mode: String, Identifiable { case measure, extras; var id: String { rawValue } }
+
     let area: Area?
+    var mode: Mode = .measure
     let title: String
     let others: [OtherAreaPieces]
     /// A new knee wall's thickness, from Admin.
@@ -51,7 +57,7 @@ struct ScanEditor: View {
     @State private var placeNote: String? = nil
     /// The room in 3-D instead of the plan.
     @State private var show3D = false
-    /// Wall lengths on the plan and the 3-D view.
+    /// Wall lengths round the outside of the 2-D plan.
     @State private var showDimensions = true
     /// Waiting for a tap in 3-D on the wall where this goes.
     @State private var placing3D: Place3D? = nil
@@ -93,6 +99,7 @@ struct ScanEditor: View {
     @State private var confirmDeleteWall = false
 
     init(room: ScannedRoom, area: Area?, title: String, takeoff: AreaTakeoff, others: [OtherAreaPieces],
+         mode: Mode = .measure,
          kneeWallThicknessIn: Double = 4.5, stone: StonePrices = .init(),
          tile: TileChoice? = nil, floorTile: TileChoice? = nil,
          onAddPicture: (([Double], [Double], Bool) -> Void)? = nil,
@@ -106,6 +113,7 @@ struct ScanEditor: View {
         self.floorTile = floorTile
         self.onAddPicture = onAddPicture
         self.area = area
+        self.mode = mode
         self.title = title
         self.others = others
         self.onUse = onUse
@@ -122,7 +130,7 @@ struct ScanEditor: View {
         let stoneParts = Set(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn).filter(\.stone).map(\.key))
         return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile, others: others,
                              curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
-                             showFixtures: showFixtures, selectedItem: selectedItem, showDimensions: showDimensions)
+                             showFixtures: showFixtures, selectedItem: selectedItem)
     }
     private var otherPieces: [AreaTakeoff.Piece] { others.flatMap(\.pieces) }
 
@@ -135,9 +143,9 @@ struct ScanEditor: View {
                                onCapture: onAddPicture.map { add in { eye, target in add(eye, target, showFixtures) } })
                         .frame(height: 250)
                         .overlay(alignment: .topTrailing) {
-                            if area == .shower {
+                            if area == .shower || (mode == .extras && usesWalls) {
                                 Menu {
-                                    ForEach(Place3D.allCases) { p in
+                                    ForEach(Place3D.allCases.filter { mode == .measure ? $0 == .door : $0 != .door }) { p in
                                         Button { placing3D = p } label: { Label(p.title, systemImage: p.symbol) }
                                     }
                                 } label: {
@@ -156,7 +164,8 @@ struct ScanEditor: View {
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
                            items: takeoff.items,
                            showDimensions: showDimensions,
-                           hint: addingWall ? nil : (usesWalls ? "Tap a wall to tile it · pinch to zoom" : "Pinch to zoom"),
+                           hint: addingWall ? nil : (!usesWalls ? "Pinch to zoom"
+                                : mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"),
                            addingWall: addingWall,
                            onAddWall: { a, b in addDrawnWall(from: a, to: b) },
                            onMovePlannedEnd: { id, start, p in
@@ -185,10 +194,12 @@ struct ScanEditor: View {
                 .frame(height: 250)
                 }
                 HStack(spacing: 8) {
-                    Toggle(isOn: $showDimensions) { Image(systemName: "ruler") }
-                        .toggleStyle(.button)
-                        .font(.caption)
-                        .accessibilityLabel("Dimensions")
+                    if !show3D {
+                        Toggle(isOn: $showDimensions) { Image(systemName: "ruler") }
+                            .toggleStyle(.button)
+                            .font(.caption)
+                            .accessibilityLabel("Dimensions")
+                    }
                     Picker("View", selection: $show3D) {
                         Text("2D").tag(false)
                         Text("3D").tag(true)
@@ -247,8 +258,12 @@ struct ScanEditor: View {
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
+                            Text(mode == .measure
+                                 ? "Choose the walls, floor and ceiling being tiled. Add walls and doors that aren't built yet."
+                                 : "Add niches, windows, benches and corner pieces on the walls, and choose tile or stone for each piece.")
+                                .font(.footnote).foregroundStyle(.secondary)
                             if usesWalls {
-                                addWallMenu
+                                if mode == .measure { addWallMenu }
                                 wallPanel.id("wall")
                             } else if let id = selectedWall, let w = room.wall(id), w.planned {
                                 // A floor: walls aren't tiled here, but one drawn in can be changed or deleted.
@@ -258,8 +273,8 @@ struct ScanEditor: View {
                                 }
                                 .id("wall")
                             }
-                            if area == .floor || area == .shower || area == .tub { floorPanel }
-                            trimPanel
+                            if mode == .measure, area == .floor || area == .shower || area == .tub { floorPanel }
+                            if mode == .extras { trimPanel }
                         }
                         .padding(16)
                     }
@@ -323,6 +338,12 @@ struct ScanEditor: View {
             if wall.planned { selectedWall = id }
             return
         }
+        // Adding extras doesn't tile walls: just choose it.
+        if mode == .extras {
+            if selectedWall != id { face = 0 }
+            selectedWall = id
+            return
+        }
         if selectedWall != id { face = 0 }
         selectedWall = id
         if let mine = takeoff.pieces.first(where: { $0.wallID == id && $0.face == face })
@@ -355,9 +376,7 @@ struct ScanEditor: View {
         Menu {
             Button { show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
             Button { show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
-            if area == .shower {
-                Button { show3D = false; addingWall = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
-            }
+
         } label: {
             Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
         }
@@ -518,10 +537,18 @@ struct ScanEditor: View {
     /// Add door, window, niche, corner piece or floating bench to a wall.
     @ViewBuilder
     private func wallItemButtons(_ wall: ScannedRoom.Wall) -> some View {
-        if !room.isKneeWall(wall),
-           !room.openings.contains(where: { $0.wallID == wall.id && $0.kind == .showerDoor }) {
-            Button { addShowerDoor(on: wall) } label: { Label("Add door", systemImage: "door.left.hand.open") }
+        if mode == .measure {
+            if area == .shower, !room.isKneeWall(wall),
+               !room.openings.contains(where: { $0.wallID == wall.id && $0.kind == .showerDoor }) {
+                Button { addShowerDoor(on: wall) } label: { Label("Add door", systemImage: "door.left.hand.open") }
+            }
+        } else {
+            extraButtons(wall)
         }
+    }
+
+    @ViewBuilder
+    private func extraButtons(_ wall: ScannedRoom.Wall) -> some View {
         Button { addOpening(.window, on: wall) } label: { Label("Add window", systemImage: "window.horizontal") }
         Button { addOpening(.niche, on: wall) } label: { Label("Add niche", systemImage: "square.split.1x2") }
         Menu {
@@ -535,7 +562,10 @@ struct ScanEditor: View {
                 }
             }
         } label: { Label("Add corner shelf / seat / footrest", systemImage: "triangle") }
-        Button { addBench(on: wall, floating: true) } label: { Label("Add floating bench", systemImage: "rectangle.split.1x2") }
+        if area == .shower {
+            Button { addBench(on: wall, floating: false) } label: { Label("Add framed bench", systemImage: "square.bottomhalf.filled") }
+            Button { addBench(on: wall, floating: true) } label: { Label("Add floating bench", systemImage: "rectangle.split.1x2") }
+        }
     }
 
     /// The chosen item's sizes, stone and Delete; chips to choose the others on this wall.
@@ -720,7 +750,7 @@ struct ScanEditor: View {
                     Spacer()
                 }
                 if wall.planned {
-                    plannedWallControls(wall)
+                    if mode == .measure { plannedWallControls(wall) }
                     Picker("Side", selection: Binding(get: { face }, set: { new in
                         face = new
                         selectedPiece = takeoff.pieces.first { $0.wallID == wallID && $0.face == new }?.id
@@ -742,6 +772,7 @@ struct ScanEditor: View {
                               selectedItem: $selectedItem)
                     .frame(height: 210)
 
+                if mode == .measure {
                 if let pieceIndex = takeoff.pieces.firstIndex(where: { $0.id == selectedPiece && $0.wallID == wallID && $0.face == face }) {
                     pieceControls(pieceIndex, wall: wall)
                 } else {
@@ -769,9 +800,10 @@ struct ScanEditor: View {
                 }
                 .buttonStyle(.bordered)
                 .font(.subheadline)
+                }
 
                 // What goes in this wall.
-                if area == .shower {
+                if area == .shower || mode == .extras {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) { wallItemButtons(wall) }
                             .fixedSize()
@@ -781,14 +813,19 @@ struct ScanEditor: View {
                     .font(.subheadline)
                 }
 
-                itemPanel(on: wall)
-                doorControls(on: wall)
-                openingsList(on: wall)
+                if mode == .extras {
+                    itemPanel(on: wall)
+                } else {
+                    doorControls(on: wall)
+                    openingsList(on: wall)
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Choose the walls").font(.ndTitle(20))
-                Text("Tap each wall on the plan that gets tile for this \(area?.rawValue.lowercased() ?? "area"). Then drag the tile on the wall to where it starts and stops, and up to its height.")
+                Text(mode == .measure ? "Choose the walls" : "Choose a wall").font(.ndTitle(20))
+                Text(mode == .measure
+                     ? "Tap each wall on the plan that gets tile for this \(area?.rawValue.lowercased() ?? "area"). Then drag the tile on the wall to where it starts and stops, and up to its height."
+                     : "Tap a wall on the plan (or in 3-D) to add a niche, window, bench or corner piece to it.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
         }
@@ -1220,6 +1257,8 @@ struct PlanCanvas: View {
     /// A floor rectangle shown on the plan, and dragged when editable.
     var floorRect: Binding<AreaTakeoff.FloorRect?>? = nil
     var floorRectShown: AreaTakeoff.FloorRect? = nil
+    /// Areas suggested from the scan, outlined and named on the plan.
+    var highlights: [(name: String, outline: [ScannedRoom.Point])] = []
     /// Puts the floor back where it started (Reset while editing it).
     var onResetFloor: (() -> Void)? = nil
     /// The shower's curb: open sides of its floor.
@@ -1777,6 +1816,25 @@ struct PlanCanvas: View {
             }
         }
 
+        // Suggested areas.
+        let hi = Color(red: 1, green: 0.8, blue: 0.3)
+        for h in highlights where h.outline.count > 2 {
+            var path = Path()
+            path.addLines(h.outline.map(f.at))
+            path.closeSubpath()
+            ctx.fill(path, with: .color(hi.opacity(0.18)))
+            ctx.stroke(path, with: .color(hi), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            let c = ScannedRoom.Point(x: h.outline.map(\.x).reduce(0, +) / Double(h.outline.count),
+                                      y: h.outline.map(\.y).reduce(0, +) / Double(h.outline.count))
+            let text = ctx.resolve(Text(h.name).font(.system(size: 11, weight: .bold)).foregroundColor(.black))
+            let size = text.measure(in: CGSize(width: 200, height: 40))
+            let at = f.at(c)
+            ctx.fill(Path(roundedRect: CGRect(x: at.x - size.width / 2 - 5, y: at.y - size.height / 2 - 2,
+                                              width: size.width + 10, height: size.height + 4), cornerRadius: 5),
+                     with: .color(hi))
+            ctx.draw(text, at: at)
+        }
+
         // The curb.
         for (a, b) in curbEdges {
             var line = Path()
@@ -1808,16 +1866,16 @@ struct PlanCanvas: View {
         if interactive && showDimensions { drawDimensions(ctx, f, center: .init(x: cx, y: cy)) }
     }
 
-    /// Architectural dimension lines: outside each scanned wall, and beside
-    /// each wall drawn in (on the side away from the shower floor), with
-    /// extension lines, slash ticks, and the length to the quarter inch.
+    /// Architectural dimension lines round the room's perimeter: outside each
+    /// scanned wall, with extension lines, slash ticks, and the length to the
+    /// quarter inch (walls drawn in aren't dimensioned).
     private func drawDimensions(_ ctx: GraphicsContext, _ f: Frame, center: ScannedRoom.Point) {
         let ink = Color(red: 1, green: 0.8, blue: 0.3)
         let floorMid: ScannedRoom.Point? = (floorRect?.wrappedValue ?? floorRectShown).map { r in
             let c = r.corners
             return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
         }
-        for w in room.walls where w.lengthFt > 0.05 {
+        for w in room.walls where !w.planned && w.lengthFt > 0.05 {
             let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
             var n = ScannedRoom.Point(x: -dy / w.lengthFt, y: dx / w.lengthFt)
             let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)

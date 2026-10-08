@@ -19,6 +19,18 @@ struct NewEstimateView: View {
     @State private var confirmNew = false
     @State private var roomPrompt: RoomPrompt? = nil
     @State private var roomToDelete: EstimateRoom? = nil
+    /// A room just added: how it's to be measured.
+    @State private var askMeasure: RoomRef? = nil
+    @State private var scanningRoom: RoomRef? = nil
+    @State private var calibratingRoom: RoomRef? = nil
+    @State private var pendingFirstArea: UUID? = nil
+
+    /// A room to act on; `newRoom` when it was just added (its first area
+    /// starts once it's scanned).
+    private struct RoomRef: Identifiable {
+        let id: UUID
+        var newRoom = false
+    }
     @State private var notice: String? = nil
 
     @AppStorage(DesignPreference.key) private var useNewDesign = true
@@ -78,6 +90,33 @@ struct NewEstimateView: View {
                                                  set: { roomPrompt?.name = $0 }))
             Button("Cancel", role: .cancel) { roomPrompt = nil }
             Button("Save") { commitRoomPrompt() }
+        }
+        .confirmationDialog("How do you want to measure \(roomName(askMeasure?.id))?",
+                            isPresented: Binding(get: { askMeasure != nil }, set: { if !$0 { askMeasure = nil } }),
+                            titleVisibility: .visible, presenting: askMeasure) { ref in
+            if RoomScanner.isAvailable {
+                Button("Scan the room") { scanningRoom = ref }
+            }
+            #if DEBUG
+            if !RoomScanner.isAvailable {
+                Button("Use a sample room (no LiDAR here)") { finishRoomScan(ScannedRoom.sample.turned(by: 27), ref) }
+            }
+            #endif
+            Button("Enter measurements by hand") { askMeasure = nil }
+        } message: { _ in
+            Text("Scan it and choose what's tiled on the model, or type the measurements as before.")
+        }
+        .fullScreenCover(item: $scanningRoom) { ref in
+            RoomScanCover { room in finishRoomScan(room, ref) }
+        }
+        .sheet(item: $calibratingRoom, onDismiss: startFirstArea) { ref in
+            if let r = store.doc.rooms.firstIndex(where: { $0.id == ref.id }), let scan = store.doc.rooms[r].scan {
+                CalibrateScanSheet(room: scan, onApply: { c in
+                    if let r = store.doc.rooms.firstIndex(where: { $0.id == ref.id }), let scan = store.doc.rooms[r].scan {
+                        store.doc.rooms[r].scan = scan.calibrated(c)
+                    }
+                }, onUndo: nil, afterScan: true)
+            }
         }
         .confirmationDialog("Start a new estimate?", isPresented: $confirmNew, titleVisibility: .visible) {
             Button("Clear this estimate", role: .destructive) { store.reset() }
@@ -233,10 +272,18 @@ struct NewEstimateView: View {
             HStack {
                 Menu {
                     Button { roomPrompt = RoomPrompt(roomID: room.id, name: room.name) } label: { Label("Rename", systemImage: "pencil") }
+                    if RoomScanner.isAvailable {
+                        Button { scanningRoom = RoomRef(id: room.id) } label: {
+                            Label(room.scan == nil ? "Scan this room" : "Scan the room again", systemImage: "viewfinder")
+                        }
+                    }
                     Button(role: .destructive) { roomToDelete = room } label: { Label("Delete room", systemImage: "trash") }
                 } label: {
                     HStack(spacing: 6) {
                         Text(room.name).font(.ndTitle(19))
+                        if room.scan != nil {
+                            Image(systemName: "viewfinder").font(.system(size: 13, weight: .semibold)).foregroundStyle(ND.link)
+                        }
                         Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(ND.muted)
                     }
                     .foregroundStyle(ND.text)
@@ -348,9 +395,34 @@ struct NewEstimateView: View {
         if let id = p.roomID, let i = store.doc.rooms.firstIndex(where: { $0.id == id }) {
             store.doc.rooms[i].name = name.isEmpty ? store.doc.rooms[i].name : name
         } else {
-            store.doc.rooms.append(EstimateRoom(name: name.isEmpty ? "Room \(store.doc.rooms.count + 1)" : name))
+            let room = EstimateRoom(name: name.isEmpty ? "Room \(store.doc.rooms.count + 1)" : name)
+            store.doc.rooms.append(room)
+            // Scan it, or measure by hand (owner's flow, 2026-10-08).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { askMeasure = RoomRef(id: room.id, newRoom: true) }
         }
         roomPrompt = nil
+    }
+
+    private func roomName(_ id: UUID?) -> String {
+        store.doc.rooms.first { $0.id == id }?.name ?? "the room"
+    }
+
+    /// A scan kept on its room; then the offer to calibrate it.
+    private func finishRoomScan(_ scan: ScannedRoom, _ ref: RoomRef) {
+        guard let r = store.doc.rooms.firstIndex(where: { $0.id == ref.id }) else { return }
+        store.doc.rooms[r].scan = scan
+        pendingFirstArea = ref.newRoom ? ref.id : nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { calibratingRoom = ref }
+    }
+
+    /// After a new room's scan (calibrated or not): its first area, on the
+    /// same Area screen as by hand.
+    private func startFirstArea() {
+        guard let id = pendingFirstArea, let r = store.doc.rooms.firstIndex(where: { $0.id == id }) else { return }
+        pendingFirstArea = nil
+        let sec = EstimateSection()
+        store.doc.rooms[r].sections.append(sec)
+        path.append(.area(room: id, section: sec.id, step: 0))
     }
 
     private func save() {
