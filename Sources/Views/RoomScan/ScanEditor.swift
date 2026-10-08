@@ -230,7 +230,8 @@ struct ScanEditor: View {
                            }) { wallID in
                     tapWall(wallID)
                 }
-                .frame(height: 250)
+                // Taller with dimensions on: at 250 pt many numbers outgrow their walls.
+                .frame(height: showDimensions ? 340 : 250)
                 }
                 HStack(spacing: 8) {
                     if !show3D {
@@ -1705,6 +1706,9 @@ struct PlanCanvas: View {
         }
     }
 
+    /// The bottom of the plan, where the hint and the 2D/3D switch sit.
+    static let controlStrip: CGFloat = 40
+
     private func frame(_ size: CGSize) -> Frame {
         let pts = room.floorOutline + room.walls.flatMap { [$0.start, $0.end] }
         let xs = pts.map(\.x), ys = pts.map(\.y)
@@ -1715,11 +1719,18 @@ struct PlanCanvas: View {
         let t = pts.map { f.turned($0) }
         let tx = t.map(\.0), ty = t.map(\.1)
         let minX = tx.min() ?? -1, maxX = tx.max() ?? 1, minY = ty.min() ?? -1, maxY = ty.max() ?? 1
-        // Room round the edge for the dimension lines.
-        let margin: CGFloat = interactive && showDimensions ? 110 : 60
-        let fit = min((size.width - margin) / max(maxX - minX, 1), (size.height - margin) / max(maxY - minY, 1))
+        // Room round the edge for the dimension lines — a row more where a
+        // wall's stretches go outside it.
+        let rows = interactive && showDimensions && room.walls.contains { w in
+            !w.planned && !PlanDimensions.isPartition(w, in: room) && !PlanDimensions.stretches(of: w, in: room).isEmpty
+        }
+        let margin: CGFloat = interactive && showDimensions ? (rows ? 130 : 110) : 60
+        // And a strip along the bottom kept for the hint and the 2D/3D switch.
+        let below: CGFloat = interactive && showDimensions ? Self.controlStrip : 0
+        let fit = min((size.width - margin) / max(maxX - minX, 1), (size.height - margin - below) / max(maxY - minY, 1))
         // Centre the turned room.
-        let ox = (minX + maxX) / 2, oy = (minY + maxY) / 2
+        // (Up by half the strip: part of the fit, so it zooms with the room.)
+        let ox = (minX + maxX) / 2, oy = (minY + maxY) / 2 + Double(below / 2 / fit)
         f = Frame(size: size, scale: fit * viewport.zoom,
                   cx: f.cx + (ox * f.cosA + oy * f.sinA), cy: f.cy + (-ox * f.sinA + oy * f.cosA),
                   pan: viewport.pan, cosA: f.cosA, sinA: f.sinA, zoom: viewport.zoom)
@@ -2309,12 +2320,7 @@ struct PlanCanvas: View {
         let cx = room.walls.map { ($0.start.x + $0.end.x) / 2 }.reduce(0, +) / Double(max(room.walls.count, 1))
         let cy = room.walls.map { ($0.start.y + $0.end.y) / 2 }.reduce(0, +) / Double(max(room.walls.count, 1))
         for w in room.walls {
-            let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
-            // Just inside the wall: a fixed distance on screen, whatever the zoom.
-            let dx = cx - mid.x, dy = cy - mid.y
-            let len = max((dx * dx + dy * dy).squareRoot(), 1e-9)
-            let inward = Double(interactive ? 16 : 9) / Double(f.scale)
-            let toward = ScannedRoom.Point(x: mid.x + dx / len * inward, y: mid.y + dy / len * inward)
+            let toward = letterSpot(w, f, center: .init(x: cx, y: cy))
             let label = Text(interactive && !showDimensions ? "\(w.label)  \(feetAndInches(w.lengthFt))" : w.label)
                 .font(.system(size: interactive ? 11 : 10, weight: .semibold))
                 .foregroundColor(mine.contains { $0.wallID == w.id } ? .blue : Color(white: 0.75))
@@ -2323,128 +2329,84 @@ struct PlanCanvas: View {
         if interactive && showDimensions { drawDimensions(ctx, f, center: .init(x: cx, y: cy)) }
     }
 
-    /// Architectural dimension lines round the room's perimeter: outside each
-    /// scanned wall, with extension lines, slash ticks, and the length to the
-    /// quarter inch (walls drawn in aren't dimensioned).
+    /// The plan's dimensions (`PlanDimensions`), laid out by
+    /// `PlanDimensionPlacer` round what's already drawn, as architectural
+    /// dimension lines: extension lines, slash ticks, the length on a dark patch.
     private func drawDimensions(_ ctx: GraphicsContext, _ f: Frame, center: ScannedRoom.Point) {
-        let ink = Color(red: 1, green: 0.8, blue: 0.3)
-        var placed: [CGRect] = []
         let floor = floorRect?.wrappedValue ?? floorRectShown
-        let floorMid = floor?.center
-        // Every wall: outside the room for a scanned wall, away from the shower for one drawn in.
-        for w in room.walls where w.lengthFt > 0.05 {
-            let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
-            var n = ScannedRoom.Point(x: -dy / w.lengthFt, y: dx / w.lengthFt)
-            let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
-            let from = w.planned ? (floorMid ?? center) : center
-            if (from.x - mid.x) * n.x + (from.y - mid.y) * n.y > 0 { n = .init(x: -n.x, y: -n.y) }
-            let gap: CGFloat = w.planned ? 6 + w.thicknessIn / 24 * f.scale : 6
-            dimension(ctx, f, from: w.start, to: w.end, normal: n, gap: gap, offset: w.planned ? gap + 14 : 24,
-                      text: dimensionText(w.lengthFt), ink: ink, placed: &placed)
+        let dims = PlanDimensions.build(room: room, floor: floor, curbEdges: curbEdges, items: items,
+                                        inward: { inward($0, face: $1) })
+        // Everything already drawn claims its space: walls, the floor, curb,
+        // tub and benches as lines, the wall letters as boxes.
+        var placer = PlanDimensionPlacer()
+        for w in room.walls {
+            placer.claim(from: f.at(w.start), to: f.at(w.end))
+            placer.edges.append((f.at(w.start), f.at(w.end)))
         }
-        // The shower floor's width and depth, just inside it.
         if let r = floor {
-            let green = Color(red: 0.45, green: 0.9, blue: 0.5)
-            let c = r.corners
-            dimension(ctx, f, from: c[0], to: c[1], normal: r.v, gap: -2, offset: 14,
-                      text: dimensionText(r.widthFt), ink: green, placed: &placed)
-            dimension(ctx, f, from: c[0], to: c[3], normal: r.u, gap: -2, offset: 14,
-                      text: dimensionText(r.depthFt), ink: green, placed: &placed)
-        }
-        // The curb: its length, just outside the floor.
-        let stone = Color(red: 0.85, green: 0.78, blue: 0.62)
-        for (a, b) in curbEdges {
-            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-            let len = hypot(b.x - a.x, b.y - a.y)
-            var out = ScannedRoom.Point(x: -(b.y - a.y) / max(len, 1e-9), y: (b.x - a.x) / max(len, 1e-9))
-            if let m = floorMid, (mid.x - m.x) * out.x + (mid.y - m.y) * out.y < 0 { out = .init(x: -out.x, y: -out.y) }
-            let k = 16 / Double(f.scale)
-            label(ctx, f, at: .init(x: mid.x + out.x * k, y: mid.y + out.y * k),
-                  text: "Curb \(dimensionText(len))", ink: stone, placed: &placed)
-        }
-        // Framed benches: length along their front, depth beside.
-        for item in items where item.kind == .framedBench {
-            guard let w = room.wall(item.wallID) else { continue }
-            let n = inward(w, face: item.face)
-            let skin = w.planned ? w.thicknessIn / 24 : 0
-            let d = skin + item.depthIn / 12
-            func pt(_ along: Double, _ out: Double) -> ScannedRoom.Point {
-                let p = room.point(on: w, along: along)
-                return .init(x: p.x + n.x * out, y: p.y + n.y * out)
+            let c = r.corners.map(f.at)
+            for i in 0..<4 {
+                placer.claim(from: c[i], to: c[(i + 1) % 4])
+                placer.edges.append((c[i], c[(i + 1) % 4]))
             }
-            dimension(ctx, f, from: pt(item.fromFt, d), to: pt(item.toFt, d), normal: n, gap: 2, offset: 12,
-                      text: dimensionText(item.widthFt), ink: .mint, placed: &placed)
-            label(ctx, f, at: pt((item.fromFt + item.toFt) / 2, skin + item.depthIn / 24),
-                  text: "Bench \(dimensionText(item.depthIn / 12)) deep", ink: .mint, placed: &placed)
+        }
+        for (a, b) in curbEdges { placer.claim(from: f.at(a), to: f.at(b)) }
+        if room.tubOutline.count > 2 {
+            let t = room.tubOutline.map(f.at)
+            for i in t.indices { placer.claim(from: t[i], to: t[(i + 1) % t.count]) }
+        }
+        for w in room.walls {
+            let at = f.at(letterSpot(w, f, center: center))
+            placer.claimForLabelsOnly(CGRect(x: at.x - 8, y: at.y - 8, width: 16, height: 16))
+        }
+        placer.claimForLabelsOnly(CGRect(x: 0, y: f.size.height - Self.controlStrip,
+                                         width: f.size.width, height: Self.controlStrip))
+        placer.page = CGRect(x: 0, y: 0, width: f.size.width, height: f.size.height - Self.controlStrip)
+        let font = Font.system(size: 11, weight: .semibold).monospacedDigit()
+        let placed = placer.layout(dims, at: f.at, measure: { text in
+            ctx.resolve(Text(text).font(font)).measure(in: CGSize(width: 240, height: 40))
+        })
+        for p in placed {
+            let ink: Color = switch p.dimension.ink {
+            case .wall: Color(red: 1, green: 0.8, blue: 0.3)
+            case .floor: Color(red: 0.45, green: 0.9, blue: 0.5)
+            case .curb: Color(red: 0.85, green: 0.78, blue: 0.62)
+            case .bench: .mint
+            }
+            var lines = Path()
+            for w in p.witnesses { lines.move(to: w.0); lines.addLine(to: w.1) }
+            lines.move(to: p.line.0); lines.addLine(to: p.line.1)
+            ctx.stroke(lines, with: .color(ink.opacity(0.85)), lineWidth: 1)
+            // Slash ticks where the extension lines meet the dimension line.
+            let a = p.witnesses[0].1, b = p.witnesses[1].1
+            let len = max(hypot(b.x - a.x, b.y - a.y), 1e-6)
+            let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
+            let wl = max(hypot(p.witnesses[0].1.x - p.witnesses[0].0.x, p.witnesses[0].1.y - p.witnesses[0].0.y), 1e-6)
+            let nx = (p.witnesses[0].1.x - p.witnesses[0].0.x) / wl, ny = (p.witnesses[0].1.y - p.witnesses[0].0.y) / wl
+            var ticks = Path()
+            for w in p.witnesses {
+                let q = CGPoint(x: w.1.x - nx * 5, y: w.1.y - ny * 5)
+                let tx = (ux + nx) * 4, ty = (uy + ny) * 4
+                ticks.move(to: CGPoint(x: q.x - tx, y: q.y - ty)); ticks.addLine(to: CGPoint(x: q.x + tx, y: q.y + ty))
+            }
+            ctx.stroke(ticks, with: .color(ink), lineWidth: 1.8)
+            var c = ctx
+            c.translateBy(x: p.labelCenter.x, y: p.labelCenter.y)
+            c.rotate(by: .radians(p.angle))
+            let size = p.labelSize
+            c.fill(Path(roundedRect: CGRect(x: -size.width / 2 - 4, y: -size.height / 2 - 1, width: size.width + 8, height: size.height + 2),
+                        cornerRadius: 4), with: .color(Color(white: 0.09)))
+            c.draw(ctx.resolve(Text(p.dimension.text).font(font).foregroundColor(ink)), at: .zero)
         }
     }
 
-    /// One dimension: extension lines from `from`/`to` (plan feet) out along
-    /// `normal`, a line with slash ticks `offset` points out, and its text on a
-    /// dark patch — moved along the line, then further out, until it clears
-    /// the labels already drawn (a small version of FabSpecPro's placer).
-    private func dimension(_ ctx: GraphicsContext, _ f: Frame, from p0: ScannedRoom.Point, to p1: ScannedRoom.Point,
-                           normal n: ScannedRoom.Point, gap: CGFloat, offset: CGFloat, text: String, ink: Color,
-                           placed: inout [CGRect]) {
-        let pa = f.at(p0), pb = f.at(p1)
-        let q = f.at(.init(x: p0.x + n.x, y: p0.y + n.y))
-        let ln = max(hypot(q.x - pa.x, q.y - pa.y), 1e-6)
-        let ns = CGPoint(x: (q.x - pa.x) / ln, y: (q.y - pa.y) / ln)
-        func shifted(_ p: CGPoint, _ d: CGFloat) -> CGPoint { CGPoint(x: p.x + ns.x * d, y: p.y + ns.y * d) }
-        let resolved = ctx.resolve(Text(text).font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundColor(ink))
-        let size = resolved.measure(in: CGSize(width: 240, height: 40))
-        var angle = atan2(pb.y - pa.y, pb.x - pa.x)
-        if angle > .pi / 2 { angle -= .pi } else if angle < -.pi / 2 { angle += .pi }
-        // Find a place: along the line, then a rung further out.
-        var off = offset, spot = CGPoint.zero, box = CGRect.zero
-        search: for rung in 0..<4 {
-            off = offset + CGFloat(rung) * 15
-            let a = shifted(pa, off), b = shifted(pb, off)
-            for t in [0.5, 0.3, 0.7, 0.18, 0.82] {
-                spot = CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
-                let w = abs(cos(angle)) * size.width + abs(sin(angle)) * size.height + 8
-                let h = abs(sin(angle)) * size.width + abs(cos(angle)) * size.height + 2
-                box = CGRect(x: spot.x - w / 2, y: spot.y - h / 2, width: w, height: h)
-                if !placed.contains(where: { $0.intersects(box) }) { break search }
-            }
-        }
-        placed.append(box)
-        let a = shifted(pa, off), b = shifted(pb, off)
-        var lines = Path()
-        lines.move(to: shifted(pa, gap)); lines.addLine(to: shifted(pa, off + 5))
-        lines.move(to: shifted(pb, gap)); lines.addLine(to: shifted(pb, off + 5))
-        lines.move(to: a); lines.addLine(to: b)
-        ctx.stroke(lines, with: .color(ink.opacity(0.85)), lineWidth: 1)
-        let len = max(hypot(b.x - a.x, b.y - a.y), 1e-6)
-        let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
-        var ticks = Path()
-        for p in [a, b] {
-            let tx = (ux + ns.x) * 4, ty = (uy + ns.y) * 4
-            ticks.move(to: CGPoint(x: p.x - tx, y: p.y - ty)); ticks.addLine(to: CGPoint(x: p.x + tx, y: p.y + ty))
-        }
-        ctx.stroke(ticks, with: .color(ink), lineWidth: 1.8)
-        var c = ctx
-        c.translateBy(x: spot.x, y: spot.y)
-        c.rotate(by: .radians(angle))
-        c.fill(Path(roundedRect: CGRect(x: -size.width / 2 - 4, y: -size.height / 2 - 1, width: size.width + 8, height: size.height + 2),
-                    cornerRadius: 4), with: .color(Color(white: 0.09)))
-        c.draw(resolved, at: .zero)
-    }
-
-    /// A label on a dark patch, moved down until it clears the others.
-    private func label(_ ctx: GraphicsContext, _ f: Frame, at p: ScannedRoom.Point, text: String, ink: Color,
-                       placed: inout [CGRect]) {
-        let resolved = ctx.resolve(Text(text).font(.system(size: 10, weight: .semibold).monospacedDigit()).foregroundColor(ink))
-        let size = resolved.measure(in: CGSize(width: 240, height: 40))
-        var spot = f.at(p), box = CGRect.zero
-        for k in 0..<5 {
-            spot = CGPoint(x: f.at(p).x, y: f.at(p).y + CGFloat(k) * 14)
-            box = CGRect(x: spot.x - size.width / 2 - 4, y: spot.y - size.height / 2 - 1, width: size.width + 8, height: size.height + 2)
-            if !placed.contains(where: { $0.intersects(box) }) { break }
-        }
-        placed.append(box)
-        ctx.fill(Path(roundedRect: box, cornerRadius: 4), with: .color(Color(white: 0.09).opacity(0.85)))
-        ctx.draw(resolved, at: spot)
+    /// Where a wall's letter goes: just inside the wall, a fixed distance on screen.
+    private func letterSpot(_ w: ScannedRoom.Wall, _ f: Frame, center: ScannedRoom.Point) -> ScannedRoom.Point {
+        let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
+        let dx = center.x - mid.x, dy = center.y - mid.y
+        let len = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+        let inward = Double(interactive ? 16 : 9) / Double(f.scale)
+        return ScannedRoom.Point(x: mid.x + dx / len * inward, y: mid.y + dy / len * inward)
     }
 }
 

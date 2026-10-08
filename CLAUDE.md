@@ -503,13 +503,40 @@ handles described above wherever they differ.
 - **Undo and redo** (icons at the top of the model; `EditHistory`, up to 100
   steps): the room and the area's takeoff together, one step per change once
   it has been still for 0.6 s. Selections that no longer exist are cleared.
-- **Dimensions** (the ruler button): every wall on the plan (scanned ones
-  outside the room, drawn-in ones beside themselves), the shower floor's
-  width and depth inside it, the curb's length outside it, framed benches'
-  length and depth. Labels are placed so they don't overlap. Under the wall
+- **Dimensions** (the ruler button): see "Plan dimensions" below. Under the wall
   face-on, a chain of distances between every door, window, opening, niche
   and window item's edges; each one is labelled with its size and how far up
   it starts, when it's wide enough.
+
+## Plan dimensions (2026-10-08, adapted from FabSpecPro)
+
+Owner asked for FabSpecPro's dimensioning, with FabSpecPro left untouched:
+TileRate has its **own copies**, never shared — `PlanDimensions.swift` (the
+model and builder, after FabSpecPro's GeoDimension: one list of dimensions
+the drawing only renders) and `PlanDimensionPlacer.swift` (after its
+SheetPlacer and SheetLayout rules). Never edit FabSpecPro to change these.
+
+What the plan shows: each scanned wall's overall length outside the room;
+where another wall runs into a wall partway, its stretches (corner to
+partition, partition to corner) on one row just inside the overall —
+FabSpecPro's seam chain, so two stretches never cross in an inside corner;
+a partition's own length on whichever side is clear (`isPartition`,
+`eitherSide`); walls drawn in beside themselves; the shower floor's width
+and depth inside it, except a side that is all curb, which the curb's own
+number gives (two numbers on sides that meet would cross in their corner);
+the curb outside the floor ("Curb 4′ 1 1/2″", or the number alone when the
+words don't fit, `shortText`); framed benches' length and depth.
+
+How it's placed: walls, floor, curb and tub claim their lines and the wall
+letters their boxes first; every extension line's lane is reserved; then
+nearest first, each tries rungs 14 pt apart and spots along them (beside a
+short line, or past an end without running through a wall). Rules: numbers
+don't overlap anything, dimension lines don't cross (D1, D2), a number is
+nearest its own edge (D3), parallel numbers stagger, an overall is beyond
+its wall's stretches, a number for something on screen stays on screen
+and out of the strip with the hint and the 2D/3D switch. Nothing clean: the
+least crowded spot — never left out. The plan is 340 pt tall with
+dimensions on (250 off). `PlanDimensionTests` holds the rules.
 
 ## Estimate wording templates (roadmap Phase 3)
 
