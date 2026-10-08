@@ -503,10 +503,7 @@ handles described above wherever they differ.
 - **Undo and redo** (icons at the top of the model; `EditHistory`, up to 100
   steps): the room and the area's takeoff together, one step per change once
   it has been still for 0.6 s. Selections that no longer exist are cleared.
-- **Dimensions** (the ruler button): see "Plan dimensions" below. Under the wall
-  face-on, a chain of distances between every door, window, opening, niche
-  and window item's edges; each one is labelled with its size and how far up
-  it starts, when it's wide enough.
+- **Dimensions**: see "Plan dimensions" below — the plan (the ruler button) and the wall face-on.
 
 ## Plan dimensions (2026-10-08, adapted from FabSpecPro)
 
@@ -537,6 +534,16 @@ its wall's stretches, a number for something on screen stays on screen
 and out of the strip with the hint and the 2D/3D switch. Nothing clean: the
 least crowded spot — never left out. The plan is 340 pt tall with
 dimensions on (250 off). `PlanDimensionTests` holds the rules.
+
+The wall face-on (`WallElevation`) uses the same placer and drawing
+(`WallDimensions.swift`, `DimensionDrawing.swift`; numbers 9.5 pt, the view
+330 pt tall): along the bottom, every door, window, opening, niche, bench
+and corner piece's sides on one row, the wall's length beyond it; up the
+right-hand end, every bottom and top of those and this area's tile top on
+one column, the wall's height beyond it; the chosen niche, window, bench or
+opening (Edit walls) has its own width over it and height beside it, in
+cyan. Sizes and "up" heights are no longer written inside the shapes.
+Grips, labels, the end names and the hint are claimed so numbers keep off them.
 
 ## Estimate wording templates (roadmap Phase 3)
 

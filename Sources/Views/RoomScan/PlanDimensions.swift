@@ -22,7 +22,7 @@ struct PlanDimension: Identifiable {
         /// Something in the room: a wall drawn in, the shower floor, the curb, a bench.
         case feature
     }
-    enum Ink { case wall, floor, curb, bench }
+    enum Ink { case wall, floor, curb, bench, opening }
 
     var id: String
     var kind: Kind
@@ -48,6 +48,8 @@ struct PlanDimension: Identifiable {
     /// A stretch on the row round the outside, where the overall would be
     /// (which then moves one rung further out).
     var outsideRow = false
+    /// Points from the edge to the first rung, when not the usual for its kind.
+    var offset: Double? = nil
 }
 
 enum PlanDimensions {

@@ -105,4 +105,56 @@ struct PlanDimensionTests {
             for j in placed.indices where j > i { #expect(!placed[i].box.intersects(placed[j].box)) }
         }
     }
+
+    // MARK: The face-on wall (`WallDimensions`)
+
+    /// An 8′ 1″ × 8′ wall with a 2′ 6″ × 3′ window 3′ 6″ up and a niche low down.
+    private func wallLayout(chosen: WallDimensions.Span? = nil)
+        -> (dims: [PlanDimension], placed: [PlanDimensionPlacer.Placed]) {
+        let window = WallDimensions.Span(from: 3.75, to: 6.25, bottom: 3.5, top: 6.5)
+        let niche = WallDimensions.Span(from: 0.5, to: 1.5, bottom: 1, top: 3)
+        let dims = WallDimensions.build(lengthFt: 97.0 / 12, heightFt: 8, spans: [window, niche],
+                                        tileTops: [8], chosen: chosen)
+        let scale: CGFloat = 30
+        func at(_ p: ScannedRoom.Point) -> CGPoint { CGPoint(x: 30 + p.x * scale, y: 30 + (8 - p.y) * scale) }
+        var placer = PlanDimensionPlacer()
+        let wall = CGRect(x: 30, y: 30, width: 97.0 / 12 * scale, height: 8 * scale)
+        let c = [CGPoint(x: wall.minX, y: wall.minY), CGPoint(x: wall.maxX, y: wall.minY),
+                 CGPoint(x: wall.maxX, y: wall.maxY), CGPoint(x: wall.minX, y: wall.maxY)]
+        for i in 0..<4 { placer.claim(from: c[i], to: c[(i + 1) % 4]) }
+        let placed = placer.layout(dims, at: at, measure: { CGSize(width: CGFloat($0.count) * 5.6, height: 11) })
+        return (dims, placed)
+    }
+
+    @Test func aWallsRowAndColumnAddUpToItsLengthAndHeight() {
+        let (dims, _) = wallLayout()
+        let along = dims.filter { $0.id.hasPrefix("along-") }.map(\.value).reduce(0, +)
+        let up = dims.filter { $0.id.hasPrefix("up-") }.map(\.value).reduce(0, +)
+        #expect(abs(along - 97.0 / 12) < 1e-9)
+        #expect(abs(up - 8) < 1e-9)
+        // Corner, niche, gap, window, end: five stretches; floor, niche, gap, window, above: five heights.
+        #expect(dims.filter { $0.id.hasPrefix("along-") }.count == 5)
+        #expect(dims.filter { $0.id.hasPrefix("up-") }.map(\.text) == ["1′ 0″", "2′ 0″", "6″", "3′ 0″", "1′ 6″"])
+    }
+
+    @Test func aChosenWindowIsDimensionedOnItselfAndNothingOverlaps() {
+        let window = WallDimensions.Span(from: 3.75, to: 6.25, bottom: 3.5, top: 6.5)
+        let (dims, placed) = wallLayout(chosen: window)
+        #expect(dims.first { $0.id == "chosen-width" }?.text == "2′ 6″")
+        #expect(dims.first { $0.id == "chosen-height" }?.text == "3′ 0″")
+        #expect(placed.count == dims.count)
+        for i in placed.indices {
+            for j in placed.indices where j > i {
+                #expect(!placed[i].box.intersects(placed[j].box),
+                        "\(placed[i].dimension.text) and \(placed[j].dimension.text) overlap")
+                let a = placed[i].line, b = placed[j].line
+                #expect(!PlanDimensionPlacer.crossesCleanly(a.0, a.1, b.0, b.1))
+            }
+        }
+        // The length beyond the row, the height beyond the column.
+        let length = placed.first { $0.dimension.id == "length" }!, row = placed.first { $0.dimension.id == "along-1" }!
+        #expect(length.line.0.y > row.line.0.y)
+        let height = placed.first { $0.dimension.id == "height" }!, column = placed.first { $0.dimension.id == "up-1" }!
+        #expect(height.line.0.x > column.line.0.x)
+    }
 }

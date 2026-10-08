@@ -908,7 +908,7 @@ struct ScanEditor: View {
                                   if let i = room.openings.firstIndex(where: { $0.id == d.id }) { room.openings[i] = d }
                               },
                               selectedItem: $selectedItem)
-                    .frame(height: 210)
+                    .frame(height: 330)
 
                 if mode == .measure {
                 if let pieceIndex = takeoff.pieces.firstIndex(where: { $0.id == selectedPiece && $0.wallID == wallID && $0.face == face }) {
@@ -1009,7 +1009,7 @@ struct ScanEditor: View {
                               if let i = room.openings.firstIndex(where: { $0.id == d.id }) { room.openings[i] = d }
                           },
                           editOpenings: true, selectedOpening: $selectedOpening)
-                .frame(height: 210)
+                .frame(height: 330)
             wallDistances(wall)
             openingEditor(on: wall)
             if wall.planned {
@@ -2362,42 +2362,7 @@ struct PlanCanvas: View {
         placer.claimForLabelsOnly(CGRect(x: 0, y: f.size.height - Self.controlStrip,
                                          width: f.size.width, height: Self.controlStrip))
         placer.page = CGRect(x: 0, y: 0, width: f.size.width, height: f.size.height - Self.controlStrip)
-        let font = Font.system(size: 11, weight: .semibold).monospacedDigit()
-        let placed = placer.layout(dims, at: f.at, measure: { text in
-            ctx.resolve(Text(text).font(font)).measure(in: CGSize(width: 240, height: 40))
-        })
-        for p in placed {
-            let ink: Color = switch p.dimension.ink {
-            case .wall: Color(red: 1, green: 0.8, blue: 0.3)
-            case .floor: Color(red: 0.45, green: 0.9, blue: 0.5)
-            case .curb: Color(red: 0.85, green: 0.78, blue: 0.62)
-            case .bench: .mint
-            }
-            var lines = Path()
-            for w in p.witnesses { lines.move(to: w.0); lines.addLine(to: w.1) }
-            lines.move(to: p.line.0); lines.addLine(to: p.line.1)
-            ctx.stroke(lines, with: .color(ink.opacity(0.85)), lineWidth: 1)
-            // Slash ticks where the extension lines meet the dimension line.
-            let a = p.witnesses[0].1, b = p.witnesses[1].1
-            let len = max(hypot(b.x - a.x, b.y - a.y), 1e-6)
-            let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
-            let wl = max(hypot(p.witnesses[0].1.x - p.witnesses[0].0.x, p.witnesses[0].1.y - p.witnesses[0].0.y), 1e-6)
-            let nx = (p.witnesses[0].1.x - p.witnesses[0].0.x) / wl, ny = (p.witnesses[0].1.y - p.witnesses[0].0.y) / wl
-            var ticks = Path()
-            for w in p.witnesses {
-                let q = CGPoint(x: w.1.x - nx * 5, y: w.1.y - ny * 5)
-                let tx = (ux + nx) * 4, ty = (uy + ny) * 4
-                ticks.move(to: CGPoint(x: q.x - tx, y: q.y - ty)); ticks.addLine(to: CGPoint(x: q.x + tx, y: q.y + ty))
-            }
-            ctx.stroke(ticks, with: .color(ink), lineWidth: 1.8)
-            var c = ctx
-            c.translateBy(x: p.labelCenter.x, y: p.labelCenter.y)
-            c.rotate(by: .radians(p.angle))
-            let size = p.labelSize
-            c.fill(Path(roundedRect: CGRect(x: -size.width / 2 - 4, y: -size.height / 2 - 1, width: size.width + 8, height: size.height + 2),
-                        cornerRadius: 4), with: .color(Color(white: 0.09)))
-            c.draw(ctx.resolve(Text(p.dimension.text).font(font).foregroundColor(ink)), at: .zero)
-        }
+        DimensionDrawing.draw(ctx, placer.layout(dims, at: f.at, measure: { DimensionDrawing.measure(ctx, $0) }))
     }
 
     /// Where a wall's letter goes: just inside the wall, a fixed distance on screen.
@@ -2458,10 +2423,11 @@ struct WallElevation: View {
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width - 2 * inset, h = geo.size.height - 2 * inset - 44
+            // Room for the dimension row under the wall and the column of heights beside it.
+            let w = geo.size.width - 2 * inset - Self.heightColumn, h = geo.size.height - 2 * inset - Self.belowWall
             let scale = min(w / max(wall.lengthFt, 0.5), h / max(wall.heightFt, 0.5))
             let width = wall.lengthFt * scale, height = wall.heightFt * scale
-            let origin = CGPoint(x: (geo.size.width - width) / 2, y: inset + (h - height) / 2 + height)
+            let origin = CGPoint(x: inset + (w - width) / 2 + 8, y: inset + (h - height) / 2 + height)
             // Wall coordinates (feet along, feet up) → points on screen.
             let at = { (along: Double, up: Double) -> CGPoint in
                 CGPoint(x: origin.x + along * scale, y: origin.y - up * scale)
@@ -2542,9 +2508,12 @@ struct WallElevation: View {
                     handles(i, scale: scale, at: at)
                 }
 
-                // Along the bottom: where every door, window, niche and bench
-                // starts and stops, end to end (owner asked 2026-10-08).
-                chain(at: at, origin: origin)
+                // The dimensions (`WallDimensions`), laid out round what's drawn.
+                Canvas { ctx, size in
+                    drawDimensions(ctx, size: size, at: at, scale: scale, origin: origin, width: width)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .allowsHitTesting(false)
                 // What each end meets, on a line of its own, spread at least
                 // far enough to read under a narrow wall.
                 HStack {
@@ -2556,7 +2525,7 @@ struct WallElevation: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: max(width, 170))
-                .position(x: origin.x + width / 2, y: origin.y + 38)
+                .position(x: origin.x + width / 2, y: origin.y + Self.belowWall - 6)
 
                 Text(hold != nil ? "Drag anywhere · tap the wall to let go" : "Tap a side or the middle, then drag anywhere")
                     .font(.system(size: 9, weight: hold != nil ? .semibold : .regular))
@@ -2674,49 +2643,104 @@ struct WallElevation: View {
         }
     }
 
-    /// A dimension row under the wall: ticks at the wall's ends and every
-    /// door's, window's, niche's and bench's sides, each gap measured; a
-    /// label too wide for its gap drops to a second row.
-    @ViewBuilder
-    private func chain(at: @escaping (Double, Double) -> CGPoint, origin: CGPoint) -> some View {
-        let edges: [Double] = {
-            var e: [Double] = [0, wall.lengthFt]
-            for o in room.openings where o.wallID == wall.id {
-                let sp = room.span(of: o)
-                e += [sp.lowerBound, sp.upperBound]
-            }
-            for item in itemsHere {
-                let r = itemRect(item)
-                e += [r.from, r.to]
-            }
-            var out: [Double] = []
-            for x in e.sorted() where out.last.map({ x - $0 > 1.0 / 32 }) ?? true { out.append(min(max(0, x), wall.lengthFt)) }
-            return out
-        }()
-        let y = origin.y + 12
-        let ink = Color(red: 1, green: 0.8, blue: 0.3)
-        Path { p in
-            p.move(to: CGPoint(x: at(0, 0).x, y: y)); p.addLine(to: CGPoint(x: at(wall.lengthFt, 0).x, y: y))
-            for e in edges {
-                let x = at(e, 0).x
-                p.move(to: CGPoint(x: x - 3, y: y + 3)); p.addLine(to: CGPoint(x: x + 3, y: y - 3))
+    /// Under the wall: the row of distances, the length, the end names.
+    private static let belowWall: CGFloat = 66
+    /// Beside it: the column of heights and the wall's height.
+    private static let heightColumn: CGFloat = 46
+
+    /// The wall's dimensions: along the bottom, up the right-hand end, and
+    /// the chosen thing's own size — placed by `PlanDimensionPlacer` clear of
+    /// the labels, grips and end names already there.
+    private func drawDimensions(_ ctx: GraphicsContext, size: CGSize, at: (Double, Double) -> CGPoint,
+                                scale: Double, origin: CGPoint, width: CGFloat) {
+        var spans: [WallDimensions.Span] = room.openings.filter { $0.wallID == wall.id }.map { o in
+            let s = room.span(of: o)
+            return .init(from: s.lowerBound, to: s.upperBound, bottom: o.bottomFt, top: o.bottomFt + o.heightFt)
+        }
+        spans += itemsHere.map { item in
+            let r = itemRect(item)
+            return .init(from: r.from, to: r.to, bottom: r.bottom, top: r.top)
+        }
+        let pieces = takeoff.pieces.filter { $0.wallID == wall.id && $0.face == face }
+        var chosen: WallDimensions.Span?
+        if let id = selectedItem.wrappedValue, let item = itemsHere.first(where: { $0.id == id }), !item.kind.isCorner {
+            let r = itemRect(item)
+            chosen = .init(from: r.from, to: r.to, bottom: r.bottom, top: r.top)
+        } else if editOpenings, let id = selectedOpening.wrappedValue,
+                  let o = room.openings.first(where: { $0.id == id && $0.wallID == wall.id }) {
+            let s = room.span(of: o)
+            chosen = .init(from: s.lowerBound, to: s.upperBound, bottom: o.bottomFt, top: o.bottomFt + o.heightFt)
+        }
+        let dims = WallDimensions.build(lengthFt: wall.lengthFt, heightFt: wall.heightFt, spans: spans,
+                                        tileTops: pieces.map { $0.heightIn / 12 }, chosen: chosen)
+
+        var placer = PlanDimensionPlacer()
+        placer.page = CGRect(origin: .zero, size: size)
+        func edges(_ r: CGRect) {
+            let c = [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
+                     CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY)]
+            for i in 0..<4 {
+                placer.claim(from: c[i], to: c[(i + 1) % 4])
+                placer.edges.append((c[i], c[(i + 1) % 4]))
             }
         }
-        .stroke(ink.opacity(0.85), lineWidth: 1)
-        .allowsHitTesting(false)
-        ForEach(Array(zip(edges, edges.dropFirst()).enumerated()), id: \.offset) { k, pair in
-            let a = at(pair.0, 0).x, b = at(pair.1, 0).x
-            let text = dimensionText(pair.1 - pair.0)
-            let fits = b - a > CGFloat(text.count) * 5.6 + 6
-            Text(text)
-                .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
-                .foregroundStyle(ink)
-                .padding(.horizontal, 3)
-                .background(Color(white: 0.07).opacity(0.9), in: Capsule())
-                .fixedSize()
-                .position(x: (a + b) / 2, y: fits ? y : y + 12 + CGFloat(k % 2) * 0)
-                .allowsHitTesting(false)
+        func box(_ c: CGPoint, _ w: CGFloat, _ h: CGFloat) {
+            placer.claimForLabelsOnly(CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h))
         }
+        func rectOf(_ s: WallDimensions.Span) -> CGRect {
+            let a = at(s.from, s.top), b = at(s.to, s.bottom)
+            return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+        }
+        edges(CGRect(x: origin.x, y: origin.y - wall.heightFt * scale, width: width, height: wall.heightFt * scale))
+        // Doors, windows and items: their outlines, and the label or icon in their middle.
+        for s in spans {
+            let r = rectOf(s)
+            edges(r)
+            if r.width > 30, r.height > 14 { box(CGPoint(x: r.midX, y: r.midY), min(r.width, 52), min(r.height, 30)) }
+        }
+        // This area's tile: its size capsule.
+        for p in pieces {
+            let r = rect(p, at)
+            if r.width > 40, r.height > 22 { box(CGPoint(x: r.midX, y: r.maxY - 12), 96, 18) }
+        }
+        // Grips on what's chosen.
+        for g in gripSpots(at: at) { box(g, 30, 30) }
+        // The end names and the hint.
+        box(CGPoint(x: origin.x + width / 2, y: origin.y + Self.belowWall - 6), max(width, 170), 14)
+        box(CGPoint(x: 120, y: 12), 240, 22)
+
+        let small = DimensionDrawing.smallFont
+        DimensionDrawing.draw(ctx, placer.layout(dims, at: { at($0.x, $0.y) },
+                                                 measure: { DimensionDrawing.measure(ctx, $0, font: small) }),
+                              font: small)
+    }
+
+    /// Where the grips of whatever is chosen sit.
+    private func gripSpots(at: (Double, Double) -> CGPoint) -> [CGPoint] {
+        func spots(_ a: CGPoint, _ b: CGPoint, out: CGFloat) -> [CGPoint] {
+            let r = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+            return [CGPoint(x: r.minX - out, y: r.midY), CGPoint(x: r.maxX + out, y: r.midY),
+                    CGPoint(x: r.midX, y: r.minY - out), CGPoint(x: r.midX, y: r.maxY + out)]
+        }
+        var out: [CGPoint] = []
+        if let id = selectedItem.wrappedValue, let item = itemsHere.first(where: { $0.id == id }) {
+            let r = itemRect(item)
+            out += spots(at(r.from, r.top), at(r.to, r.bottom), out: 9).dropLast()
+        } else if let p = takeoff.pieces.first(where: { $0.id == selectedPiece && $0.wallID == wall.id && $0.face == face }) {
+            out += spots(at(p.fromFt, p.heightIn / 12), at(p.toFt, 0), out: 0).dropLast()
+        }
+        if editOpenings, let id = selectedOpening.wrappedValue,
+           let o = room.openings.first(where: { $0.id == id && $0.wallID == wall.id }) {
+            let s = room.span(of: o)
+            out += spots(at(s.lowerBound, o.bottomFt + o.heightFt), at(s.upperBound, o.bottomFt), out: 9)
+        }
+        for d in room.openings where d.wallID == wall.id && d.kind == .showerDoor {
+            let s = room.span(of: d)
+            let a = at(s.lowerBound, d.bottomFt + d.heightFt), b = at(s.upperBound, d.bottomFt)
+            out += [CGPoint(x: a.x, y: a.y + (b.y - a.y) * 0.3), CGPoint(x: b.x, y: a.y + (b.y - a.y) * 0.3),
+                    CGPoint(x: (a.x + b.x) / 2, y: a.y)]
+        }
+        return out
     }
 
     /// A handle that chooses a part to steer: lit when it's the one held.
@@ -2737,9 +2761,7 @@ struct WallElevation: View {
         let s = room.span(of: d)
         let top = d.bottomFt + d.heightFt
         let r = CGRect(x: at(s.lowerBound, 0).x, y: at(0, top).y, width: (s.upperBound - s.lowerBound) * scale, height: d.heightFt * scale)
-        let origin = at(0, 0)
         let header = room.hasHeader(d)
-        let width = s.upperBound - s.lowerBound
         // The opening, with the curb along its bottom and the header over it.
         Rectangle().fill(Color(white: 0.05))
             .overlay(Rectangle().stroke(Self.stone, style: StrokeStyle(lineWidth: 1.5)))
@@ -2747,7 +2769,6 @@ struct WallElevation: View {
             .overlay(
                 VStack(spacing: 1) {
                     Image(systemName: "door.left.hand.open").font(.caption)
-                    Text("\(feetAndInches(width)) × \(feetAndInches(d.heightFt))").font(.system(size: 9, weight: .semibold))
                     if !header { Text("no header").font(.system(size: 9)) }
                 }
                 .foregroundStyle(Self.stone).fixedSize()
@@ -2810,12 +2831,8 @@ struct WallElevation: View {
             }
             if !item.kind.isCorner, rect.width > 34, rect.height > 16 {
                 VStack(spacing: 0) {
+                    // Its size and height are dimensioned (`WallDimensions`).
                     Text(item.kind.name).font(.system(size: 9, weight: .semibold))
-                    // Too narrow for the size: the chain under the wall gives it.
-                    if item.kind == .niche || item.kind == .window, rect.width > 64 {
-                        Text("\(dimensionText(item.widthFt)) × \(dimensionText(item.heightIn / 12))").font(.system(size: 8.5))
-                        Text("\(dimensionText(item.bottomIn / 12)) up").font(.system(size: 8.5))
-                    }
                 }
                 .foregroundStyle(color).fixedSize()
             }
@@ -2869,18 +2886,15 @@ struct WallElevation: View {
         let off: Bool = takeoff.subtracted.contains(o.id) && !editOpenings
         let chosen: Bool = editOpenings && selectedOpening.wrappedValue == o.id
         let tint: Color = off ? .red : .cyan
-        let size: String = dimensionText(o.widthFt) + " × " + dimensionText(o.heightFt)
-        let up: String? = o.bottomFt > 1.0 / 48 ? dimensionText(o.bottomFt) + " up" : nil
-        let label: String = editOpenings ? size : (off ? "off" : "tap")
+        let label: String = off ? "off" : "tap"
         let symbol: String = o.kind == .window ? "window.horizontal" : "door.left.hand.closed"
         return RoundedRectangle(cornerRadius: 2)
             .fill(off ? Color(white: 0.08) : Color.cyan.opacity(0.12))
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(tint.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: off ? [] : [4, 3])))
             .overlay(VStack(spacing: 0) {
                 Image(systemName: symbol).font(.caption)
-                if !editOpenings, w > 64 { Text(size).font(.system(size: 8.5, weight: .semibold)).fixedSize() }
-                if !editOpenings || w > 64 { Text(label).font(.system(size: 9)).fixedSize() }
-                if let up, w > 40 { Text(up).font(.system(size: 8.5)).fixedSize() }
+                // Its size and height are dimensioned (`WallDimensions`).
+                if !editOpenings { Text(label).font(.system(size: 9)).fixedSize() }
             }.foregroundStyle(tint))
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.white, lineWidth: chosen ? 2.5 : 0))
             .frame(width: w, height: h)

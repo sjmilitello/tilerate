@@ -87,11 +87,12 @@ struct PlanDimensionPlacer {
             let u = CGPoint(x: (pb.x - pa.x) / length, y: (pb.y - pa.y) / length)
             var angle = atan2(u.y, u.x)
             if angle > .pi / 2 { angle -= .pi } else if angle < -.pi / 2 { angle += .pi }
-            let base: CGFloat = switch d.kind {
+            let usual: CGFloat = switch d.kind {
             case .overall: 24
             case .chain: d.outsideRow ? 24 : 14
             case .feature: d.ink == .bench ? 12 : 14
             }
+            let base = d.offset.map { CGFloat($0) } ?? usual
             return Prepared(d: d, pa: pa, pb: pb, ns: ns, u: u, length: length,
                             base: base, size: measure(d.text), angle: angle)
         }
@@ -158,7 +159,8 @@ struct PlanDimensionPlacer {
                     for (c, run) in spots {
                         let box = CGRect(x: c.x - bw / 2, y: c.y - bh / 2, width: bw, height: bh)
                         let clear = isClear(box, ignoringLanes: p.lanes)
-                        let stagger = staggerConflicts(along: p.u, center: c, half: bw / 2)
+                        // Half its length along the line (the text runs along it).
+                        let stagger = staggerConflicts(along: p.u, center: c, half: w / 2)
                         let misread = misreads(label: c, own: (p.pa, p.pb))
                         // A line run out past its end mustn't cross a wall to get there.
                         let throughWall = run.map { r in obstacles.contains { Self.crossesCleanly(r.0, r.1, $0.a, $0.b) } } ?? false
@@ -192,7 +194,7 @@ struct PlanDimensionPlacer {
             dimensionLines.append((line.0, line.1)); lines.append((line.0, line.1))
             for wl in wit { witnessLines.append((wl.0, wl.1)); lines.append((wl.0, wl.1)) }
             boxes.append(box)
-            dimLabels.append((p.u, pick.center, bw / 2))
+            dimLabels.append((p.u, pick.center, w / 2))
             if let key = sideKey(p) { used[key] = max(used[key] ?? 0, pick.off) }
             var d = p.d
             d.text = pick.text
