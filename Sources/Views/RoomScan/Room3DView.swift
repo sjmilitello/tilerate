@@ -267,10 +267,18 @@ enum Room3DScene {
             let wallColor = UIColor(white: w.planned ? 0.78 : 0.86, alpha: 1)
             // A partition has the room on both sides: drawn solid, so both faces show.
             let solid = w.planned || PlanDimensions.isPartition(w, in: room)
+            // This area's niches in this wall: cut into the face they're on.
+            let floorMid = c.takeoff.floor == .drawn ? c.takeoff.floorRect?.center : nil
+            let niches: [(rect: Rect, side: Float)] = c.takeoff.items.filter { $0.kind == .niche && $0.wallID == w.id }.map {
+                (Rect(x0: $0.fromFt, x1: $0.toFt, y0: $0.bottomIn / 12, y1: ($0.bottomIn + $0.heightIn) / 12),
+                 faceSign(w, face: $0.face, room: room, toward: floorMid))
+            }
+            let inside0 = faceSign(w, face: 0, room: room)
+            let bodyHoles = holes + niches.filter { solid || $0.side == inside0 }.map(\.rect)
             // The room's own walls are seen from inside only, like a doll's
             // house: whichever way it's turned, the near walls drop away.
             let inside = faceSign(w, face: 0, room: room)
-            for cell in cells(Rect(x0: 0, x1: w.lengthFt, y0: 0, y1: w.heightFt), minus: holes) {
+            for cell in cells(Rect(x0: 0, x1: w.lengthFt, y0: 0, y1: w.heightFt), minus: bodyHoles) {
                 if solid {
                     let box = SCNBox(width: cell.w, height: cell.h, length: t, chamferRadius: 0)
                     box.firstMaterial = plain(wallColor)
@@ -284,6 +292,17 @@ enum Room3DScene {
                     n.position = SCNVector3(cell.midX, cell.midY, Double(inside) * t / 2)
                     if inside < 0 { n.eulerAngles.y = .pi }
                     node.addChildNode(n)
+                }
+            }
+            // Behind each niche in a solid wall: the rest of the wall's thickness.
+            if solid {
+                for n in niches {
+                    let left = max(t - Self.nicheDepthFt, 0.02)
+                    let box = SCNBox(width: n.rect.w, height: n.rect.h, length: left, chamferRadius: 0)
+                    box.firstMaterial = plain(wallColor)
+                    let b = SCNNode(geometry: box)
+                    b.position = SCNVector3(n.rect.midX, n.rect.midY, -Double(n.side) * (t - left) / 2)
+                    node.addChildNode(b)
                 }
             }
             // Glass in the windows.
@@ -302,7 +321,8 @@ enum Room3DScene {
                     // On the side toward the area's own floor (a shower behind a
                     // partition is on its far side from the room's middle).
                     let side = faceSign(w, face: p.face, room: room, toward: a.floor?.center)
-                    for cell in cells(Rect(x0: p.fromFt, x1: p.toFt, y0: 0, y1: p.heightIn / 12), minus: holes) {
+                    let cut = holes + niches.filter { $0.side == side }.map(\.rect)
+                    for cell in cells(Rect(x0: p.fromFt, x1: p.toFt, y0: 0, y1: p.heightIn / 12), minus: cut) {
                         let plane = SCNPlane(width: cell.w, height: cell.h)
                         plane.firstMaterial = tileMaterial(a.tile, widthFt: cell.w, heightFt: cell.h, x0: cell.x0, y0: cell.y0)
                         let n = SCNNode(geometry: plane)
@@ -348,21 +368,52 @@ enum Room3DScene {
                 if side < 0 { n.eulerAngles.y = .pi }
                 node.addChildNode(n)
             case .niche:
-                let back = SCNPlane(width: item.widthFt, height: item.heightIn / 12)
-                back.firstMaterial = plain(UIColor(white: 0.22, alpha: 1))
-                let n = SCNNode(geometry: back)
-                n.position = SCNVector3((item.fromFt + item.toFt) / 2, (item.bottomIn + item.heightIn / 2) / 12, side * (t / 2 + 0.012))
-                if side < 0 { n.eulerAngles.y = .pi }
-                node.addChildNode(n)
-                // Its base shelf and dividers.
-                let shelfColor = item.stone == .tile ? UIColor(white: 0.9, alpha: 1) : stoneColor
-                for k in 0...item.dividers {
-                    let y = (item.bottomIn + item.heightIn * Double(k) / Double(item.dividers + 1)) / 12
-                    let shelf = SCNBox(width: item.widthFt, height: 0.06, length: 0.12, chamferRadius: 0)
-                    shelf.firstMaterial = plain(shelfColor)
-                    let s = SCNNode(geometry: shelf)
-                    s.position = SCNVector3((item.fromFt + item.toFt) / 2, y, side * (t / 2 + 0.06))
-                    node.addChildNode(s)
+                // A recess into the wall (owner, 2026-10-08): the back in the
+                // wall's tile, grout lined up with the wall's; the top, sides
+                // and sill in tile, or stone (all around: top, sides, sill and
+                // dividers; shelves only: sill and dividers).
+                let d = Self.nicheDepthFt, w0 = item.widthFt, h = item.heightIn / 12
+                let x0 = item.fromFt, y0 = item.bottomIn / 12
+                let face = side * t / 2, inner = side * (t / 2 - d)
+                // Its own tile, else the wall's.
+                let nicheTile = item.tile ?? c.tile
+                func surface(_ width: Double, _ height: Double, stone: Bool, gx: Double, gy: Double) -> SCNPlane {
+                    let p = SCNPlane(width: width, height: height)
+                    // Seen from inside the recess only, so it doesn't show
+                    // behind the wall from outside the room.
+                    p.firstMaterial = stone ? plain(stoneColor) : tileMaterial(nicheTile, widthFt: width, heightFt: height, x0: gx, y0: gy)
+                    return p
+                }
+                let sides = item.stone == .all, sill = item.stone != .tile
+                // The back.
+                let back = SCNNode(geometry: surface(w0, h, stone: false, gx: x0, gy: y0))
+                back.position = SCNVector3(x0 + w0 / 2, y0 + h / 2, inner)
+                if side < 0 { back.eulerAngles.y = .pi }
+                node.addChildNode(back)
+                // Left and right sides, facing in.
+                for (x, turn) in [(x0, Float.pi / 2), (x0 + w0, -Float.pi / 2)] {
+                    let n = SCNNode(geometry: surface(d, h, stone: sides, gx: 0, gy: y0))
+                    n.position = SCNVector3(x, y0 + h / 2, (face + inner) / 2)
+                    n.eulerAngles.y = turn
+                    node.addChildNode(n)
+                }
+                // The top facing down, the sill facing up.
+                for (y, stone, turn) in [(y0 + h, sides, Float.pi / 2), (y0, sill, -Float.pi / 2)] {
+                    let n = SCNNode(geometry: surface(w0, d, stone: stone, gx: x0, gy: 0))
+                    n.position = SCNVector3(x0 + w0 / 2, y, (face + inner) / 2)
+                    n.eulerAngles.x = turn
+                    node.addChildNode(n)
+                }
+                // Dividers.
+                if item.dividers > 0 {
+                    for k in 1...item.dividers {
+                        let y = y0 + h * Double(k) / Double(item.dividers + 1)
+                        let shelf = SCNBox(width: w0, height: 0.06, length: d, chamferRadius: 0)
+                        shelf.firstMaterial = item.stone == .tile ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : plain(stoneColor)
+                        let n = SCNNode(geometry: shelf)
+                        n.position = SCNVector3(x0 + w0 / 2, y, (face + inner) / 2)
+                        node.addChildNode(n)
+                    }
                 }
             case .cornerShelf, .cornerFootrest, .cornerSeat:
                 let size = item.sizeIn / 12
@@ -382,7 +433,19 @@ enum Room3DScene {
             case .window:
                 break
             }
-            if item.id == c.selectedItem {
+            if item.id == c.selectedItem, item.kind == .niche {
+                // A green frame round the opening, so its tile or stone still shows.
+                let w0 = item.widthFt, h = item.heightIn / 12, x0 = item.fromFt, y0 = item.bottomIn / 12
+                let z = side * (t / 2 + 0.01), bar = 0.04
+                for (x, y, bw, bh) in [(x0 + w0 / 2, y0 - bar / 2, w0 + 2 * bar, bar), (x0 + w0 / 2, y0 + h + bar / 2, w0 + 2 * bar, bar),
+                                       (x0 - bar / 2, y0 + h / 2, bar, h), (x0 + w0 + bar / 2, y0 + h / 2, bar, h)] {
+                    let b = SCNBox(width: bw, height: bh, length: 0.01, chamferRadius: 0)
+                    b.firstMaterial = plain(.systemGreen)
+                    let n = SCNNode(geometry: b)
+                    n.position = SCNVector3(x, y, z)
+                    node.addChildNode(n)
+                }
+            } else if item.id == c.selectedItem {
                 node.enumerateHierarchy { n, _ in
                     n.geometry?.materials.forEach { $0.emission.contents = UIColor(red: 0.1, green: 0.45, blue: 0.35, alpha: 1) }
                 }
@@ -563,6 +626,9 @@ enum Room3DScene {
         return n
     }
 
+    /// How deep a niche goes into the wall: a 2×4 stud cavity.
+    static let nicheDepthFt = 3.5 / 12
+
     private static func thickness(_ w: ScannedRoom.Wall) -> Double {
         w.planned ? max(w.thicknessIn, 1) / 12 : 4.0 / 12
     }
@@ -614,7 +680,8 @@ enum Room3DScene {
 
     // MARK: Materials
 
-    static let stoneColor = UIColor(red: 0.88, green: 0.84, blue: 0.76, alpha: 1)
+    /// Stone: the tan the plan uses, so it reads apart from light tile.
+    static let stoneColor = UIColor(red: 0.80, green: 0.70, blue: 0.53, alpha: 1)
 
     private static func plain(_ c: UIColor) -> SCNMaterial {
         let m = SCNMaterial()

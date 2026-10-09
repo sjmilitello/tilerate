@@ -199,4 +199,14 @@ struct ShowerCoveAndDrainTests {
         // The partition is solid, so its room side shows too.
         #expect(node.childNodes.contains { $0.geometry is SCNBox })
     }
+
+    @Test func aNicheKeepsItsOwnTileAndOldNichesUseTheWalls() throws {
+        var n = AreaTakeoff.Item()
+        n.kind = .niche
+        n.tile = TileChoice(tileType: .porcelain, tileSize: .mosaic, layout: .straightStacked)
+        let back = try JSONDecoder().decode(AreaTakeoff.Item.self, from: JSONEncoder().encode(n))
+        #expect(back.tile == n.tile)
+        let old = try JSONDecoder().decode(AreaTakeoff.Item.self, from: Data(#"{"kind":"niche","heightIn":24}"#.utf8))
+        #expect(old.tile == nil && old.heightIn == 24)
+    }
 }

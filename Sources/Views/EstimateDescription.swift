@@ -200,7 +200,7 @@ private func sentenceParts(_ section: EstimateSection, wording: WordingTemplates
 }
 
 /// "2×2 Porcelain Tile in Straight Stacked pattern", for a separate tile.
-private func tilePhrase(_ t: TileChoice, _ wording: WordingTemplates) -> String {
+func tilePhrase(_ t: TileChoice, _ wording: WordingTemplates) -> String {
     fillTemplate(wording.tile, tileValues(type: t.tileType.rawValue, size: t.tileSize, layout: t.layout.rawValue,
                                           widthIn: t.tileWidthIn, lengthIn: t.tileLengthIn,
                                           style: t.mosaicStyle, pieces: t.pieces))

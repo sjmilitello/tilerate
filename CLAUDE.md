@@ -354,7 +354,17 @@ near walls drop away whichever way it's turned. A partition (a scanned wall
 with an end partway along another, `isPartition`) is drawn solid, both faces
 showing; tile, niches and benches on a scanned wall go on the side toward
 their area's floor (else the room's middle) — a shower behind a partition
-had its tile on the room side (fixed 2026-10-08). Views: into this area
+had its tile on the room side (fixed 2026-10-08). A niche is a 3½″ recess cut into the
+face it's on (`Room3DScene.nicheDepthFt`; the wall's tile has a hole there):
+its back in the wall's tile (or its own, `Item.tile`: the niche panel's
+Niche tile → Choose, the usual tile sheet; Use wall tile clears it — shown
+on the drawing only, not priced, owner's call pending), grout lined up; top, sides and sill in tile, or
+stone per its choice (all around: top, sides, sill, dividers; shelves only:
+sill and dividers). Its faces show from inside only, so nothing pokes out
+behind a wall seen from outside; a solid wall keeps the rest of its
+thickness behind it. A chosen niche gets a green frame, not the green tint,
+so its tile and stone still show. Stone in 3-D is the plan's tan
+(`stoneColor`), not cream, so it reads apart from light tile. Views: into this area
 (from its open side) and the whole room; turn and pinch by hand. In 3-D, **Place** (shower) picks a door, window,
 niche, corner piece or bench, then a tap on a wall puts it there (`tap3D`,
 `Room3DHit`: scene nodes are named "wall|id" and "item|id"): a niche or

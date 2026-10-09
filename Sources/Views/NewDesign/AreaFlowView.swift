@@ -382,6 +382,7 @@ struct AreaFlowView: View {
                            kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
                            stone: StonePrices(rates: store.pricingRates),
                            tile: section.mainTile, floorTile: section.showerFloorTile,
+                           rates: store.pricingRates,
                            onAddPicture: { eye, target, fixtures in
                                let n = store.doc.pictures.filter { $0.sectionID == section.id }.count + 1
                                store.doc.pictures.append(EstimatePicture(sectionID: section.id, name: "View \(n)",

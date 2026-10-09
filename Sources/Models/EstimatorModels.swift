@@ -982,6 +982,9 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
         var atStart: Bool = true
         var dividers: Int = 0
         var stone: Stone = .tile
+        /// A niche's own tile (owner asked 2026-10-08); nil is the wall's
+        /// tile. Shown on the drawing; not priced.
+        var tile: TileChoice? = nil
         var widthFt: Double { max(0, toFt - fromFt) }
     }
 
@@ -1756,6 +1759,7 @@ extension AreaTakeoff.Item {
         c.read(.atStart, into: &atStart)
         c.read(.dividers, into: &dividers)
         c.read(.stone, into: &stone)
+        c.read(.tile, into: &tile)
     }
 }
 

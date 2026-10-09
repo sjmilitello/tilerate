@@ -17,6 +17,9 @@ struct OtherAreaPieces: Equatable {
     var roomFloor: Bool = false
 }
 
+/// A niche whose tile is being chosen, for the sheet.
+private struct NicheTileTarget: Identifiable { let id: UUID }
+
 struct ScanEditor: View {
     /// Which step it's opened from: Measure (walls, tile, floor, ceiling,
     /// walls drawn in, doors) or Extras (niches, windows, benches, corner
@@ -35,6 +38,8 @@ struct ScanEditor: View {
     /// This area's tile and floor tile, for the 3-D view.
     let tile: TileChoice?
     let floorTile: TileChoice?
+    /// The rates, for choosing a niche's own tile (its sizes and wording).
+    var rates: Rates = Rates()
     /// "Add to estimate" in 3-D: the camera (eye, target) and whether fixtures show.
     var onAddPicture: (([Double], [Double], Bool) -> Void)? = nil
     /// The area's choices, and the room with any walls drawn in.
@@ -52,6 +57,8 @@ struct ScanEditor: View {
     @State private var addingFullWall = false
     /// Waiting for a tap on the corner the shower goes in.
     @State private var placingShower = false
+    /// The niche whose own tile is being chosen.
+    @State private var nicheTileFor: UUID? = nil
     /// Tapping a wall chooses it to change its shape (any wall, scanned or
     /// drawn in), rather than tiling it.
     @State private var editingWalls = false
@@ -127,9 +134,10 @@ struct ScanEditor: View {
     init(room: ScannedRoom, area: Area?, title: String, takeoff: AreaTakeoff, others: [OtherAreaPieces],
          mode: Mode = .measure,
          kneeWallThicknessIn: Double = 4.5, stone: StonePrices = .init(),
-         tile: TileChoice? = nil, floorTile: TileChoice? = nil,
+         tile: TileChoice? = nil, floorTile: TileChoice? = nil, rates: Rates = Rates(),
          onAddPicture: (([Double], [Double], Bool) -> Void)? = nil,
          onUse: @escaping (AreaTakeoff, ScannedRoom) -> Void, onRescan: @escaping () -> Void) {
+        self.rates = rates
         _room = State(initialValue: room)
         openedRoom = room
         openedTakeoff = takeoff
@@ -370,6 +378,13 @@ struct ScanEditor: View {
                 totalsBar
             }
             .background(ND.ground.ignoresSafeArea())
+            .sheet(item: Binding(get: { nicheTileFor.map { NicheTileTarget(id: $0) } }, set: { nicheTileFor = $0?.id })) { target in
+                if let k = takeoff.items.firstIndex(where: { $0.id == target.id }) {
+                    NDTileSheet(title: "Niche tile",
+                                tile: Binding(get: { takeoff.items[k].tile ?? TileChoice() }, set: { takeoff.items[k].tile = $0 }),
+                                rates: rates)
+                }
+            }
             .confirmationDialog("Add a wall on the curb", isPresented: $askClose, titleVisibility: .visible,
                                 presenting: closingSide) { side in
                 Button("Full wall (with a door)") { closeSide(side, door: true) }
@@ -772,6 +787,25 @@ struct ScanEditor: View {
                 if item.kind == .niche {
                     Stepper("Divider shelves: \(item.dividers)", value: $takeoff.items[i].dividers, in: 0...6)
                         .font(.subheadline)
+                    // Its tile: the wall's, or its own (shown on the drawing, not priced).
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Niche tile").font(.subheadline.weight(.semibold))
+                            Text(item.tile.map { tilePhrase($0, rates.wording) } ?? "Same as the wall")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if item.tile != nil {
+                            Button("Use wall tile") { takeoff.items[i].tile = nil }
+                                .font(.caption)
+                        }
+                        Button(item.tile == nil ? "Choose" : "Change") {
+                            if takeoff.items[i].tile == nil { takeoff.items[i].tile = tile ?? TileChoice() }
+                            nicheTileFor = item.id
+                        }
+                        .buttonStyle(.bordered)
+                        .font(.subheadline)
+                    }
                     Picker("Stone", selection: $takeoff.items[i].stone) {
                         Text("Tile").tag(AreaTakeoff.Item.Stone.tile)
                         Text("Stone all around").tag(AreaTakeoff.Item.Stone.all)
