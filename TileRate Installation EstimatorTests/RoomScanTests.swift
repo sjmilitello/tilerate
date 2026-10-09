@@ -741,6 +741,30 @@ struct RoomScanTests {
         return r
     }
 
+    @Test func lengtheningAWallGoesBySixteenthsWithoutStickingToTheWallAtItsEnd() {
+        var r = doorWallInPieces()
+        let divider = r.walls[1]
+        // Each step from where the drag began, as the plan does: 1/16″, 2/16″, … no sticking.
+        for k in 1...8 {
+            let target = ScannedRoom.Point(x: 5, y: 4 + Double(k) / 192)
+            let p = r.lengthenedEnd(of: divider.id, start: false, toward: target, from: divider)
+            #expect(abs(p.y - (4 + Double(k) / 192)) < 1e-9)
+            var moved = doorWallInPieces()
+            moved.moveWallEnd(divider.id, start: false, to: p)
+            r = moved
+        }
+        // A finger off to the side doesn't swing it: it stays on its own line.
+        let off = r.lengthenedEnd(of: divider.id, start: false, toward: .init(x: 5.4, y: 4.5), from: divider)
+        #expect(abs(off.x - 5) < 1e-9 && abs(off.y - 4.5) < 1e-9)
+        // A scanned wall a hair off square keeps its own direction.
+        var skew = ScannedRoom()
+        let w = ScannedRoom.Wall(label: "A", lengthFt: hypot(4, 0.07), heightFt: 8,
+                                 start: .init(x: 0, y: 0), end: .init(x: 4, y: 0.07))
+        skew.walls = [w]
+        let q = skew.lengthenedEnd(of: w.id, start: false, toward: .init(x: 5, y: 0.0875), from: w)
+        #expect(abs((q.y / q.x) - 0.07 / 4) < 1e-9)
+    }
+
     @Test func aWallInPiecesAcrossADoorwayMovesAsOne() {
         var r = doorWallInPieces()
         let divider = r.walls[1], near = r.walls[2], far = r.walls[3], east = r.walls[4]

@@ -482,7 +482,10 @@ scanned room answers the physical ones on its model instead of in fields.
   walls drawn in (drawing and moving), the shower floor and its edges,
   drains, tile pieces, doors, windows, niches and benches (`snapped`,
   `plannedEnd`, `movePlannedWall`, `snapLength`, `snappedDrain`; 1½″ where no
-  zoom is known). Lengthening or
+  zoom is known). Dragging a wall's end (`lengthenedEnd`) keeps the wall's own
+  line (never squared up) and never catches on the walls attached at that
+  end or in line with them — they move with it, and catching on them made
+  the end stick and jump (fixed 2026-10-08). Lengthening or
   shortening a wall slides the wall square across its end whole, so the
   room stays square. A wall the scanner gave in pieces either side of a
   doorway — in line, up to 5′ end to end (`inLine(with:)`) — moves as one

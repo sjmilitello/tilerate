@@ -124,6 +124,39 @@ extension ScannedRoom {
         return Point(x: a.x + dir.x * len, y: a.y + dir.y * len)
     }
 
+    /// An existing wall's end dragged to lengthen or shorten it (owner,
+    /// 2026-10-08: no jumps): along the wall's own line — never squared up,
+    /// so a scanned wall a hair off square doesn't jump sideways — by how far
+    /// `target` is along it, to the sixteenth; catching within `reach` only on
+    /// a wall it runs into, never on the walls attached at that end (they
+    /// move with it) or anything in line with them.
+    func lengthenedEnd(of id: UUID, start: Bool, toward target: Point, from base: Wall,
+                       reach: Double = Steering.catchFt) -> Point {
+        let other = start ? base.end : base.start, end = start ? base.start : base.end
+        let l = max(hypot(end.x - other.x, end.y - other.y), 1e-9)
+        let dir = Point(x: (end.x - other.x) / l, y: (end.y - other.y) / l)
+        var len = Steering.sixteenth((target.x - other.x) * dir.x + (target.y - other.y) * dir.y)
+        len = max(len, 0.5)
+        // The walls at this end as it is now, and their pieces across a doorway.
+        let now = wall(id).map { start ? $0.start : $0.end } ?? end
+        var attached = Set<UUID>([id])
+        for w in walls where hypot(w.start.x - now.x, w.start.y - now.y) < 0.35 || hypot(w.end.x - now.x, w.end.y - now.y) < 0.35 {
+            attached.insert(w.id)
+            for piece in inLine(with: w.id) { attached.insert(piece.id) }
+        }
+        var best = reach
+        let raw = len
+        for w in walls where !attached.contains(w.id) {
+            let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+            let den = dir.x * ey - dir.y * ex
+            guard abs(den) > 1e-6 else { continue }
+            let t = ((w.start.x - other.x) * ey - (w.start.y - other.y) * ex) / den
+            let s = ((w.start.x - other.x) * dir.y - (w.start.y - other.y) * dir.x) / den
+            if t > 0.5, s >= -0.05, s <= 1.05, abs(t - raw) < best { best = abs(t - raw); len = t }
+        }
+        return Point(x: other.x + dir.x * len, y: other.y + dir.y * len)
+    }
+
     /// A planned wall from `a` to `b`, `heightIn` high and `thicknessIn` thick.
     mutating func addPlannedWall(from a: Point, to b: Point, heightIn: Double, thicknessIn: Double) -> Wall {
         let length = ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot()

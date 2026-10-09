@@ -2255,10 +2255,10 @@ struct PlanCanvas: View {
             if base.planned { cue(onMovePlannedWall(base, steered, reach), at: shown) } else { onMoveWall(id, steered) }
         case .wallEnd(let id, let start):
             guard let base = steerWall else { return }
-            let from = start ? base.start : base.end, other = start ? base.end : base.start
+            let from = start ? base.start : base.end
             let target = ScannedRoom.Point(x: from.x + steered.x, y: from.y + steered.y)
-            let p = room.plannedEnd(from: other, toward: target, except: id, reach: reach)
-            let free = room.plannedEnd(from: other, toward: target, except: id, reach: 0)
+            let p = room.lengthenedEnd(of: id, start: start, toward: target, from: base, reach: reach)
+            let free = room.lengthenedEnd(of: id, start: start, toward: target, from: base, reach: 0)
             cue(hypot(p.x - free.x, p.y - free.y) > 1e-9, at: p)
             if base.planned { onMovePlannedEnd(id, start, p) } else { onMoveWallEnd(id, start, p) }
             shown = p
