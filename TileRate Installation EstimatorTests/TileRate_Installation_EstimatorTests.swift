@@ -479,11 +479,13 @@ struct PriceListTests {
                       {"id":"6B1C2D3E-0F41-4A52-8B63-7C84D5E6F702","name":"Floor leveling","price":2}]}
         """
         let r = try JSONDecoder().decode(Rates.self, from: Data(json.utf8))
-        #expect(r.priceList.map(\.name) == PriceListItem.ownersDemolition.map(\.name) + ["Floor leveling"])
+        // (Curbless Shower and Linear Drain, added 2026-10-08, come after.)
+        #expect(r.priceList.map(\.name) == PriceListItem.ownersDemolition.map(\.name) + ["Floor leveling", "Curbless Shower", "Linear Drain"])
         let demos = r.priceList.prefix(12)
         #expect(demos.filter { $0.unit == .perSqft }.allSatisfy { $0.price == 4 && $0.minimum == 300 })
         #expect(demos.filter { $0.unit == .each }.allSatisfy { $0.price == 0 && $0.minimum == 0 })
-        #expect(r.priceList.last?.measure == .floorOnly && r.priceList.last?.price == 2)
+        let leveling = r.priceList.first { $0.name == "Floor leveling" }
+        #expect(leveling?.measure == .floorOnly && leveling?.price == 2)
     }
 
     @Test func linesCountInTheTotals() {
@@ -503,9 +505,11 @@ struct PriceListTests {
     @Test func savedDataLoads() throws {
         let old = try JSONDecoder().decode(Rates.self, from: Data(#"{"unitBench":200}"#.utf8))
         #expect(old.priceList.map(\.name)
-                == PriceListItem.ownersDemolition.map(\.name) + ["Floor leveling", "Epoxy grout upgrade"])
-        #expect(old.priceList.count == 14)
-        #expect(old.priceList.allSatisfy { $0.price == 0 && !$0.isMaterial })
+                == PriceListItem.ownersDemolition.map(\.name) + ["Floor leveling", "Epoxy grout upgrade", "Curbless Shower", "Linear Drain"])
+        #expect(old.priceList.count == 16)
+        #expect(old.priceList.allSatisfy { $0.price == 0 && $0.minimum == 0 })
+        // Linear Drain is materials; everything else labor.
+        #expect(old.priceList.filter(\.isMaterial).map(\.name) == ["Linear Drain"])
         let line = try JSONDecoder().decode(AdditionItem.self, from: Data(#"{"activity":"Haul","qty":2,"rate":50}"#.utf8))
         #expect(line.amount == 100 && line.unit == "" && !line.followsAreaSqft && line.minimum == 0)
         var r = Rates()

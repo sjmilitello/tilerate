@@ -71,7 +71,18 @@ struct PriceListItem: Identifiable, Codable, Equatable, Hashable {
         PriceListItem(id: UUID(uuidString: "6B1C2D3E-0F41-4A52-8B63-7C84D5E6F702")!, name: "Floor leveling",
                       measure: .floorOnly),
         PriceListItem(id: UUID(uuidString: "6B1C2D3E-0F41-4A52-8B63-7C84D5E6F703")!, name: "Epoxy grout upgrade"),
-    ]
+    ] + showerDrainItems
+
+    /// Added 2026-10-08 with curbless showers and linear drains, which put
+    /// them on a shower themselves (`AreaTakeoff.apply`): a shower with its
+    /// curb removed takes Curbless Shower, per sq ft of shower floor; a
+    /// linear drain takes Linear Drain, per linear foot of drain. Each has a
+    /// minimum; all $0 until set in Admin.
+    static let curblessShower = PriceListItem(id: UUID(uuidString: "6B1C2D3E-0F41-4A52-8B63-7C84D5E6F704")!,
+                                              name: "Curbless Shower", unit: .perSqft, measure: .showerFloorOnly)
+    static let linearDrain = PriceListItem(id: UUID(uuidString: "6B1C2D3E-0F41-4A52-8B63-7C84D5E6F705")!,
+                                           name: "Linear Drain", unit: .perLinFt, isMaterial: true, taxable: true)
+    static let showerDrainItems = [curblessShower, linearDrain]
 
     /// Demolition, one item per thing torn out. Fixtures are priced each;
     /// surfaces per square foot of the part they cover.
@@ -261,6 +272,9 @@ struct Rates: Codable, Equatable {
 
     /// Extras picked from a list instead of typed each time.
     var priceList: [PriceListItem] = PriceListItem.ownersStartingList
+    /// Curbless Shower and Linear Drain have been put on the price list (once:
+    /// deleting them in Admin keeps them deleted).
+    var showerDrainItemsAdded = true
 
     var floorEscThresholdLower: Int = 50
     var floorEscThresholdUpper: Int = 99
@@ -539,6 +553,15 @@ extension Rates {
                 priceList[j].measure = .floorOnly
             }
         }
+        // Rates saved before curbless showers get their two items, once.
+        var added = false
+        c.read(.showerDrainItemsAdded, into: &added)
+        if !added {
+            for item in PriceListItem.showerDrainItems where !priceList.contains(where: { $0.id == item.id }) {
+                priceList.append(item)
+            }
+        }
+        showerDrainItemsAdded = true
         c.read(.floorEscThresholdLower, into: &floorEscThresholdLower)
         c.read(.floorEscThresholdUpper, into: &floorEscThresholdUpper)
         c.read(.floorEscAdjPerSqft, into: &floorEscAdjPerSqft)
@@ -984,6 +1007,29 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
     /// `drawn`: the rectangle on the plan.
     var floorRect: FloorRect? = nil
     var tileCeiling: Bool = false
+    /// A shower with no curb (owner's call, 2026-10-08): no curb line or
+    /// charge, jambs from the floor, and Curbless Shower on the estimate.
+    var curbless: Bool = false
+    /// A shower floor filling a cove: how deep the cove is, wall to its
+    /// outside corners. With a curb the floor stops at the curb's inside
+    /// face; without one it runs to the corners. nil once the floor is
+    /// moved by hand, or for a shower placed in a corner.
+    var coveDepthFt: Double? = nil
+    /// The shower's drain; nil is a 4″ square drain in the middle of the floor.
+    var drain: Drain? = nil
+
+    /// A shower drain: a 4″ square one, or a linear one. Kept in the floor's
+    /// own terms, so it moves and turns with the floor.
+    struct Drain: Codable, Hashable, Equatable {
+        enum Kind: String, Codable { case center, linear }
+        var kind: Kind = .center
+        /// Its middle, in feet along the floor's width and depth from its origin.
+        var alongWidthFt: Double = 0
+        var alongDepthFt: Double = 0
+        /// A linear drain: its length, and whether it runs along the floor's width (else its depth).
+        var lengthFt: Double = 0
+        var runsAlongWidth: Bool = true
+    }
 }
 
 struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
@@ -1661,6 +1707,21 @@ extension AreaTakeoff {
         c.read(.floorDepthFt, into: &floorDepthFt)
         c.read(.floorRect, into: &floorRect)
         c.read(.tileCeiling, into: &tileCeiling)
+        c.read(.curbless, into: &curbless)
+        c.read(.coveDepthFt, into: &coveDepthFt)
+        c.read(.drain, into: &drain)
+    }
+}
+
+extension AreaTakeoff.Drain {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.kind, into: &kind)
+        c.read(.alongWidthFt, into: &alongWidthFt)
+        c.read(.alongDepthFt, into: &alongDepthFt)
+        c.read(.lengthFt, into: &lengthFt)
+        c.read(.runsAlongWidth, into: &runsAlongWidth)
     }
 }
 

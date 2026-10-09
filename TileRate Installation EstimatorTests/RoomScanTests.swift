@@ -804,21 +804,25 @@ struct RoomScanTests {
         // Sample room 9′ × 8′; tap near the B/C corner (x = 9, y = 8).
         var t = AreaTakeoff()
         t.pieces = [piece(A, 0, 9, 96)]                       // a wrong guess somewhere else
-        let placed = t.placeShower(near: .init(x: 8.6, y: 7.5), in: room)
+        let placed = t.placeShower(near: .init(x: 8.6, y: 7.5), in: room, curbWidthFt: 4.5 / 12)
         #expect(placed)
         let r = t.floorRect!
         #expect(abs(r.origin.x - 9) < 1e-9 && abs(r.origin.y - 8) < 1e-9)
-        #expect(abs(r.widthFt - 5) < 1e-9 && abs(r.depthFt - 3) < 1e-9)
-        // Its 5′ side along the longer wall (C, 9′), 3′ up wall B; both tiled full height, A no longer.
+        // 48″ × 48″ in a corner (owner's call, 2026-10-08); not a cove, so no cove depth.
+        #expect(abs(r.widthFt - 4) < 1e-9 && abs(r.depthFt - 4) < 1e-9)
+        #expect(t.coveDepthFt == nil)
+        // Along wall C and up wall B, both tiled full height, A no longer.
         #expect(Set(t.pieces.map(\.wallID)) == [B.id, C.id])
         #expect(t.pieces.allSatisfy { $0.heightIn == 96 })
-        #expect(abs(t.wallsSqft(in: room) - (5 + 3) * 8) < 1e-9)
+        #expect(abs(t.wallsSqft(in: room) - (4 + 4) * 8) < 1e-9)
         // The curb on the two open sides.
         let curb = t.trimPieces(in: room, area: .shower, curbHeightIn: 4).first { $0.key == "curb" }
         #expect(abs((curb?.lengthFt ?? 0) - 8) < 1e-9)
-        // Turned: 3′ along C, 5′ up B, still in the corner; the walls follow.
+        // Resized to 5′ × 3′ and turned: 3′ along C, 5′ up B, still in the corner; the walls follow.
         var turned = t
-        turned.floorRect = r.turned
+        turned.floorRect?.widthFt = 5
+        turned.floorRect?.depthFt = 3
+        turned.floorRect = turned.floorRect!.turned
         turned.tileWallsAroundFloor(in: room)
         #expect(abs(turned.floorRect!.widthFt - 3) < 1e-9 && abs(turned.floorRect!.depthFt - 5) < 1e-9)
         #expect(abs(turned.floorRect!.origin.x - 9) < 1e-9 && abs(turned.floorRect!.origin.y - 8) < 1e-9)
@@ -829,13 +833,13 @@ struct RoomScanTests {
         let tilted = room.turned(by: 27)
         var t2 = AreaTakeoff()
         let c = tilted.walls[1].end    // the B/C corner
-        let placedTilted = t2.placeShower(near: .init(x: c.x, y: c.y), in: tilted)
+        let placedTilted = t2.placeShower(near: .init(x: c.x, y: c.y), in: tilted, curbWidthFt: 4.5 / 12)
         #expect(placedTilted)
         let along = t2.floorRect!.u
         let cDir = ScannedRoom.Point(x: (tilted.walls[2].end.x - tilted.walls[2].start.x) / 9, y: (tilted.walls[2].end.y - tilted.walls[2].start.y) / 9)
         #expect(abs(along.x * cDir.x + along.y * cDir.y) > 0.99)
         // Moved back into the corner and tiled round.
-        let again = turned.placeShower(near: .init(x: 8.6, y: 7.5), in: room)
+        let again = turned.placeShower(near: .init(x: 8.6, y: 7.5), in: room, curbWidthFt: 4.5 / 12)
         #expect(again)
     }
 

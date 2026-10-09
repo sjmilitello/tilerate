@@ -507,6 +507,45 @@ extension AreaTakeoff {
         if itemsPlaced, section.area != .floor {
             section.features = placedFeatures(keeping: section.features)
         }
+        // A curbless shower takes Curbless Shower, per sq ft of its floor; a
+        // linear drain takes Linear Drain, per foot of drain (owner's calls,
+        // 2026-10-08). Their lines keep fixed ids, so a price changed on the
+        // estimate stays; they go when the curb or the linear drain does.
+        let shower = section.area == .shower && floor == .drawn
+        setPriceListLine(prices.curblessItem, id: Self.extraLineID(section.id, 1),
+                         qty: shower && curbless ? section.measurements.showerFloorSqft : nil, in: &section)
+        let linear = shower ? drainShown().flatMap { $0.kind == .linear ? $0.lengthFt : nil } : nil
+        setPriceListLine(prices.linearDrainItem, id: Self.extraLineID(section.id, 2),
+                         qty: linear.map { ($0 * 100).rounded() / 100 }, in: &section)
+    }
+
+    /// A line from a price list item with this id: added or its quantity
+    /// updated when `qty` is set, removed when it's nil.
+    private func setPriceListLine(_ item: PriceListItem?, id: UUID, qty: Double?, in section: inout EstimateSection) {
+        guard let item, let qty, qty > 0 else {
+            section.additionsLabor.removeAll { $0.id == id }
+            section.additionsMaterials.removeAll { $0.id == id }
+            return
+        }
+        if let i = section.additionsLabor.firstIndex(where: { $0.id == id }) {
+            section.additionsLabor[i].qty = qty
+        } else if let i = section.additionsMaterials.firstIndex(where: { $0.id == id }) {
+            section.additionsMaterials[i].qty = qty
+        } else {
+            let perSqft = item.unit == .perSqft
+            let line = AdditionItem(id: id, activity: item.name, qty: qty, rate: item.price,
+                                    taxable: item.isMaterial && item.taxable, unit: item.unit.quantityLabel,
+                                    followsAreaSqft: perSqft, measure: item.measure, minimum: item.minimum)
+            if item.isMaterial { section.additionsMaterials.append(line) } else { section.additionsLabor.append(line) }
+        }
+    }
+
+    /// A curbless or linear drain line's id, the same every time for an area.
+    static func extraLineID(_ sectionID: UUID, _ salt: UInt8) -> UUID {
+        var bytes = sectionID.uuid
+        bytes.12 ^= 0xC3
+        bytes.11 ^= salt
+        return UUID(uuid: bytes)
     }
 
     /// Linear feet of stone in a niche: all around is the top, sides, base
@@ -770,6 +809,14 @@ struct StonePrices {
     var doorHeightIn: Double = 80
     var stone: [StoneItem: StoneRate] = [:]
     var defaults = ScanItemDefaults()
+    /// The price list's Curbless Shower and Linear Drain, nil once deleted there.
+    var curblessItem: PriceListItem? = PriceListItem.curblessShower
+    var linearDrainItem: PriceListItem? = PriceListItem.linearDrain
+    /// The curb's width: Admin's stone curb width, else 4½″ (owner's call, 2026-10-08).
+    var curbWidthFt: Double {
+        let w = rate(.curb).widthIn
+        return (w > 0 ? w : 4.5) / 12
+    }
     func rate(_ k: TrimKind) -> StoneRate {
         if let r = stone[k.item] { return r }
         switch k {
@@ -786,7 +833,9 @@ extension StonePrices {
         self.init(curb: r.stoneCurbPerLinFt, cap: r.stoneCapPerLinFt, jamb: r.stoneJambPerLinFt, curbHeightIn: r.curbHeightIn,
                   doorWidthIn: r.showerDoorWidthIn, doorHeightIn: r.showerDoorHeightIn,
                   stone: Dictionary(uniqueKeysWithValues: StoneItem.allCases.map { ($0, r.stoneRate($0)) }),
-                  defaults: r.scanDefaults)
+                  defaults: r.scanDefaults,
+                  curblessItem: r.priceList.first { $0.id == PriceListItem.curblessShower.id },
+                  linearDrainItem: r.priceList.first { $0.id == PriceListItem.linearDrain.id })
     }
 }
 
@@ -814,7 +863,8 @@ extension AreaTakeoff {
     ///   of its open ends, floor to cap.
     func trimPieces(in room: ScannedRoom, area: Area?, curbHeightIn: Double) -> [TrimPiece] {
         var out: [(String, TrimKind, String, Double)] = []
-        let curb = (self.curbHeightIn ?? curbHeightIn) / 12
+        // Curbless: no curbs, and the jambs start at the floor.
+        let curb = curbless ? 0 : (self.curbHeightIn ?? curbHeightIn) / 12
         let ceiling = room.ceilingFt
         // The top of the tile: this area's tallest tile on full walls, else the ceiling.
         let top = pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? ceiling
@@ -824,7 +874,7 @@ extension AreaTakeoff {
             let c = r.corners
             let sides = openSides(in: room)
             let width = sides.reduce(0.0) { $0 + $1.lengthFt }
-            if width > 0 { out.append(("curb", .curb, "Curb", width)) }
+            if width > 0, !curbless { out.append(("curb", .curb, "Curb", width)) }
             // The entry's ends: a jamb wherever an open side meets a wall.
             let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
             var used = Set<String>()
@@ -858,7 +908,7 @@ extension AreaTakeoff {
                 let wallTop = pieces.filter { $0.wallID == w.id }.map { $0.heightIn / 12 }.max() ?? top
                 let header = room.hasHeader(d)
                 let jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
-                out.append(("curb:\(d.id)", .curb, "Curb (\(label))", width))
+                if !curbless { out.append(("curb:\(d.id)", .curb, "Curb (\(label))", width)) }
                 for side in ["left", "right"] {
                     out.append(("jamb:\(d.id):\(side)", .jamb, "\(side.capitalized) jamb (\(label))", max(0, jambTop - curb)))
                 }
@@ -975,8 +1025,9 @@ extension AreaTakeoff {
     }
 
     /// Where the curb goes: the shower floor's open sides, and across each
-    /// shower door.
+    /// shower door. None for a curbless shower.
     func curbEdges(in room: ScannedRoom) -> [(ScannedRoom.Point, ScannedRoom.Point)] {
+        guard !curbless else { return [] }
         let doors: [(ScannedRoom.Point, ScannedRoom.Point)] = showerDoors(in: room).compactMap { d in
             guard let w = d.wallID.flatMap({ room.wall($0) }) else { return nil }
             let s = room.span(of: d)
@@ -1288,6 +1339,73 @@ extension AreaTakeoff.FloorRect {
 }
 
 extension ScannedRoom {
+    /// A cove of three walls around `p`, for a shower to fill: a back wall
+    /// and a wall each side running out from it, `p` between them and no
+    /// further out than the shorter side wall reaches (the outside corner).
+    /// Looked for along the room's square directions; 2–10′ each way. The
+    /// floor's corner at the back, `u` across to the other side, `v` out of
+    /// the cove; the smallest when there's a choice.
+    func cove(around p: Point) -> (origin: Point, u: Point, v: Point, widthFt: Double, depthFt: Double)? {
+        let a = squaringAngle
+        let dirs = [Point(x: cos(a), y: sin(a)), Point(x: -sin(a), y: cos(a)),
+                    Point(x: -cos(a), y: -sin(a)), Point(x: sin(a), y: -cos(a))]
+        func dot(_ q: Point, _ r: Point) -> Double { q.x * r.x + q.y * r.y }
+        /// The nearest wall a ray from `p` meets, and how far.
+        func hit(_ d: Point) -> (wall: Wall, t: Double)? {
+            var best: (Wall, Double)?
+            for w in walls where w.lengthFt > 0.1 && !isKneeWall(w) {
+                let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+                let den = d.x * ey - d.y * ex
+                guard abs(den) > 1e-9 else { continue }
+                let qx = w.start.x - p.x, qy = w.start.y - p.y
+                let t = (qx * ey - qy * ex) / den
+                let s = (qx * d.y - qy * d.x) / den
+                guard t > 1e-6, s >= -0.02, s <= 1.02, t < (best?.1 ?? .infinity) else { continue }
+                best = (w, t)
+            }
+            return best.map { ($0.0, $0.1) }
+        }
+        let hits = dirs.map(hit)
+        var found: (origin: Point, u: Point, v: Point, widthFt: Double, depthFt: Double)?
+        for k in 0..<4 {
+            let back = dirs[k], s1 = dirs[(k + 1) % 4], s2 = dirs[(k + 3) % 4], out = dirs[(k + 2) % 4]
+            guard let hb = hits[k], let h1 = hits[(k + 1) % 4], let h2 = hits[(k + 3) % 4] else { continue }
+            func unit(_ w: Wall) -> Point {
+                let l = max(w.lengthFt, 1e-9)
+                return .init(x: (w.end.x - w.start.x) / l, y: (w.end.y - w.start.y) / l)
+            }
+            // The back wall square across, the sides running out from it.
+            guard abs(dot(unit(hb.wall), back)) < 0.3, abs(dot(unit(h1.wall), back)) > 0.9,
+                  abs(dot(unit(h2.wall), back)) > 0.9 else { continue }
+            let b = Point(x: p.x + back.x * hb.t, y: p.y + back.y * hb.t)
+            // How far each side wall runs out from the back wall: the cove's depth is the shorter.
+            func reach(_ w: Wall) -> Double { max(dot(Point(x: w.start.x - b.x, y: w.start.y - b.y), out),
+                                                  dot(Point(x: w.end.x - b.x, y: w.end.y - b.y), out)) }
+            let depth = min(reach(h1.wall), reach(h2.wall))
+            let width = h1.t + h2.t
+            // The tap inside it, and nothing across the open side before the corners.
+            guard hb.t < depth, width >= 2, width <= 10, depth >= 2, depth <= 10 else { continue }
+            if let ho = hits[(k + 2) % 4], ho.t < depth - hb.t + 0.25 { continue }
+            // Its open side really open: no wall along that line between the sides.
+            let mouth = Point(x: b.x + out.x * depth, y: b.y + out.y * depth)
+            let closed = walls.contains { w in
+                guard w.id != h1.wall.id, w.id != h2.wall.id, abs(dot(unit(w), back)) < 0.3 else { return false }
+                func offLine(_ q: Point) -> Double { abs(dot(Point(x: q.x - mouth.x, y: q.y - mouth.y), back)) }
+                guard offLine(w.start) < 0.3, offLine(w.end) < 0.3 else { return false }
+                // Across the mouth, from side 1 (−h1) to side 2 (+h2), measured along s2.
+                let t0 = dot(Point(x: w.start.x - mouth.x, y: w.start.y - mouth.y), s2)
+                let t1 = dot(Point(x: w.end.x - mouth.x, y: w.end.y - mouth.y), s2)
+                let lo = max(min(t0, t1), -h1.t), hi = min(max(t0, t1), h2.t)
+                return hi - lo > 0.5
+            }
+            if closed { continue }
+            if let f = found, f.widthFt * f.depthFt <= width * depth { continue }
+            let origin = Point(x: b.x + s1.x * h1.t, y: b.y + s1.y * h1.t)
+            found = (origin, s2, out, width, depth)
+        }
+        return found
+    }
+
     /// Inside corners of the room, where two scanned walls meet: the corner
     /// and the direction along each wall away from it.
     func insideCorners() -> [(at: Point, a: Point, b: Point)] {
@@ -1329,31 +1447,154 @@ extension AreaTakeoff {
         return c
     }
 
-    /// The shower moved to the room's inside corner nearest `tap`: its floor
-    /// there at its present size (5′ × 3′ if it has none), the long side along
-    /// the longer wall, and the walls round it tiled. nil with no corner.
-    mutating func placeShower(near tap: ScannedRoom.Point, in room: ScannedRoom) -> Bool {
+    /// Where a tap puts the shower (owner's call, 2026-10-08): inside a cove
+    /// of three walls, the floor fills it, its curb's outside face flush with
+    /// the cove's outside corners (`coveDepthFt`); anywhere else, a 48″ × 48″
+    /// floor in the nearest inside corner (as far as its walls go). The walls
+    /// round it are tiled. False with no cove or corner near.
+    mutating func placeShower(near tap: ScannedRoom.Point, in room: ScannedRoom, curbWidthFt: Double) -> Bool {
+        if let cove = room.cove(around: tap) {
+            floor = .drawn
+            coveDepthFt = cove.depthFt
+            floorRect = FloorRect(origin: cove.origin, u: cove.u, v: cove.v, widthFt: cove.widthFt,
+                                  depthFt: curbless ? cove.depthFt : max(1, cove.depthFt - curbWidthFt))
+            tileWallsAroundFloor(in: room)
+            return true
+        }
         guard let corner = room.insideCorners().min(by: {
             hypot($0.at.x - tap.x, $0.at.y - tap.y) < hypot($1.at.x - tap.x, $1.at.y - tap.y)
         }) else { return false }
-        let long = max(floorRect?.widthFt ?? 5, floorRect?.depthFt ?? 3)
-        let short = min(floorRect?.widthFt ?? 5, floorRect?.depthFt ?? 3)
         // Along each wall from the corner, as far as it goes.
         func reach(_ dir: ScannedRoom.Point) -> Double {
             room.walls.filter { !$0.planned }.compactMap { w -> Double? in
-                // The wall running that way from the corner.
                 let wx = (w.end.x - w.start.x) / max(w.lengthFt, 1e-9), wy = (w.end.y - w.start.y) / max(w.lengthFt, 1e-9)
                 guard abs(wx * dir.x + wy * dir.y) > 0.9 else { return nil }
                 let mid = ScannedRoom.Point(x: corner.at.x + dir.x * 0.2, y: corner.at.y + dir.y * 0.2)
                 return room.distanceToWall(mid, w) < 0.3 ? w.lengthFt : nil
-            }.max() ?? long
+            }.max() ?? 4
         }
         let ra = reach(corner.a), rb = reach(corner.b)
         let (u, v, along, deep) = ra >= rb ? (corner.a, corner.b, ra, rb) : (corner.b, corner.a, rb, ra)
         floor = .drawn
-        floorRect = FloorRect(origin: corner.at, u: u, v: v, widthFt: min(long, along), depthFt: min(short, deep))
+        coveDepthFt = nil
+        floorRect = FloorRect(origin: corner.at, u: u, v: v, widthFt: min(4, along), depthFt: min(4, deep))
         tileWallsAroundFloor(in: room)
         return true
+    }
+
+    /// Takes the curb off (curbless) or puts it back. A floor filling a cove
+    /// runs to the outside corners without one and stops at the curb's inside
+    /// face with one; any other floor keeps its size.
+    mutating func setCurbless(_ on: Bool, curbWidthFt: Double) {
+        curbless = on
+        if let cove = coveDepthFt, floorRect != nil {
+            floorRect?.depthFt = on ? cove : max(1, cove - curbWidthFt)
+        }
+    }
+
+    // MARK: The drain
+
+    /// A linear drain's width on the plan.
+    static let linearDrainWidthFt = 2.5 / 12
+    /// A square drain's size.
+    static let centerDrainFt = 4.0 / 12
+
+    /// The drain as it is: the one chosen, kept inside the floor, else a
+    /// square drain in the middle of the floor.
+    func drainShown() -> Drain? {
+        guard let r = floorRect else { return nil }
+        guard var d = drain else {
+            return Drain(kind: .center, alongWidthFt: r.widthFt / 2, alongDepthFt: r.depthFt / 2)
+        }
+        if d.kind == .linear {
+            let run = d.runsAlongWidth ? r.widthFt : r.depthFt
+            d.lengthFt = min(max(d.lengthFt, 2.0 / 12), run)
+            let half = d.lengthFt / 2, side = Self.linearDrainWidthFt / 2
+            let (wHalf, dHalf) = d.runsAlongWidth ? (half, side) : (side, half)
+            d.alongWidthFt = min(max(d.alongWidthFt, wHalf), r.widthFt - wHalf)
+            d.alongDepthFt = min(max(d.alongDepthFt, dHalf), r.depthFt - dHalf)
+        } else {
+            let h = Self.centerDrainFt / 2
+            d.alongWidthFt = min(max(d.alongWidthFt, h), r.widthFt - h)
+            d.alongDepthFt = min(max(d.alongDepthFt, h), r.depthFt - h)
+        }
+        return d
+    }
+
+    /// A linear drain's starting place: against the floor's longest side
+    /// that is a wall, wall to wall.
+    func startingLinearDrain(in room: ScannedRoom) -> Drain? {
+        guard let r = floorRect else { return nil }
+        let c = r.corners
+        let open = openSides(in: room)
+        func isWall(_ i: Int) -> Bool {
+            let a = c[i], b = c[(i + 1) % 4]
+            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            return !open.contains { s in
+                let ex = s.b.x - s.a.x, ey = s.b.y - s.a.y, l = max(hypot(ex, ey), 1e-9)
+                return abs((mid.x - s.a.x) * -ey / l + (mid.y - s.a.y) * ex / l) < 0.05
+            }
+        }
+        // Sides 0 and 2 run along the width, 1 and 3 along the depth.
+        let sides = (0..<4).filter(isWall)
+        let pick = (sides.isEmpty ? Array(0..<4) : sides).max { a, b in
+            (a % 2 == 0 ? r.widthFt : r.depthFt) < (b % 2 == 0 ? r.widthFt : r.depthFt)
+        } ?? 0
+        let w = Self.linearDrainWidthFt / 2
+        switch pick {
+        case 0: return Drain(kind: .linear, alongWidthFt: r.widthFt / 2, alongDepthFt: w, lengthFt: r.widthFt, runsAlongWidth: true)
+        case 2: return Drain(kind: .linear, alongWidthFt: r.widthFt / 2, alongDepthFt: r.depthFt - w, lengthFt: r.widthFt, runsAlongWidth: true)
+        case 1: return Drain(kind: .linear, alongWidthFt: r.widthFt - w, alongDepthFt: r.depthFt / 2, lengthFt: r.depthFt, runsAlongWidth: false)
+        default: return Drain(kind: .linear, alongWidthFt: w, alongDepthFt: r.depthFt / 2, lengthFt: r.depthFt, runsAlongWidth: false)
+        }
+    }
+
+    /// A linear drain turned a quarter turn about its middle, no longer than the floor allows.
+    static func turnedDrain(_ d: Drain, in r: FloorRect) -> Drain {
+        var t = d
+        t.runsAlongWidth.toggle()
+        t.lengthFt = min(d.lengthFt, t.runsAlongWidth ? r.widthFt : r.depthFt)
+        return t
+    }
+
+    /// The drain's outline on the plan.
+    func drainOutline(_ d: Drain) -> [ScannedRoom.Point] {
+        floorRect.map { Self.drainOutline(d, in: $0) } ?? []
+    }
+
+    static func drainOutline(_ d: Drain, in r: FloorRect) -> [ScannedRoom.Point] {
+        let (hw, hd): (Double, Double) = d.kind == .center ? (Self.centerDrainFt / 2, Self.centerDrainFt / 2)
+            : d.runsAlongWidth ? (d.lengthFt / 2, Self.linearDrainWidthFt / 2) : (Self.linearDrainWidthFt / 2, d.lengthFt / 2)
+        func at(_ a: Double, _ b: Double) -> ScannedRoom.Point {
+            .init(x: r.origin.x + r.u.x * a + r.v.x * b, y: r.origin.y + r.u.y * a + r.v.y * b)
+        }
+        let a = d.alongWidthFt, b = d.alongDepthFt
+        return [at(a - hw, b - hd), at(a + hw, b - hd), at(a + hw, b + hd), at(a - hw, b + hd)]
+    }
+
+    /// A linear drain moved to `w`, `d` (feet along the floor's width and
+    /// depth): its long side snaps flush to a side of the floor (a wall, or
+    /// the outside corners of a curbless cove) and its middle to the
+    /// floor's middle, within 3″.
+    static func snappedDrain(_ drain: Drain, in r: FloorRect, alongWidth w: Double, alongDepth d: Double) -> Drain {
+        var out = drain
+        let pull = 3.0 / 12
+        func snap(_ v: Double, _ targets: [Double]) -> Double {
+            // To the sixteenth, or to a target within 3″.
+            targets.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) < pull ? $0 : nil } ?? (v * 192).rounded() / 192
+        }
+        let half = linearDrainWidthFt / 2
+        if drain.kind == .center {
+            out.alongWidthFt = snap(w, [r.widthFt / 2])
+            out.alongDepthFt = snap(d, [r.depthFt / 2])
+        } else if drain.runsAlongWidth {
+            out.alongDepthFt = snap(d, [half, r.depthFt - half, r.depthFt / 2])
+            out.alongWidthFt = snap(w, [r.widthFt / 2, drain.lengthFt / 2, r.widthFt - drain.lengthFt / 2])
+        } else {
+            out.alongWidthFt = snap(w, [half, r.widthFt - half, r.widthFt / 2])
+            out.alongDepthFt = snap(d, [r.depthFt / 2, drain.lengthFt / 2, r.depthFt - drain.lengthFt / 2])
+        }
+        return out
     }
 
     /// The scanned walls the shower floor stands against, tiled along the

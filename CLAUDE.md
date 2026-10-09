@@ -478,6 +478,41 @@ scanned room answers the physical ones on its model instead of in fields.
 - Calibrating or deleting a wall re-measures only areas measured on the
   model; typed numbers are never overwritten.
 
+## Placing a shower, curbless showers and drains (owner's calls, 2026-10-08)
+
+- **Put the shower here** (`AreaTakeoff.placeShower(near:in:curbWidthFt:)`):
+  a tap inside a cove of three walls (`ScannedRoom.cove(around:)`: a back
+  wall, a wall each side running out from it, 2–10′ each way along the
+  room's square directions, the open side free of walls) fills the cove;
+  the curb's outside face is flush with the cove's outside corners, so the
+  floor stops at the curb's inside face (`coveDepthFt` keeps the cove's
+  depth). A tub in the cove doesn't matter (a conversion). Anywhere else,
+  48″ × 48″ in the nearest inside corner (no longer the last size, or 60″ × 36″).
+- **The curb** is drawn (plan and 3-D) just outside the floor's open sides,
+  as wide as Admin's stone curb width, else 4½″ (`StonePrices.curbWidthFt`;
+  benches use it too).
+- **Remove the curb (curbless)** (`AreaTakeoff.curbless`, `setCurbless`): no
+  curb pieces or curb line, jambs from the floor, and a cove-filled floor
+  runs to the outside corners (put back: it stops at the curb again). A
+  corner shower keeps its size. "Curbless Shower" goes on the estimate per
+  sq ft of shower floor, with its minimum.
+- **Drain** (`AreaTakeoff.drain`, `Drain`; nil = a 4″ square drain in the
+  middle of the floor): kept in the floor's own terms (along its width and
+  depth), so it moves with the floor. Tap it on the plan, then drag
+  anywhere. **Linear** starts against the floor's longest wall side, wall to
+  wall (`startingLinearDrain`); it snaps flush to each side of the floor —
+  walls, and the open side, which is the outside corners when curbless —
+  and to the middle, within 3″ (`snappedDrain`); held, its ends drag (snap
+  to the sides), Turn turns it a quarter turn (`turnedDrain`); length typed
+  in the panel. "Linear Drain" goes on the estimate per linear foot of
+  drain, with its minimum (materials, taxable; switchable in Admin).
+- Both items are on the price list (`PriceListItem.curblessShower`,
+  `.linearDrain`, fixed ids, $0 until set); rates saved before get them
+  once (`Rates.showerDrainItemsAdded`), so deleting one in Admin sticks,
+  and a deleted one is simply not added. Their lines have fixed ids per
+  area (`extraLineID`), like the stone lines, so a price changed on the
+  estimate stays when measuring again. `ShowerCoveAndDrainTests`.
+
 ## Holding, steering, lengths and undo on the model (2026-10-08)
 
 Borrowed from the owner's other app, FabSpecPro. This replaces the drag

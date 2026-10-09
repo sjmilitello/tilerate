@@ -23,6 +23,8 @@ struct Room3DContent: Equatable {
     var showFixtures: Bool
     /// The chosen item, lit up.
     var selectedItem: UUID? = nil
+    /// The curb's width: it stands just outside the floor's open sides.
+    var curbWidthFt: Double = 4.5 / 12
 }
 
 extension Room3DContent {
@@ -45,7 +47,8 @@ extension Room3DContent {
         let stone = Set(t.trimPieces(in: scan, area: s.area, curbHeightIn: curb).filter(\.stone).map(\.key))
         return Room3DContent(room: scan, takeoff: t, area: s.area, tile: s.mainTile, floorTile: s.showerFloorTile,
                              others: s.roomScan == nil ? otherAreas(in: room, except: s.id) : [],
-                             curbHeightIn: curb, stoneParts: stone, showFixtures: fixtures)
+                             curbHeightIn: curb, stoneParts: stone, showFixtures: fixtures,
+                             curbWidthFt: StonePrices(rates: rates).curbWidthFt)
     }
 }
 
@@ -385,15 +388,32 @@ enum Room3DScene {
         // The curb.
         if c.area == .shower {
             let curbStone = c.stoneParts.contains("curb") || c.stoneParts.contains { $0.hasPrefix("curb:") }
+            // Just outside the floor: its inside face on the floor's edge.
+            let mid = c.takeoff.floorRect?.center
             for (a, b) in c.takeoff.curbEdges(in: room) {
                 let len = hypot(b.x - a.x, b.y - a.y)
-                let h = c.curbHeightIn / 12
-                let box = SCNBox(width: len, height: h, length: 4.5 / 12, chamferRadius: 0.01)
+                let h = c.curbHeightIn / 12, w = c.curbWidthFt
+                var nx = -(b.y - a.y) / max(len, 1e-9), ny = (b.x - a.x) / max(len, 1e-9)
+                if let m = mid, ((a.x + b.x) / 2 - m.x) * nx + ((a.y + b.y) / 2 - m.y) * ny < 0 { nx = -nx; ny = -ny }
+                let box = SCNBox(width: len, height: h, length: w, chamferRadius: 0.01)
                 box.firstMaterial = curbStone ? plain(stoneColor) : tileMaterial(c.tile, widthFt: len, heightFt: h, x0: 0, y0: 0)
                 let n = SCNNode(geometry: box)
-                n.position = SCNVector3((a.x + b.x) / 2, h / 2, (a.y + b.y) / 2)
+                n.position = SCNVector3((a.x + b.x) / 2 + nx * w / 2, h / 2, (a.y + b.y) / 2 + ny * w / 2)
                 n.eulerAngles.y = Float(-atan2(b.y - a.y, b.x - a.x))
                 root.addChildNode(n)
+            }
+            // The drain: a dark grate on the floor.
+            if c.takeoff.floor == .drawn, let d = c.takeoff.drainShown() {
+                let k = c.takeoff.drainOutline(d)
+                if k.count == 4 {
+                    let w = hypot(k[1].x - k[0].x, k[1].y - k[0].y), l = hypot(k[3].x - k[0].x, k[3].y - k[0].y)
+                    let box = SCNBox(width: w, height: 0.01, length: l, chamferRadius: 0)
+                    box.firstMaterial = plain(UIColor(white: 0.18, alpha: 1))
+                    let n = SCNNode(geometry: box)
+                    n.position = SCNVector3((k[0].x + k[2].x) / 2, 0.02, (k[0].y + k[2].y) / 2)
+                    n.eulerAngles.y = Float(-atan2(k[1].y - k[0].y, k[1].x - k[0].x))
+                    root.addChildNode(n)
+                }
             }
         }
 

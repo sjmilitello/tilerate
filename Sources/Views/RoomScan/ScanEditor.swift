@@ -151,13 +151,15 @@ struct ScanEditor: View {
     }
 
     private var usesWalls: Bool { area != .floor }
+    /// A shower with its floor drawn on the plan: it has a curb and a drain there.
+    private var showerDrawn: Bool { area == .shower && takeoff.floor == .drawn && takeoff.floorRect != nil }
     private var openSides: [AreaTakeoff.OpenSide] { area == .shower ? takeoff.openSides(in: room) : [] }
 
     private var content3D: Room3DContent {
         let stoneParts = Set(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn).filter(\.stone).map(\.key))
         return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile, others: others,
                              curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
-                             showFixtures: showFixtures, selectedItem: selectedItem)
+                             showFixtures: showFixtures, selectedItem: selectedItem, curbWidthFt: stone.curbWidthFt)
     }
     private var otherPieces: [AreaTakeoff.Piece] { others.flatMap(\.pieces) }
 
@@ -189,13 +191,17 @@ struct ScanEditor: View {
                            floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
                            onTapPoint: placingShower ? { p in
                                placingShower = false
-                               if !takeoff.placeShower(near: p, in: room) {
-                                   placeNote = "There's no corner there. Tap near the corner where the shower goes."
+                               if !takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
+                                   placeNote = "There's no cove or corner there. Tap inside the cove, or near the corner where the shower goes."
                                }
                            } : nil,
                            onResetFloor: placeShowerFloor,
                            onFloorChanged: area == .shower ? { takeoff.tileWallsAroundFloor(in: room) } : nil,
+                           onFloorMoved: { takeoff.coveDepthFt = nil },
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
+                           curbWidthFt: takeoff.curbless ? 0 : stone.curbWidthFt,
+                           drain: showerDrawn ? $takeoff.drain : nil,
+                           drainShown: showerDrawn ? takeoff.drainShown() : nil,
                            items: takeoff.items,
                            showDimensions: showDimensions,
                            hint: addingWall ? nil : (editingWalls && mode == .measure ? "Tap a wall to change it · pinch to zoom"
@@ -559,7 +565,7 @@ struct ScanEditor: View {
     /// A bench along a wall: the shower floor's side against it, wall to
     /// wall (a framed bench may stop flush with the outside of the curb).
     private func addBench(on wall: ScannedRoom.Wall, floating: Bool) {
-        let curbWidth = stone.rate(.curb).widthIn / 12
+        let curbWidth = takeoff.curbless ? 0 : stone.curbWidthFt
         guard let span = takeoff.benchSpan(on: wall, in: room, floating: floating, curbWidthFt: curbWidth) else {
             placeNote = floating ? "A floating bench needs a wall at each end. Choose the wall it runs along, between two walls."
                                  : "There's no room for a bench along \(room.name(of: wall).lowercased())."
@@ -845,6 +851,7 @@ struct ScanEditor: View {
     /// Puts the shower floor in the corner of the shower's walls, or in
     /// the middle of the room when no walls are chosen yet.
     private func placeShowerFloor() {
+        takeoff.coveDepthFt = nil
         if let r = takeoff.suggestedFloorRect(in: room) {
             takeoff.floorRect = r
         } else {
@@ -1229,7 +1236,7 @@ struct ScanEditor: View {
         if area == .shower || !pieces.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text(area == .shower ? "Stone pieces" : "Wall cap & jambs").font(.ndTitle(20))
-                if area == .shower {
+                if area == .shower, !takeoff.curbless {
                     InchField(title: "Curb height", inches: Binding(
                         get: { takeoff.curbHeightIn ?? stone.curbHeightIn },
                         set: { takeoff.curbHeightIn = $0 }))
@@ -1244,7 +1251,7 @@ struct ScanEditor: View {
                             Label("Half Wall", systemImage: "rectangle.bottomhalf.filled")
                         }
                     } label: {
-                        Label("Add a wall on the curb (\(inchText(side.lengthFt)) open)", systemImage: "plus.rectangle.on.rectangle")
+                        Label("Add a wall on the \(takeoff.curbless ? "opening" : "curb") (\(inchText(side.lengthFt)) open)", systemImage: "plus.rectangle.on.rectangle")
                     }
                     .buttonStyle(.bordered)
                     .font(.subheadline)
@@ -1506,6 +1513,7 @@ struct ScanEditor: View {
                             }
                             Button {
                                 takeoff.floorRect = r.turned
+                                takeoff.coveDepthFt = nil
                                 takeoff.tileWallsAroundFloor(in: room)
                             } label: {
                                 Label("Rotate", systemImage: "rotate.right")
@@ -1513,13 +1521,14 @@ struct ScanEditor: View {
                         }
                         .buttonStyle(.bordered)
                         .font(.subheadline)
-                        Text("Put the shower here: tap the corner it goes in and its floor, walls and curb move there. Rotate turns it in its corner. Drag the green handle to move it, tap it to drag an edge. The curb is always on the open sides.")
+                        Text("Put the shower here: tap inside a cove of three walls and the shower fills it, its curb flush with the cove's outside corners; tap near a corner for a 48″ × 48″ shower there. Rotate turns it in its corner. Tap the floor, then drag anywhere to move it; tap an edge to drag that edge.")
                             .font(.caption).foregroundStyle(.secondary)
 
                         HStack(spacing: 12) {
-                            InchField(title: "Width", inches: Binding(get: { r.widthFt * 12 }, set: { takeoff.floorRect?.widthFt = max(1, $0) / 12 }))
-                            InchField(title: "Depth", inches: Binding(get: { r.depthFt * 12 }, set: { takeoff.floorRect?.depthFt = max(1, $0) / 12 }))
+                            InchField(title: "Width", inches: Binding(get: { r.widthFt * 12 }, set: { takeoff.floorRect?.widthFt = max(1, $0) / 12; takeoff.coveDepthFt = nil }))
+                            InchField(title: "Depth", inches: Binding(get: { r.depthFt * 12 }, set: { takeoff.floorRect?.depthFt = max(1, $0) / 12; takeoff.coveDepthFt = nil }))
                         }
+                        showerCurbAndDrain
                     } else {
                         Button {
                             show3D = false
@@ -1559,6 +1568,53 @@ struct ScanEditor: View {
                 EmptyView()
             }
         }
+    }
+
+    /// The shower's curb (or none: curbless) and its drain (owner's calls, 2026-10-08).
+    @ViewBuilder
+    private var showerCurbAndDrain: some View {
+        Button {
+            takeoff.setCurbless(!takeoff.curbless, curbWidthFt: stone.curbWidthFt)
+        } label: {
+            Label(takeoff.curbless ? "Put the curb back" : "Remove the curb (curbless)",
+                  systemImage: takeoff.curbless ? "plus.rectangle" : "minus.rectangle")
+        }
+        .buttonStyle(.bordered)
+        .font(.subheadline)
+        Text(takeoff.curbless
+             ? "Curbless: no curb, jambs from the floor, and Curbless Shower on the estimate (per sq ft of shower floor, its price and minimum in Admin → Price list)."
+             : "The curb is \(inchText(stone.curbWidthFt)) wide (Admin → Stone pieces), just outside the floor on its open sides.")
+            .font(.caption).foregroundStyle(.secondary)
+
+        Text("Drain").font(.subheadline.weight(.semibold))
+        Picker("Drain", selection: Binding(
+            get: { takeoff.drainShown()?.kind ?? .center },
+            set: { kind in takeoff.drain = kind == .linear ? takeoff.startingLinearDrain(in: room) : nil })) {
+            Text("4″ square").tag(AreaTakeoff.Drain.Kind.center)
+            Text("Linear").tag(AreaTakeoff.Drain.Kind.linear)
+        }
+        .pickerStyle(.segmented)
+        if let d = takeoff.drainShown(), d.kind == .linear, let r = takeoff.floorRect {
+            HStack(alignment: .bottom, spacing: 12) {
+                InchField(title: "Length", inches: Binding(
+                    get: { d.lengthFt * 12 },
+                    set: { v in
+                        var n = d
+                        n.lengthFt = max(6, v) / 12
+                        takeoff.drain = n
+                    }))
+                    .frame(maxWidth: 140)
+                Button {
+                    takeoff.drain = AreaTakeoff.turnedDrain(d, in: r)
+                } label: { Label("Turn", systemImage: "rotate.right") }
+                .buttonStyle(.bordered)
+                .font(.subheadline)
+            }
+        }
+        Text(takeoff.drainShown()?.kind == .linear
+             ? "Linear Drain goes on the estimate per foot of drain (Admin → Price list). Tap it on the plan, then drag anywhere: it snaps flush to each side of the floor; tap an end to drag that end."
+             : "Tap the drain on the plan, then drag anywhere to move it.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 
     private var sizeFields: some View {
@@ -1619,8 +1675,16 @@ struct PlanCanvas: View {
     var onResetFloor: (() -> Void)? = nil
     /// The floor moved, resized or turned: its walls follow.
     var onFloorChanged: (() -> Void)? = nil
+    /// The floor itself was moved, resized or turned by hand.
+    var onFloorMoved: (() -> Void)? = nil
     /// The shower's curb: open sides of its floor.
     var curbEdges: [(ScannedRoom.Point, ScannedRoom.Point)] = []
+    /// How wide the curb is: drawn just outside the floor (0: a line).
+    var curbWidthFt: Double = 0
+    /// The shower's drain, moved when held; and how it's drawn (the chosen
+    /// one kept in the floor, else a square drain in its middle).
+    var drain: Binding<AreaTakeoff.Drain?>? = nil
+    var drainShown: AreaTakeoff.Drain? = nil
     /// Benches, niches, windows and corner pieces placed on the walls.
     var items: [AreaTakeoff.Item] = []
     /// Dimension lines outside each wall with its length.
@@ -1653,6 +1717,9 @@ struct PlanCanvas: View {
         case wallEnd(UUID, start: Bool)
         case floor
         case floorEdge(Axis, near: Bool)
+        /// The drain, or one end of a linear drain.
+        case drain
+        case drainEnd(start: Bool)
     }
     enum Axis: Equatable { case u, v }
 
@@ -1664,6 +1731,7 @@ struct PlanCanvas: View {
     /// and how far the thing has been steered (plan feet).
     @State private var steerWall: ScannedRoom.Wall? = nil
     @State private var steerFloor: AreaTakeoff.FloorRect? = nil
+    @State private var steerDrain: AreaTakeoff.Drain? = nil
     @State private var lastTranslation: CGSize = .zero
     @State private var steered: ScannedRoom.Point = .init()
     @State private var steering = false
@@ -1750,6 +1818,7 @@ struct PlanCanvas: View {
                     VStack(spacing: 6) {
                         holdStrip
                         floorBar
+                        drainBar
                     }
                     .padding(.top, 6)
                 }
@@ -1821,6 +1890,14 @@ struct PlanCanvas: View {
             case .floor, .floorEdge:
                 guard let r = floorRect?.wrappedValue else { return nil }
                 return "Shower floor \(inchText(r.widthFt)) × \(inchText(r.depthFt))"
+            case .drain, .drainEnd:
+                guard let d = drainShown, let r = floorRect?.wrappedValue else { return nil }
+                // How far its middle is from the floor's sides.
+                let across = d.kind == .linear ? (d.runsAlongWidth ? d.alongDepthFt : d.alongWidthFt) : d.alongDepthFt
+                let name = d.kind == .linear ? "Linear drain \(inchText(d.lengthFt))" : "Drain"
+                _ = r
+                return d.kind == .linear ? "\(name) · \(inchText(across)) to its middle"
+                    : "\(name) · \(inchText(d.alongWidthFt)) × \(inchText(d.alongDepthFt)) in from the corner"
             case nil:
                 return nil
             }
@@ -1843,12 +1920,35 @@ struct PlanCanvas: View {
                     withAnimation(.easeOut(duration: 0.2)) {
                         floorRect?.wrappedValue = r.turned
                         onFloorChanged?()
+                        onFloorMoved?()
                     }
                 } label: { Label("Rotate", systemImage: "rotate.right") }
                 if let onResetFloor {
                     Button {
                         withAnimation(.easeOut(duration: 0.2)) { onResetFloor() }
                     } label: { Label("Reset", systemImage: "arrow.counterclockwise") }
+                }
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { hold = nil }
+                } label: { Text("Done").fontWeight(.semibold) }
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .tint(.green)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+
+    /// While a linear drain is held: Turn and Done.
+    @ViewBuilder
+    private var drainBar: some View {
+        let held = hold == .drain || { if case .drainEnd = hold { true } else { false } }()
+        if held, let d = drainShown, let r = floorRect?.wrappedValue {
+            HStack(spacing: 8) {
+                if d.kind == .linear {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { drain?.wrappedValue = AreaTakeoff.turnedDrain(d, in: r) }
+                    } label: { Label("Turn", systemImage: "rotate.right") }
                 }
                 Button {
                     withAnimation(.easeOut(duration: 0.15)) { hold = nil }
@@ -1868,6 +1968,20 @@ struct PlanCanvas: View {
     /// floor; empty space lets go.
     private func tap(at location: CGPoint, _ f: Frame) {
         if let onTapPoint { onTapPoint(f.point(at: location)); return }
+        // The drain: a linear drain's end once it's held, else the drain.
+        if drain != nil, let r = floorRect?.wrappedValue, let d = drainShown {
+            if d.kind == .linear, hold == .drain || { if case .drainEnd = hold { true } else { false } }() {
+                for start in [true, false] where hypot(location.x - f.at(drainEnd(d, r, start: start)).x,
+                                                       location.y - f.at(drainEnd(d, r, start: start)).y) < 18 {
+                    hold = .drainEnd(start: start)
+                    return
+                }
+            }
+            let k = AreaTakeoff.drainOutline(d, in: r).map(f.at)
+            let box = CGRect(x: k.map(\.x).min()! - 10, y: k.map(\.y).min()! - 10,
+                             width: k.map(\.x).max()! - k.map(\.x).min()! + 20, height: k.map(\.y).max()! - k.map(\.y).min()! + 20)
+            if box.contains(location) { hold = .drain; return }
+        }
         let editable: (ScannedRoom.Wall) -> Bool = { $0.planned || editAnyWall }
         // An end of the chosen wall.
         if let id = selectedWall, let w = room.wall(id), editable(w) {
@@ -1895,6 +2009,15 @@ struct PlanCanvas: View {
         }
         if let r = floorRect?.wrappedValue, inside(location, r, f) { hold = .floor; return }
         hold = nil
+    }
+
+    /// One end of a linear drain, on the plan.
+    private func drainEnd(_ d: AreaTakeoff.Drain, _ r: AreaTakeoff.FloorRect, start: Bool) -> ScannedRoom.Point {
+        let k = AreaTakeoff.drainOutline(d, in: r)
+        // The ends are the short sides: k0–k3 and k1–k2 along the width, k0–k1 and k3–k2 along the depth.
+        let (p, q) = d.runsAlongWidth ? ((k[0], k[3]), (k[1], k[2])) : ((k[0], k[1]), (k[3], k[2]))
+        let e = start ? p : q
+        return .init(x: (e.0.x + e.1.x) / 2, y: (e.0.y + e.1.y) / 2)
     }
 
     private var floorHeld: Bool {
@@ -1946,9 +2069,11 @@ struct PlanCanvas: View {
                     steering = false
                     steerWall = nil
                     steerFloor = nil
+                    steerDrain = nil
                     steered = .init()
                     onWallDragEnded()
                     if floorRect != nil { onFloorChanged?() }
+                    if floorHeld { onFloorMoved?() }
                 }
             }
         return magnify.simultaneously(with: drag)
@@ -1962,6 +2087,7 @@ struct PlanCanvas: View {
             switch hold {
             case .wall(let id), .wallEnd(let id, _): steerWall = room.wall(id)
             case .floor, .floorEdge: steerFloor = floorRect?.wrappedValue
+            case .drain, .drainEnd: steerDrain = drain?.wrappedValue ?? drainShown
             }
         }
         let (fx, fy) = f.feet(Steering.steered(delta))
@@ -2003,6 +2129,29 @@ struct PlanCanvas: View {
             }
             binding.wrappedValue = updated
             shown = .init(x: anchor.x + out.x * length, y: anchor.y + out.y * length)
+        case .drain:
+            guard let start = steerDrain, let r = floorRect?.wrappedValue, let binding = drain else { return }
+            let a = steered.x * r.u.x + steered.y * r.u.y, b = steered.x * r.v.x + steered.y * r.v.y
+            binding.wrappedValue = AreaTakeoff.snappedDrain(start, in: r, alongWidth: start.alongWidthFt + a,
+                                                            alongDepth: start.alongDepthFt + b)
+        case .drainEnd(let atStart):
+            guard let start = steerDrain, start.kind == .linear, let r = floorRect?.wrappedValue, let binding = drain else { return }
+            // Along its run: the held end moves, the other stays; an end
+            // snaps to the floor's side within 3″, else to the sixteenth.
+            let dir = start.runsAlongWidth ? r.u : r.v
+            let run = start.runsAlongWidth ? r.widthFt : r.depthFt
+            let mid = start.runsAlongWidth ? start.alongWidthFt : start.alongDepthFt
+            var lo = mid - start.lengthFt / 2, hi = mid + start.lengthFt / 2
+            let moved = steered.x * dir.x + steered.y * dir.y
+            func snapEnd(_ v: Double) -> Double {
+                for t in [0, run] where abs(v - t) < 3.0 / 12 { return t }
+                return Steering.sixteenth(v)
+            }
+            if atStart { lo = min(max(0, snapEnd(lo + moved)), hi - 6.0 / 12) } else { hi = max(min(run, snapEnd(hi + moved)), lo + 6.0 / 12) }
+            var d = start
+            d.lengthFt = hi - lo
+            if d.runsAlongWidth { d.alongWidthFt = (lo + hi) / 2 } else { d.alongDepthFt = (lo + hi) / 2 }
+            binding.wrappedValue = d
         }
         // Keep it on screen.
         if let shown { viewport = viewport.keeping(f.at(shown), in: size) }
@@ -2229,6 +2378,40 @@ struct PlanCanvas: View {
                 ctx.draw(Text(Image(systemName: "hand.tap")).font(.system(size: 15)).foregroundColor(.green), at: center)
             }
         }
+        // The drain: a 4″ square grate, or a linear one.
+        if let r = floorRect?.wrappedValue ?? floorRectShown, let d = drainShown {
+            let k = AreaTakeoff.drainOutline(d, in: r).map(f.at)
+            var grate = Path()
+            grate.addLines(k)
+            grate.closeSubpath()
+            ctx.fill(grate, with: .color(Color(white: 0.12)))
+            let held = hold == .drain || { if case .drainEnd = hold { true } else { false } }()
+            ctx.stroke(grate, with: .color(held ? .green : Color(white: 0.75)), lineWidth: held ? 2.5 : 1.2)
+            // Its slots.
+            var slots = Path()
+            if d.kind == .linear {
+                let (a0, a1) = (CGPoint(x: (k[0].x + k[3].x) / 2, y: (k[0].y + k[3].y) / 2),
+                                CGPoint(x: (k[1].x + k[2].x) / 2, y: (k[1].y + k[2].y) / 2))
+                let (b0, b1) = (CGPoint(x: (k[0].x + k[1].x) / 2, y: (k[0].y + k[1].y) / 2),
+                                CGPoint(x: (k[3].x + k[2].x) / 2, y: (k[3].y + k[2].y) / 2))
+                // Along its length.
+                let longer = hypot(a1.x - a0.x, a1.y - a0.y) >= hypot(b1.x - b0.x, b1.y - b0.y)
+                let (p, q) = longer ? (a0, a1) : (b0, b1)
+                slots.move(to: p); slots.addLine(to: q)
+                if held, interactive {
+                    for end in [p, q] {
+                        let ring = Path(ellipseIn: CGRect(x: end.x - 7, y: end.y - 7, width: 14, height: 14))
+                        let isHeld = hold == .drainEnd(start: end == p)
+                        ctx.fill(ring, with: .color(isHeld ? .green : .white))
+                        ctx.stroke(ring, with: .color(.green), lineWidth: 2)
+                    }
+                }
+            } else {
+                slots.move(to: k[0]); slots.addLine(to: k[2])
+                slots.move(to: k[1]); slots.addLine(to: k[3])
+            }
+            ctx.stroke(slots, with: .color(Color(white: 0.6)), lineWidth: 1)
+        }
         // Benches and corner pieces, out from their wall; windows and niches on it.
         let stoneColor = Color(red: 0.85, green: 0.78, blue: 0.62)
         for item in items {
@@ -2288,12 +2471,17 @@ struct PlanCanvas: View {
         }
 
         // The curb.
+        let floorMid = (floorRect?.wrappedValue ?? floorRectShown)?.center
         for (a, b) in curbEdges {
-            var line = Path()
-            line.move(to: f.at(a))
-            line.addLine(to: f.at(b))
-            ctx.stroke(line, with: .color(Color(red: 0.85, green: 0.78, blue: 0.62)),
-                       style: StrokeStyle(lineWidth: 5, lineCap: .butt))
+            // Its inside face on the floor's edge, as wide as it is.
+            let len = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
+            var n = ScannedRoom.Point(x: -(b.y - a.y) / len, y: (b.x - a.x) / len)
+            if let m = floorMid, ((a.x + b.x) / 2 - m.x) * n.x + ((a.y + b.y) / 2 - m.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+            let w = max(curbWidthFt, 1.5 / 12)
+            var band = Path()
+            band.addLines([f.at(a), f.at(b), f.at(.init(x: b.x + n.x * w, y: b.y + n.y * w)), f.at(.init(x: a.x + n.x * w, y: a.y + n.y * w))])
+            band.closeSubpath()
+            ctx.fill(band, with: .color(Color(red: 0.85, green: 0.78, blue: 0.62)))
             let m = CGPoint(x: (f.at(a).x + f.at(b).x) / 2, y: (f.at(a).y + f.at(b).y) / 2)
             if interactive, !showDimensions {
                 ctx.draw(Text("Curb").font(.system(size: 10, weight: .semibold))
@@ -2351,6 +2539,10 @@ struct PlanCanvas: View {
             }
         }
         for (a, b) in curbEdges { placer.claim(from: f.at(a), to: f.at(b)) }
+        if let r = floor, let d = drainShown {
+            let k = AreaTakeoff.drainOutline(d, in: r).map(f.at)
+            for i in k.indices { placer.claim(from: k[i], to: k[(i + 1) % k.count]) }
+        }
         if room.tubOutline.count > 2 {
             let t = room.tubOutline.map(f.at)
             for i in t.indices { placer.claim(from: t[i], to: t[(i + 1) % t.count]) }
