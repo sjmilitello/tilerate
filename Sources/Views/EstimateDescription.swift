@@ -180,7 +180,11 @@ private func sentenceParts(_ section: EstimateSection, wording: WordingTemplates
     var features: [String] = []
     if section.area != .floor {
         if section.features.shelves   > 0 { features.append(section.features.shelves   == 1 ? "Shelf"    : "\(section.features.shelves) Shelves") }
-        if section.features.niches    > 0 { features.append(section.features.niches    == 1 ? "Niche"    : "\(section.features.niches) Niches") }
+        // Niches in their own tile are named with it; the rest as before.
+        let ownTile = section.features.sized.filter { $0.kind == .niche && $0.tile != nil }.prefix(section.features.niches)
+        let plain = section.features.niches - ownTile.count
+        if plain > 0 { features.append(plain == 1 ? "Niche" : "\(plain) Niches") }
+        for n in ownTile { if let t = n.tile { features.append("Niche in \(tilePhrase(t, wording))") } }
         if section.features.footrests > 0 { features.append(section.features.footrests == 1 ? "Footrest" : "\(section.features.footrests) Footrests") }
         if section.features.benches   > 0 { features.append(section.features.benches   == 1 ? "Bench"    : "\(section.features.benches) Benches") }
         if section.features.seats     > 0 { features.append(section.features.seats     == 1 ? "Corner Seat" : "\(section.features.seats) Corner Seats") }

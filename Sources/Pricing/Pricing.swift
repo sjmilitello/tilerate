@@ -349,8 +349,11 @@ func legacySummary(state: EstimatorState, rates: Rates) -> Summary {
     // Shelves, niches, footrests and benches don't go on a floor; the Features
     // step greys them out there, and anything left over is not charged.
     if area != .floor {
+        // A niche's own tile: its adders at the area's wall rate.
+        let wallRate = rates.base[area] ?? 0
         for line in featureLines(state.features, prices: FeaturePrices(rates: rates),
-                                 money: { currency(rates: rates, value: $0) }) {
+                                 money: { currency(rates: rates, value: $0) },
+                                 tileAdders: { addersPerSq(baseRate: wallRate, tile: $0, rates: rates) }) {
             lines.append(line)
             running += line.amount
         }

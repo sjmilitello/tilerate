@@ -787,7 +787,7 @@ struct ScanEditor: View {
                 if item.kind == .niche {
                     Stepper("Divider shelves: \(item.dividers)", value: $takeoff.items[i].dividers, in: 0...6)
                         .font(.subheadline)
-                    // Its tile: the wall's, or its own (shown on the drawing, not priced).
+                    // Its tile: the wall's, or its own (its adders are charged, and the estimate names it).
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Niche tile").font(.subheadline.weight(.semibold))

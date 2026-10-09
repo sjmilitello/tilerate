@@ -608,6 +608,12 @@ struct SizedFeature: Codable, Equatable, Hashable {
     /// A niche or window with stone: priced by the stone when that's more
     /// than its minimum. Without stone it's the minimum.
     var stone: Bool = false
+    /// A niche in its own tile (owner's call, 2026-10-08): the tile, and the
+    /// square feet of it inside the niche (back, and the sides, top and sill
+    /// that aren't stone). Its adders are charged on those square feet, and
+    /// the estimate names it.
+    var tile: TileChoice? = nil
+    var tileSqft: Double = 0
 }
 
 /// A stone piece's price: per linear foot, or per square foot once a
@@ -1290,6 +1296,8 @@ extension SizedFeature {
         c.read(.label, into: &label)
         c.read(.linFt, into: &linFt)
         c.read(.stone, into: &stone)
+        c.read(.tile, into: &tile)
+        c.read(.tileSqft, into: &tileSqft)
     }
 }
 

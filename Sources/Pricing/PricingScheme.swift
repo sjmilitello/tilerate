@@ -110,7 +110,11 @@ extension FeaturePrices {
 /// bench, niche or window placed on a scan (`Features.sized`) is the higher
 /// of that price (its minimum) and its size: a bench's length at
 /// `benchPerLinFt`, a stone niche's or window's stone at its stone rate.
-func featureLines(_ f: Features, prices p: FeaturePrices, money: (Double) -> String) -> [Line] {
+///
+/// A niche in its own tile also adds that tile's adders (per sq ft, from
+/// `tileAdders`, at the area's wall rate) on the tile inside it.
+func featureLines(_ f: Features, prices p: FeaturePrices, money: (Double) -> String,
+                  tileAdders: (TileChoice) -> Double = { _ in 0 }) -> [Line] {
     var lines: [Line] = []
     func feet(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...2))) }
     let kinds: [(String, Int, Double, SizedFeature.Kind?)] = [
@@ -140,9 +144,18 @@ func featureLines(_ f: Features, prices p: FeaturePrices, money: (Double) -> Str
                 how = ""
             }
             let amount = max(unit, linear)
-            guard amount != 0 else { continue }
             let name = item.label.isEmpty ? String(label.dropLast(label.hasSuffix("ches") ? 2 : 1)) : item.label
-            lines.append(Line(label: linear > unit ? "\(name) \(how)" : "\(name) (minimum \(money(unit)))", amount: amount))
+            if amount != 0 {
+                lines.append(Line(label: linear > unit ? "\(name) \(how)" : "\(name) (minimum \(money(unit)))", amount: amount))
+            }
+            // Its own tile's adders on the tile inside it.
+            if let tile = item.tile, item.tileSqft > 0 {
+                let adders = tileAdders(tile)
+                if adders != 0 {
+                    lines.append(Line(label: "\(name) tile adders @ \(money(adders))/sqft × \(feet(item.tileSqft))",
+                                      amount: adders * item.tileSqft))
+                }
+            }
         }
     }
     return lines
@@ -574,7 +587,15 @@ func schemeSummary(state: EstimatorState, scheme: PricingScheme) -> Summary {
     if state.measurements.ceilingSqft > 0 { total += price(scheme.ceiling) }
 
     if pricing.chargesFeatures {
-        for line in featureLines(state.features, prices: scheme.features, money: money) {
+        // A niche's own tile: its adders at the area's wall rate.
+        let wallRate: Double = pricing.surfaces.first { $0.tile == .main && $0.measure != .showerFloor && $0.measure != .ceiling }.map {
+            switch $0.rule {
+            case .rate(let r, _): r
+            case .escalator(let r, _, _): r
+            }
+        } ?? 0
+        for line in featureLines(state.features, prices: scheme.features, money: money,
+                                 tileAdders: { scheme.adders.perSqft(for: $0, rate: wallRate) }) {
             lines.append(line)
             total += line.amount
         }

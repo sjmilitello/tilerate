@@ -595,6 +595,19 @@ extension AreaTakeoff {
         }
     }
 
+    /// How deep a niche goes into the wall: a 2×4 stud cavity.
+    static let nicheDepthIn = 3.5
+
+    /// Square feet of tile inside a niche: the back, and the sides, top and
+    /// sill where they aren't stone.
+    static func nicheTileSqft(_ n: Item) -> Double {
+        let w = n.widthFt, h = n.heightIn / 12, d = nicheDepthIn / 12
+        var sqft = w * h
+        if n.stone != .all { sqft += 2 * d * h + w * d }   // sides and top
+        if n.stone == .tile { sqft += w * d }              // sill
+        return (sqft * 100).rounded() / 100
+    }
+
     /// A stone window wrap: all the way round.
     static func windowStoneFt(_ w: Item) -> Double {
         w.stone == .tile ? 0 : 2 * (w.widthFt + w.heightIn / 12)
@@ -619,7 +632,8 @@ extension AreaTakeoff {
             case .niche:
                 let stone = i.stone == .all ? ", stone all around" : i.stone == .shelves ? ", stone shelves" : ""
                 return SizedFeature(kind: .niche, label: "Niche \(inches(i.widthFt * 12)) × \(inches(i.heightIn))\(stone)",
-                                    linFt: Self.nicheStoneFt(i), stone: i.stone != .tile)
+                                    linFt: Self.nicheStoneFt(i), stone: i.stone != .tile,
+                                    tile: i.tile, tileSqft: i.tile == nil ? 0 : Self.nicheTileSqft(i))
             case .window:
                 return SizedFeature(kind: .window, label: "Window \(inches(i.widthFt * 12)) × \(inches(i.heightIn))\(i.stone == .tile ? "" : ", stone wrap")",
                                     linFt: Self.windowStoneFt(i), stone: i.stone != .tile)

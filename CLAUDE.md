@@ -289,6 +289,14 @@ and its size — a bench's length × `benchPerLinFt`, a stone niche's or
 window's stone at its stone rate (tile: the minimum); the rest of a count at
 the per-unit price, exactly as before.
 
+A niche in its own tile (`Item.tile`, owner's call 2026-10-08) adds that
+tile's adders on the tile inside it — the back, and the sides, top and sill
+that aren't stone, 3½″ deep (`AreaTakeoff.nicheTileSqft`, `nicheDepthIn`) —
+at the area's wall rate, as its own line "Niche 13″ × 24″ tile adders @ …"
+(`SizedFeature.tile`/`tileSqft`, priced in `featureLines` for both engines),
+and the estimate names it: "Niche in 2×2 Glass Mosaic …" (other niches as
+before). Its base price (the minimum, or its stone) is unchanged.
+
 Every stone piece (`StoneItem`: curb, cap & header, jambs, bench top, bench
 front, niche, window) has a `StoneRate` in Admin → Stone pieces
 (`Rates.stoneRates`, `stoneRate(_:)`/`setStoneRate`; curb, cap and jamb fall
@@ -357,8 +365,7 @@ their area's floor (else the room's middle) — a shower behind a partition
 had its tile on the room side (fixed 2026-10-08). A niche is a 3½″ recess cut into the
 face it's on (`Room3DScene.nicheDepthFt`; the wall's tile has a hole there):
 its back in the wall's tile (or its own, `Item.tile`: the niche panel's
-Niche tile → Choose, the usual tile sheet; Use wall tile clears it — shown
-on the drawing only, not priced, owner's call pending), grout lined up; top, sides and sill in tile, or
+Niche tile → Choose, the usual tile sheet; Use wall tile clears it), grout lined up; top, sides and sill in tile, or
 stone per its choice (all around: top, sides, sill, dividers; shelves only:
 sill and dividers). Its faces show from inside only, so nothing pokes out
 behind a wall seen from outside; a solid wall keeps the rest of its

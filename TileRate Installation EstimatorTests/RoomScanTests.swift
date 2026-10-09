@@ -463,6 +463,48 @@ struct RoomScanTests {
 
     // MARK: Benches, niches, windows and corner pieces
 
+    @Test func aNicheInItsOwnTileAddsThatTilesAddersAndIsNamed() {
+        var r = Rates()
+        r.base[.shower] = 30
+        r.unitNiche = 300
+        r.typeAdder[.glass] = 4
+        r.typeAdderUnit = .perSqft
+        r.sizeAdder[.mosaic] = 2
+        r.sizeAdderUnit = .perSqft
+        let glass = TileChoice(tileType: .glass, tileSize: .mosaic, layout: .straightStacked)
+        // A 13″ × 24″ tile niche: back 2.17, sides 2 × 3.5″ × 24″ = 1.17, top and sill 13″ × 3.5″ each = 0.63.
+        var n = AreaTakeoff.Item()
+        n.kind = .niche; n.fromFt = 0; n.toFt = 13.0 / 12; n.heightIn = 24; n.tile = glass
+        let sqft = AreaTakeoff.nicheTileSqft(n)
+        #expect(abs(sqft - 3.97) < 0.005)
+        var t = AreaTakeoff()
+        t.items = [n]
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked), showerWalls: 80)
+        s.features = t.placedFeatures(keeping: s.features)
+        let legacy = legacySummary(state: EstimatorState(section: s), rates: r)
+        let scheme = schemeSummary(state: EstimatorState(section: s), scheme: PricingScheme(rates: r))
+        #expect(legacy.lines.map(\.label) == scheme.lines.map(\.label))
+        #expect(legacy.lines.map(\.amount) == scheme.lines.map(\.amount))
+        let line = legacy.lines.first { $0.label.contains("tile adders") }
+        #expect(line?.label.hasPrefix("Niche 13″ × 24″ tile adders @ $6.00/sqft") == true)
+        #expect(abs((line?.amount ?? 0) - 6 * sqft) < 1e-9)
+        // Stone all around: only its back is tile.
+        n.stone = .all
+        #expect(abs(AreaTakeoff.nicheTileSqft(n) - (13.0 / 12 * 2)) < 0.01)
+        // The estimate names it.
+        let words = describeSection(s, wording: r.wording)
+        #expect(words.contains("Niche in"))
+        #expect(words.contains("Glass"))
+        // A niche in the wall's tile: no extra line, worded as before.
+        var plain = AreaTakeoff()
+        var m = n; m.tile = nil
+        plain.items = [m]
+        var s2 = s
+        s2.features = plain.placedFeatures(keeping: s.features)
+        #expect(!legacySummary(state: EstimatorState(section: s2), rates: r).lines.contains { $0.label.contains("tile adders") })
+        #expect(!describeSection(s2, wording: r.wording).contains("Niche in"))
+    }
+
     @Test func placedBenchesNichesAndWindowsAreTheHigherOfMinimumAndSize() {
         var r = Rates()
         r.unitBench = 200; r.benchPerLinFt = 50

@@ -626,8 +626,8 @@ enum Room3DScene {
         return n
     }
 
-    /// How deep a niche goes into the wall: a 2×4 stud cavity.
-    static let nicheDepthFt = 3.5 / 12
+    /// How deep a niche goes into the wall (`AreaTakeoff.nicheDepthIn`).
+    static let nicheDepthFt = AreaTakeoff.nicheDepthIn / 12
 
     private static func thickness(_ w: ScannedRoom.Wall) -> Double {
         w.planned ? max(w.thicknessIn, 1) / 12 : 4.0 / 12
