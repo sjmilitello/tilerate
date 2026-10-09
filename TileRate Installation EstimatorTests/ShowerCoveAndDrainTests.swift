@@ -161,4 +161,11 @@ struct ShowerCoveAndDrainTests {
         let old = try JSONDecoder().decode(AreaTakeoff.self, from: Data(#"{"pieces":[],"floor":"drawn"}"#.utf8))
         #expect(!old.curbless && old.drain == nil && old.coveDepthFt == nil)
     }
+
+    @Test func theCurbIsFourAndAHalfInchesWhateverTheStoneOnTopIs() {
+        // Admin's stone curb width is the stone on top, which overhangs the curb.
+        var prices = StonePrices()
+        prices.stone[.curb] = StoneRate(perLinFt: 30, widthIn: 6)
+        #expect(abs(prices.curbWidthFt - 4.5 / 12) < 1e-12)
+    }
 }

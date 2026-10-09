@@ -815,11 +815,10 @@ struct StonePrices {
     /// The price list's Curbless Shower and Linear Drain, nil once deleted there.
     var curblessItem: PriceListItem? = PriceListItem.curblessShower
     var linearDrainItem: PriceListItem? = PriceListItem.linearDrain
-    /// The curb's width: Admin's stone curb width, else 4½″ (owner's call, 2026-10-08).
-    var curbWidthFt: Double {
-        let w = rate(.curb).widthIn
-        return (w > 0 ? w : 4.5) / 12
-    }
+    /// The curb's width on the plan: always 4½″ (owner's call, 2026-10-08).
+    /// Admin's stone curb width is the stone on top, which overhangs the
+    /// curb, so it doesn't say where the shower floor stops.
+    var curbWidthFt: Double { 4.5 / 12 }
     func rate(_ k: TrimKind) -> StoneRate {
         if let r = stone[k.item] { return r }
         switch k {

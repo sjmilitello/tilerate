@@ -1587,7 +1587,7 @@ struct ScanEditor: View {
         .font(.subheadline)
         Text(takeoff.curbless
              ? "Curbless: no curb, jambs from the floor, and Curbless Shower on the estimate (per sq ft of shower floor, its price and minimum in Admin → Price list)."
-             : "The curb is \(inchText(stone.curbWidthFt)) wide (Admin → Stone pieces), just outside the floor on its open sides.")
+             : "The curb is \(inchText(stone.curbWidthFt)) wide, just outside the floor on its open sides.")
             .font(.caption).foregroundStyle(.secondary)
 
         Text("Drain").font(.subheadline.weight(.semibold))

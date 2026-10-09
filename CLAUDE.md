@@ -525,7 +525,8 @@ scanned room answers the physical ones on its model instead of in fields.
   depth). A tub in the cove doesn't matter (a conversion). Anywhere else,
   48″ × 48″ in the nearest inside corner (no longer the last size, or 60″ × 36″).
 - **The curb** is drawn (plan and 3-D) just outside the floor's open sides,
-  as wide as Admin's stone curb width, else 4½″ (`StonePrices.curbWidthFt`;
+  always 4½″ wide (`StonePrices.curbWidthFt`; Admin's stone curb width is the
+  stone on top, which overhangs the curb, so it isn't used for this;
   benches use it too).
 - **Remove the curb (curbless)** (`AreaTakeoff.curbless`, `setCurbless`): no
   curb pieces or curb line, jambs from the floor, and a cove-filled floor
