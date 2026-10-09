@@ -473,17 +473,30 @@ scanned room answers the physical ones on its model instead of in fields.
 - **One rule for everything dragged** (owner, 2026-10-08: "everything
   should move in 1/16" increments the same way"): it moves to the
   sixteenth (`Steering.stepFt`) and catches on a wall, corner, edge, end or
-  middle only within 1½″ (`Steering.catchFt`) — walls slid, ends dragged,
+  middle within a reach set on the glass (`Steering.catchFt(steered:ptPerFt:)`):
+  4 pt when steered, 20 pt for a direct touch (where a new wall starts and
+  its end as it's drawn), turned into feet at the zoom in use — from the
+  owner's catch test (19 in 20 steered within 3 pt, taps within 18 pt, the
+  same at either zoom). Fitted (≈30 pt/ft) that's 1.6″ and 8″; zoomed ×3,
+  a third. To hold something nearer a wall than that, zoom in — walls slid, ends dragged,
   walls drawn in (drawing and moving), the shower floor and its edges,
   drains, tile pieces, doors, windows, niches and benches (`snapped`,
-  `plannedEnd`, `movePlannedWall`, `snapLength`, `snappedDrain`). Only where
-  a new wall *starts* still catches onto a wall within 7″ (`snappedToWall`),
-  since that's about touching a wall, not a size. Lengthening or
+  `plannedEnd`, `movePlannedWall`, `snapLength`, `snappedDrain`; 1½″ where no
+  zoom is known). Lengthening or
   shortening a wall slides the wall square across its end whole, so the
   room stays square. A wall the scanner gave in pieces either side of a
   doorway — in line, up to 5′ end to end (`inLine(with:)`) — moves as one
   (owner: "a doorway doesn't create two walls"); the pieces keep their own
   letters.
+- **While something is held** (owner's calls, 2026-10-08, after looking at
+  how CAD and design apps do it): catching is felt and seen — a light tick
+  and a green flash (a ring on the plan, a dashed line on the wall view)
+  as it catches (`cue`, comparing with where it would be without
+  catching); a **Catch on / Catch off** button turns catching off for that
+  thing till it's let go (`catchOff`); and nudge arrows move it 1/16″ a
+  tap, catching nothing (`nudge`) — the arrows point the way it moves on
+  screen (◀ ▶ or ▲ ▼ per direction it can move). In the strip at the top
+  of the plan and in place of the hint on the wall view.
 - **Admin → Catch test** (`CatchTest.swift`, owner asked 2026-10-08): three
   drills — tap on a wall's line (where a new wall starts), steer a held
   wall end to touch a wall, steer a tile edge to a window's side — at the
@@ -491,7 +504,8 @@ scanned room answers the physical ones on its model instead of in fields.
   catching, 15 tries each. Misses are kept in points and inches
   (UserDefaults "catchTest.v1"; Copy results) and summed up as the miss 19
   tries in 20 stay within. Meant to set the catch in screen points from
-  the owner's real aim, converted at the current zoom — not done yet.
+  the owner's real aim, converted at the current zoom (done 2026-10-08:
+  4 pt steered, 20 pt touch).
 - The model opens in the mode of the step it came from, and a **Measure |
   Extras** switch at its top changes mode without leaving it (owner asked
   2026-10-08).

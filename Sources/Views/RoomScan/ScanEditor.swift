@@ -213,9 +213,13 @@ struct ScanEditor: View {
                                room.movePlannedEnd(id, start: start, to: p)
                                clampPieces(on: id)
                            },
-                           onMovePlannedWall: { original, d in
+                           onMovePlannedWall: { original, d, reach in
                                let guides = takeoff.newWallLines(in: room, thicknessIn: original.thicknessIn).flatMap { [$0.0, $0.1] }
-                               room.movePlannedWall(original, by: d, guides: guides)
+                               // Where it would be without catching, to tell whether it caught.
+                               var free = room
+                               free.movePlannedWall(original, by: d, guides: guides, reach: 0)
+                               room.movePlannedWall(original, by: d, guides: guides, reach: reach)
+                               return free.wall(original.id) != room.wall(original.id)
                            },
                            editAnyWall: editingWalls && mode == .measure,
                            onMoveWall: { id, d in editRoom { $0.moveWall(id, by: d) } },
@@ -1696,7 +1700,9 @@ struct PlanCanvas: View {
     /// Dragging an end of a planned wall (its id, which end, where to).
     var onMovePlannedEnd: (UUID, Bool, ScannedRoom.Point) -> Void = { _, _, _ in }
     /// Dragging a whole planned wall: where it started, and how far, in plan feet.
-    var onMovePlannedWall: (ScannedRoom.Wall, ScannedRoom.Point) -> Void = { _, _ in }
+    /// …and how far it catches on a line or a wall, in feet at the zoom in use.
+    /// It returns whether it caught on something.
+    var onMovePlannedWall: (ScannedRoom.Wall, ScannedRoom.Point, Double) -> Bool = { _, _, _ in false }
     /// Any wall's handles show (not only walls drawn in): dragging a scanned
     /// wall's middle slides it, its ends lengthen it.
     var editAnyWall = false
@@ -1732,6 +1738,13 @@ struct PlanCanvas: View {
     @State private var steerWall: ScannedRoom.Wall? = nil
     @State private var steerFloor: AreaTakeoff.FloorRect? = nil
     @State private var steerDrain: AreaTakeoff.Drain? = nil
+    /// Catching turned off for the thing held (the magnet), till it's let go.
+    @State private var catchOff = false
+    /// It's caught on something now; and where to flash green when it catches.
+    @State private var caught = false
+    @State private var flash: (at: ScannedRoom.Point, id: UUID)? = nil
+    /// The plan's size, for the nudge buttons' directions.
+    @State private var planSize: CGSize = .zero
     @State private var lastTranslation: CGSize = .zero
     @State private var steered: ScannedRoom.Point = .init()
     @State private var steering = false
@@ -1817,11 +1830,16 @@ struct PlanCanvas: View {
                 .overlay(alignment: .top) {
                     VStack(spacing: 6) {
                         holdStrip
+                        holdControls
                         floorBar
                         drainBar
                     }
                     .padding(.top, 6)
                 }
+        }
+        .onChange(of: hold) { _, h in
+            caught = false
+            if h == nil { catchOff = false }
         }
         .onChange(of: selectedWall) { _, id in
             // Chosen elsewhere (3-D, the panels): let go of a different wall.
@@ -1837,14 +1855,18 @@ struct PlanCanvas: View {
             let f = frame(geo.size)
             if interactive {
                 Canvas { ctx, _ in draw(ctx, f) }
+                    .onAppear { planSize = geo.size }
+                    .onChange(of: geo.size) { _, s in planSize = s }
                     .contentShape(Rectangle())
                     .gesture(addingWall ? nil : zoomPanSteer(geo.size, f))
                     .overlay {
                         if addingWall {
                             Color.clear.contentShape(Rectangle())
                                 .gesture(DragGesture(minimumDistance: 4).onChanged { v in
-                                    let a = room.snappedToWall(f.point(at: v.startLocation))
-                                    drawing = snapNewWall(a, room.plannedEnd(from: a, toward: f.point(at: v.location)))
+                                    // A direct touch: it catches within the touch reach (catch test).
+                                    let reach = Steering.catchFt(steered: false, ptPerFt: Double(f.scale))
+                                    let a = room.snappedToWall(f.point(at: v.startLocation), pull: reach)
+                                    drawing = snapNewWall(a, room.plannedEnd(from: a, toward: f.point(at: v.location), reach: reach))
                                 }.onEnded { _ in
                                     if let (a, b) = drawing,
                                        ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot() >= 1 {
@@ -2011,6 +2033,135 @@ struct PlanCanvas: View {
         hold = nil
     }
 
+    /// Entering a catch: a light tick and a green flash where it caught
+    /// (owner's call, 2026-10-08, so an unwanted catch is plain to see).
+    private func cue(_ isCaught: Bool, at p: ScannedRoom.Point?) {
+        if isCaught, !caught, let p {
+            UISelectionFeedbackGenerator().selectionChanged()
+            let id = UUID()
+            flash = (p, id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { if flash?.id == id { flash = nil } }
+        }
+        caught = isCaught
+    }
+
+    /// While something is held: the magnet (catching on or off for it) and
+    /// nudge arrows, a sixteenth a tap, catching nothing.
+    @ViewBuilder
+    private var holdControls: some View {
+        if interactive, let hold, planSize != .zero {
+            let f = frame(planSize)
+            HStack(spacing: 6) {
+                Button {
+                    catchOff.toggle()
+                } label: {
+                    Label(catchOff ? "Catch off" : "Catch on", systemImage: catchOff ? "scope" : "dot.scope")
+                        .labelStyle(.titleAndIcon)
+                }
+                .tint(catchOff ? .orange : .green)
+                ForEach(Array(nudgeAxes(hold).enumerated()), id: \.offset) { _, axis in
+                    nudgeButtons(axis, f)
+                }
+            }
+            .font(.caption2.weight(.semibold))
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+
+    /// The directions a held thing nudges along, on the plan.
+    private func nudgeAxes(_ hold: Hold) -> [ScannedRoom.Point] {
+        func unit(_ w: ScannedRoom.Wall) -> ScannedRoom.Point {
+            let l = max(w.lengthFt, 1e-9)
+            return .init(x: (w.end.x - w.start.x) / l, y: (w.end.y - w.start.y) / l)
+        }
+        switch hold {
+        case .wall(let id):
+            guard let w = room.wall(id) else { return [] }
+            let u = unit(w)
+            return [.init(x: -u.y, y: u.x)]
+        case .wallEnd(let id, _):
+            return room.wall(id).map { [unit($0)] } ?? []
+        case .floor, .drain:
+            guard let r = floorRect?.wrappedValue else { return [] }
+            return [r.u, r.v]
+        case .floorEdge(let axis, _):
+            guard let r = floorRect?.wrappedValue else { return [] }
+            return [axis == .u ? r.u : r.v]
+        case .drainEnd:
+            guard let r = floorRect?.wrappedValue, let d = drainShown else { return [] }
+            return [d.runsAlongWidth ? r.u : r.v]
+        }
+    }
+
+    /// Two arrows for one direction, pointing the way it goes on screen.
+    private func nudgeButtons(_ dir: ScannedRoom.Point, _ f: Frame) -> some View {
+        let a = f.at(.init(x: 0, y: 0)), b = f.at(dir)
+        let sx = b.x - a.x, sy = b.y - a.y
+        let across = abs(sx) >= abs(sy)
+        // The step that moves it right (or up) on screen.
+        let sign: Double = across ? (sx >= 0 ? 1 : -1) : (sy <= 0 ? 1 : -1)
+        let step = ScannedRoom.Point(x: dir.x * sign / 192, y: dir.y * sign / 192)
+        return HStack(spacing: 2) {
+            Button { nudge(by: .init(x: -step.x, y: -step.y)) } label: {
+                Image(systemName: across ? "chevron.left" : "chevron.down").frame(width: 16, height: 18)
+            }
+            Button { nudge(by: step) } label: {
+                Image(systemName: across ? "chevron.right" : "chevron.up").frame(width: 16, height: 18)
+            }
+        }
+    }
+
+    /// The held thing moved a sixteenth along `d` (plan feet), catching nothing.
+    private func nudge(by d: ScannedRoom.Point) {
+        guard let hold else { return }
+        switch hold {
+        case .wall(let id):
+            guard let w = room.wall(id) else { return }
+            if w.planned { _ = onMovePlannedWall(w, d, 0) } else { onMoveWall(id, d) }
+            onWallDragEnded()
+        case .wallEnd(let id, let start):
+            guard let w = room.wall(id) else { return }
+            let e = start ? w.start : w.end
+            let p = ScannedRoom.Point(x: e.x + d.x, y: e.y + d.y)
+            if w.planned { onMovePlannedEnd(id, start, p) } else { onMoveWallEnd(id, start, p) }
+            onWallDragEnded()
+        case .floor:
+            floorRect?.wrappedValue?.origin = .init(x: (floorRect?.wrappedValue?.origin.x ?? 0) + d.x,
+                                                    y: (floorRect?.wrappedValue?.origin.y ?? 0) + d.y)
+            onFloorChanged?()
+            onFloorMoved?()
+        case .floorEdge(let axis, let near):
+            guard var r = floorRect?.wrappedValue else { return }
+            let dir = axis == .u ? r.u : r.v
+            let by = d.x * dir.x + d.y * dir.y
+            if near {
+                // The near edge moves; the far edge stays.
+                r.origin = .init(x: r.origin.x + dir.x * by, y: r.origin.y + dir.y * by)
+                if axis == .u { r.widthFt = max(0.5, r.widthFt - by) } else { r.depthFt = max(0.5, r.depthFt - by) }
+            } else if axis == .u { r.widthFt = max(0.5, r.widthFt + by) } else { r.depthFt = max(0.5, r.depthFt + by) }
+            floorRect?.wrappedValue = r
+            onFloorChanged?()
+            onFloorMoved?()
+        case .drain:
+            guard let r = floorRect?.wrappedValue, var dr = drain?.wrappedValue ?? drainShown else { return }
+            dr.alongWidthFt += d.x * r.u.x + d.y * r.u.y
+            dr.alongDepthFt += d.x * r.v.x + d.y * r.v.y
+            drain?.wrappedValue = dr
+        case .drainEnd(let atStart):
+            guard let r = floorRect?.wrappedValue, var dr = drain?.wrappedValue ?? drainShown, dr.kind == .linear else { return }
+            let dir = dr.runsAlongWidth ? r.u : r.v
+            let by = d.x * dir.x + d.y * dir.y
+            let mid = dr.runsAlongWidth ? dr.alongWidthFt : dr.alongDepthFt
+            var lo = mid - dr.lengthFt / 2, hi = mid + dr.lengthFt / 2
+            if atStart { lo = min(lo + by, hi - 6.0 / 12) } else { hi = max(hi + by, lo + 6.0 / 12) }
+            dr.lengthFt = hi - lo
+            if dr.runsAlongWidth { dr.alongWidthFt = (lo + hi) / 2 } else { dr.alongDepthFt = (lo + hi) / 2 }
+            drain?.wrappedValue = dr
+        }
+    }
+
     /// One end of a linear drain, on the plan.
     private func drainEnd(_ d: AreaTakeoff.Drain, _ r: AreaTakeoff.FloorRect, start: Bool) -> ScannedRoom.Point {
         let k = AreaTakeoff.drainOutline(d, in: r)
@@ -2065,6 +2216,7 @@ struct PlanCanvas: View {
             .onEnded { _ in
                 viewportStart = nil
                 lastTranslation = .zero
+                caught = false
                 if steering {
                     steering = false
                     steerWall = nil
@@ -2092,17 +2244,22 @@ struct PlanCanvas: View {
         }
         let (fx, fy) = f.feet(Steering.steered(delta))
         steered = .init(x: steered.x + fx, y: steered.y + fy)
+        // How far it catches, at this zoom (catch test: steered, in points);
+        // nothing with the magnet off.
+        let reach = catchOff ? 0 : Steering.catchFt(ptPerFt: Double(f.scale))
         var shown: ScannedRoom.Point? = nil
         switch hold {
         case .wall(let id):
             guard let base = steerWall else { return }
-            if base.planned { onMovePlannedWall(base, steered) } else { onMoveWall(id, steered) }
             shown = room.wall(id).map { .init(x: ($0.start.x + $0.end.x) / 2, y: ($0.start.y + $0.end.y) / 2) }
+            if base.planned { cue(onMovePlannedWall(base, steered, reach), at: shown) } else { onMoveWall(id, steered) }
         case .wallEnd(let id, let start):
             guard let base = steerWall else { return }
             let from = start ? base.start : base.end, other = start ? base.end : base.start
             let target = ScannedRoom.Point(x: from.x + steered.x, y: from.y + steered.y)
-            let p = room.plannedEnd(from: other, toward: target, except: id)
+            let p = room.plannedEnd(from: other, toward: target, except: id, reach: reach)
+            let free = room.plannedEnd(from: other, toward: target, except: id, reach: 0)
+            cue(hypot(p.x - free.x, p.y - free.y) > 1e-9, at: p)
             if base.planned { onMovePlannedEnd(id, start, p) } else { onMoveWallEnd(id, start, p) }
             shown = p
         case .floor:
@@ -2121,7 +2278,9 @@ struct PlanCanvas: View {
             let sideLen = axis == .u ? start.depthFt : start.widthFt
             var anchor = ScannedRoom.Point(x: start.origin.x + side.x * sideLen / 2, y: start.origin.y + side.y * sideLen / 2)
             if near { anchor = .init(x: anchor.x + dir.x * old, y: anchor.y + dir.y * old) }
-            let length = snapLength(old + steered.x * out.x + steered.y * out.y, from: anchor, toward: out)
+            let length = snapLength(old + steered.x * out.x + steered.y * out.y, from: anchor, toward: out, reach: reach)
+            let free = snapLength(old + steered.x * out.x + steered.y * out.y, from: anchor, toward: out, reach: 0)
+            cue(abs(length - free) > 1e-9, at: .init(x: anchor.x + out.x * length, y: anchor.y + out.y * length))
             var updated = start
             if axis == .u { updated.widthFt = length } else { updated.depthFt = length }
             if near {
@@ -2132,8 +2291,13 @@ struct PlanCanvas: View {
         case .drain:
             guard let start = steerDrain, let r = floorRect?.wrappedValue, let binding = drain else { return }
             let a = steered.x * r.u.x + steered.y * r.u.y, b = steered.x * r.v.x + steered.y * r.v.y
-            binding.wrappedValue = AreaTakeoff.snappedDrain(start, in: r, alongWidth: start.alongWidthFt + a,
-                                                            alongDepth: start.alongDepthFt + b)
+            let moved = AreaTakeoff.snappedDrain(start, in: r, alongWidth: start.alongWidthFt + a,
+                                                 alongDepth: start.alongDepthFt + b, pull: reach)
+            let free = AreaTakeoff.snappedDrain(start, in: r, alongWidth: start.alongWidthFt + a,
+                                                alongDepth: start.alongDepthFt + b, pull: 0)
+            binding.wrappedValue = moved
+            cue(moved != free, at: .init(x: r.origin.x + r.u.x * moved.alongWidthFt + r.v.x * moved.alongDepthFt,
+                                         y: r.origin.y + r.u.y * moved.alongWidthFt + r.v.y * moved.alongDepthFt))
         case .drainEnd(let atStart):
             guard let start = steerDrain, start.kind == .linear, let r = floorRect?.wrappedValue, let binding = drain else { return }
             // Along its run: the held end moves, the other stays; an end
@@ -2144,9 +2308,11 @@ struct PlanCanvas: View {
             var lo = mid - start.lengthFt / 2, hi = mid + start.lengthFt / 2
             let moved = steered.x * dir.x + steered.y * dir.y
             func snapEnd(_ v: Double) -> Double {
-                for t in [0, run] where abs(v - t) < Steering.catchFt { return t }
+                for t in [0, run] where abs(v - t) < reach { return t }
                 return Steering.sixteenth(v)
             }
+            let raw = (atStart ? lo : hi) + moved
+            cue(abs(snapEnd(raw) - Steering.sixteenth(raw)) > 1e-9, at: drainEnd(start, r, start: atStart))
             if atStart { lo = min(max(0, snapEnd(lo + moved)), hi - 6.0 / 12) } else { hi = max(min(run, snapEnd(hi + moved)), lo + 6.0 / 12) }
             var d = start
             d.lengthFt = hi - lo
@@ -2159,9 +2325,10 @@ struct PlanCanvas: View {
 
     /// A length rounded to the sixteenth, or to where it would meet a wall
     /// when within 1½″, measured from `from` toward `dir`.
-    private func snapLength(_ length: Double, from o: ScannedRoom.Point, toward dir: ScannedRoom.Point) -> Double {
+    private func snapLength(_ length: Double, from o: ScannedRoom.Point, toward dir: ScannedRoom.Point,
+                            reach: Double = Steering.catchFt) -> Double {
         var best = max(6.0 / 12, Steering.sixteenth(length))
-        var bestGap = Steering.catchFt
+        var bestGap = reach
         for w in room.walls {
             let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
             let den = dir.x * ey - dir.y * ex
@@ -2515,6 +2682,12 @@ struct PlanCanvas: View {
             ctx.draw(label, at: f.at(toward))
         }
         if interactive && showDimensions { drawDimensions(ctx, f, center: .init(x: cx, y: cy)) }
+        // Just caught on something: a green flash where.
+        if let flash {
+            let c = f.at(flash.at)
+            ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 13, y: c.y - 13, width: 26, height: 26)), with: .color(.green), lineWidth: 3)
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)), with: .color(.green))
+        }
     }
 
     /// The plan's dimensions (`PlanDimensions`), laid out by
@@ -2612,6 +2785,11 @@ struct WallElevation: View {
     @State private var steeredFt: CGSize = .zero
     @State private var lastTranslation: CGSize = .zero
     private let sixteenth = 1.0 / 192
+    /// The magnet off for what's held; caught now; where to flash green
+    /// (feet along, or feet up) when it catches.
+    @State private var catchOff = false
+    @State private var caught = false
+    @State private var flash: (along: Double?, up: Double?, id: UUID)? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -2719,12 +2897,30 @@ struct WallElevation: View {
                 .frame(width: max(width, 170))
                 .position(x: origin.x + width / 2, y: origin.y + Self.belowWall - 6)
 
-                Text(hold != nil ? "Drag anywhere · tap the wall to let go" : "Tap a side or the middle, then drag anywhere")
-                    .font(.system(size: 9, weight: hold != nil ? .semibold : .regular))
-                    .foregroundStyle(hold != nil ? Color.green : Color.secondary)
-                    .padding(6)
-                    .opacity(hold != nil || selectedPiece != nil || selectedItem.wrappedValue != nil || selectedOpening.wrappedValue != nil ? 1 : 0)
+                // Just caught: a green line where.
+                if let flash {
+                    Path { p in
+                        if let a = flash.along {
+                            p.move(to: at(a, 0)); p.addLine(to: at(a, wall.heightFt))
+                        }
+                        if let u = flash.up {
+                            p.move(to: at(0, u)); p.addLine(to: at(wall.lengthFt, u))
+                        }
+                    }
+                    .stroke(Color.green, style: StrokeStyle(lineWidth: 2.5, dash: [6, 4]))
                     .allowsHitTesting(false)
+                }
+
+                if let hold {
+                    holdControls(hold).padding(6)
+                } else {
+                    Text("Tap a side or the middle, then drag anywhere")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Color.secondary)
+                        .padding(6)
+                        .opacity(selectedPiece != nil || selectedItem.wrappedValue != nil || selectedOpening.wrappedValue != nil ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
             }
             .coordinateSpace(name: "wall")
             .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .named("wall"))
@@ -2735,15 +2931,20 @@ struct WallElevation: View {
                     lastTranslation = v.translation
                     steeredFt = CGSize(width: steeredFt.width + step.width / scale,
                                        height: steeredFt.height - step.height / scale)
-                    steer(hold)
+                    steer(hold, reach: catchOff ? 0 : Steering.catchFt(ptPerFt: scale))
                 }
                 .onEnded { _ in
                     lastTranslation = .zero
                     steeredFt = .zero
+                    caught = false
                     holdPiece = nil; holdItem = nil; holdOpening = nil
                 })
         }
         .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 12))
+        .onChange(of: hold) { _, h in
+            caught = false
+            if h == nil { catchOff = false }
+        }
         .onChange(of: selectedPiece) { _, _ in if case .piece = hold { hold = nil } }
         .onChange(of: selectedItem.wrappedValue) { _, _ in if case .item = hold { hold = nil } }
         .onChange(of: selectedOpening.wrappedValue) { _, _ in if case .opening = hold { hold = nil } }
@@ -2751,7 +2952,7 @@ struct WallElevation: View {
 
     /// One step of a drag, applied to what's held from where it started
     /// (to the sixteenth, snapping to nearby edges).
-    private func steer(_ hold: Hold) {
+    private func steer(_ hold: Hold, reach: Double) {
         let dx = Double(steeredFt.width), dy = Double(steeredFt.height)
         switch hold {
         case .piece(let id, let part):
@@ -2760,14 +2961,17 @@ struct WallElevation: View {
             guard let start = holdPiece else { return }
             switch part {
             case .left:
-                let ft = snapped(start.fromFt + dx, to: snaps)
+                let ft = snapped(start.fromFt + dx, to: snaps, pull: reach)
+                cue(start.fromFt + dx, ft, along: true)
                 takeoff.pieces[i].fromFt = min(max(0, ft), takeoff.pieces[i].toFt - 1.0 / 12)
             case .right:
-                let ft = snapped(start.toFt + dx, to: snaps)
+                let ft = snapped(start.toFt + dx, to: snaps, pull: reach)
+                cue(start.toFt + dx, ft, along: true)
                 takeoff.pieces[i].toFt = max(min(wall.lengthFt, ft), takeoff.pieces[i].fromFt + 1.0 / 12)
             case .top:
                 let tops = [wall.heightFt] + room.openings.filter { $0.wallID == wall.id }.flatMap { [$0.bottomFt, $0.bottomFt + $0.heightFt] }
-                let up = snapped(start.heightIn / 12 + dy, to: tops)
+                let up = snapped(start.heightIn / 12 + dy, to: tops, pull: reach)
+                cue(start.heightIn / 12 + dy, up, along: false)
                 takeoff.pieces[i].heightIn = min(max(1, up * 12), wall.heightFt * 12)
             default: break
             }
@@ -2809,7 +3013,8 @@ struct WallElevation: View {
             var n = start
             switch part {
             case .move:
-                let left = min(max(0, snapped(s0.lowerBound + dx, to: [0, wall.lengthFt - width])),
+                cue(s0.lowerBound + dx, snapped(s0.lowerBound + dx, to: [0, wall.lengthFt - width], pull: reach), along: true)
+                let left = min(max(0, snapped(s0.lowerBound + dx, to: [0, wall.lengthFt - width], pull: reach)),
                                max(0, wall.lengthFt - width))
                 n.alongFt = left + width / 2
                 if start.kind != .door && start.kind != .showerDoor {
@@ -2822,7 +3027,8 @@ struct WallElevation: View {
                 let right = max(min(wall.lengthFt, s16(s0.upperBound + dx)), s0.lowerBound + 1.0 / 6)
                 n = moved(start, left: s0.lowerBound, right: right)
             case .top:
-                let top = snapped(start.bottomFt + start.heightFt + dy, to: [wall.heightFt])
+                let top = snapped(start.bottomFt + start.heightFt + dy, to: [wall.heightFt], pull: reach)
+                cue(start.bottomFt + start.heightFt + dy, top, along: false)
                 n.heightFt = min(max(start.bottomFt + 1.0 / 6, top), wall.heightFt) - start.bottomFt
                 if start.kind == .showerDoor { n.heightFt = max(n.heightFt, 3) }
             case .bottom:
@@ -2899,7 +3105,7 @@ struct WallElevation: View {
         for g in gripSpots(at: at) { box(g, 30, 30) }
         // The end names and the hint.
         box(CGPoint(x: origin.x + width / 2, y: origin.y + Self.belowWall - 6), max(width, 170), 14)
-        box(CGPoint(x: 120, y: 12), 240, 22)
+        box(CGPoint(x: 130, y: 18), 260, 34)
 
         DimensionDrawing.draw(ctx, placer.layout(dims, at: { at($0.x, $0.y) },
                                                  measure: { DimensionDrawing.measure(ctx, $0) }))
@@ -2931,6 +3137,74 @@ struct WallElevation: View {
                     CGPoint(x: (a.x + b.x) / 2, y: a.y)]
         }
         return out
+    }
+
+    /// Entering a catch: a light tick and a green line where it caught.
+    private func cue(_ raw: Double, _ result: Double, along: Bool) {
+        let isCaught = abs(result - Steering.sixteenth(raw)) > 1e-9
+        if isCaught, !caught {
+            UISelectionFeedbackGenerator().selectionChanged()
+            let id = UUID()
+            flash = (along ? result : nil, along ? nil : result, id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { if flash?.id == id { flash = nil } }
+        }
+        caught = isCaught
+    }
+
+    /// While something is held: the magnet and nudge arrows, a sixteenth a
+    /// tap, catching nothing (owner's call, 2026-10-08).
+    private func holdControls(_ hold: Hold) -> some View {
+        let (sideways, upDown): (Bool, Bool) = {
+            switch hold {
+            case .piece(_, let part): return (part == .left || part == .right, part == .top)
+            case .item(let id, let part):
+                let corner = takeoff.items.first { $0.id == id }?.kind.isCorner ?? false
+                switch part {
+                case .move: return (!corner, true)
+                case .left, .right: return (true, false)
+                case .top, .bottom: return (false, true)
+                }
+            case .opening(let id, let part):
+                let door = room.openings.first { $0.id == id }.map { $0.kind == .door || $0.kind == .showerDoor } ?? false
+                switch part {
+                case .move: return (true, !door)
+                case .left, .right: return (true, false)
+                case .top, .bottom: return (false, true)
+                }
+            }
+        }()
+        return HStack(spacing: 4) {
+            Button {
+                catchOff.toggle()
+            } label: {
+                Label(catchOff ? "Catch off" : "Catch on", systemImage: catchOff ? "scope" : "dot.scope")
+                    .labelStyle(.titleAndIcon)
+            }
+            .tint(catchOff ? .orange : .green)
+            if sideways {
+                Button { nudge(hold, dx: -sixteenth, dy: 0) } label: { Image(systemName: "chevron.left").frame(width: 18, height: 22) }
+                Button { nudge(hold, dx: sixteenth, dy: 0) } label: { Image(systemName: "chevron.right").frame(width: 18, height: 22) }
+            }
+            if upDown {
+                Button { nudge(hold, dx: 0, dy: -sixteenth) } label: { Image(systemName: "chevron.down").frame(width: 18, height: 22) }
+                Button { nudge(hold, dx: 0, dy: sixteenth) } label: { Image(systemName: "chevron.up").frame(width: 18, height: 22) }
+            }
+        }
+        .font(.caption2.weight(.semibold))
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    /// What's held moved a sixteenth, catching nothing.
+    private func nudge(_ hold: Hold, dx: Double, dy: Double) {
+        holdPiece = nil; holdItem = nil; holdOpening = nil
+        steeredFt = CGSize(width: dx, height: dy)
+        let wasCaught = caught
+        steer(hold, reach: 0)
+        caught = wasCaught
+        steeredFt = .zero
+        holdPiece = nil; holdItem = nil; holdOpening = nil
     }
 
     /// A handle that chooses a part to steer: lit when it's the one held.

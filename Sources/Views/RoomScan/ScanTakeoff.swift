@@ -164,7 +164,7 @@ extension ScannedRoom {
     /// the sixteenth; across, its line snaps within 1½″ to `guides` (e.g. the
     /// shower floor's corners) and other walls' ends; along, an end snaps
     /// onto a wall within 1½″.
-    mutating func movePlannedWall(_ original: Wall, by d: Point, guides: [Point] = []) {
+    mutating func movePlannedWall(_ original: Wall, by d: Point, guides: [Point] = [], reach: Double = Steering.catchFt) {
         guard let i = walls.firstIndex(where: { $0.id == original.id }), walls[i].planned else { return }
         let dx = original.end.x - original.start.x, dy = original.end.y - original.start.y
         let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
@@ -173,7 +173,7 @@ extension ScannedRoom {
         var across = ((d.x * n.x + d.y * n.y) * 192).rounded() / 192
         // Across: line up with a guide or another wall's end.
         let raw = d.x * n.x + d.y * n.y
-        var best = Steering.catchFt
+        var best = reach
         for p in guides + walls.filter({ $0.id != original.id }).flatMap({ [$0.start, $0.end] }) {
             let c = (p.x - original.start.x) * n.x + (p.y - original.start.y) * n.y
             if abs(c - raw) < best { best = abs(c - raw); across = c }
@@ -181,7 +181,7 @@ extension ScannedRoom {
         // Along: an end onto a wall it nearly touches.
         let rawAlong = d.x * u.x + d.y * u.y
         let base = Point(x: original.start.x + n.x * across, y: original.start.y + n.y * across)
-        best = Steering.catchFt
+        best = reach
         for w in walls where w.id != original.id {
             let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
             let den = u.x * ey - u.y * ex
@@ -1579,9 +1579,9 @@ extension AreaTakeoff {
     /// depth): its long side snaps flush to a side of the floor (a wall, or
     /// the outside corners of a curbless cove) and its middle to the
     /// floor's middle, within 1½″.
-    static func snappedDrain(_ drain: Drain, in r: FloorRect, alongWidth w: Double, alongDepth d: Double) -> Drain {
+    static func snappedDrain(_ drain: Drain, in r: FloorRect, alongWidth w: Double, alongDepth d: Double,
+                             pull: Double = Steering.catchFt) -> Drain {
         var out = drain
-        let pull = Steering.catchFt
         func snap(_ v: Double, _ targets: [Double]) -> Double {
             // To the sixteenth, or to a target within 1½″.
             targets.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) < pull ? $0 : nil } ?? (v * 192).rounded() / 192

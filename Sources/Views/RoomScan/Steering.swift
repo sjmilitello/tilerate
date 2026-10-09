@@ -30,7 +30,17 @@ enum Steering {
     /// (owner's call, 2026-10-08: "everything should move in 1/16"
     /// increments the same way") —
     static let stepFt = 1.0 / 192
-    /// — and catches on a wall, corner, edge or the middle only this close: 1½″.
+    /// — and catches on a wall, corner, edge or the middle within a reach set
+    /// on the glass, from the owner's catch test (2026-10-08): steered, 19
+    /// tries in 20 stopped within 3 pt; tapped, within 18 pt — at either zoom.
+    /// So the catch is in points, turned into feet at the zoom in use.
+    static let steeredCatchPt: Double = 4
+    static let touchCatchPt: Double = 20
+    /// Feet the catch reaches at `ptPerFt` (zoom included).
+    static func catchFt(steered: Bool = true, ptPerFt: Double) -> Double {
+        (steered ? steeredCatchPt : touchCatchPt) / max(ptPerFt, 1e-6)
+    }
+    /// The catch where no zoom is known (the model's functions, tests): 1½″.
     static let catchFt = 1.5 / 12
 
     /// Rounded to the sixteenth of an inch, in feet.

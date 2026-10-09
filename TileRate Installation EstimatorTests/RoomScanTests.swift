@@ -80,6 +80,14 @@ struct RoomScanTests {
         #expect(Steering.stepFt == 1.0 / 192 && Steering.catchFt == 1.5 / 12)
     }
 
+    @Test func theCatchIsSetOnTheGlassAndShrinksAsYouZoomIn() {
+        // The owner's catch test: steered 4 pt, a direct touch 20 pt.
+        // Fitted plan, 30 pt to the foot: 1.6″ and 8″. Zoomed ×3: a third of that.
+        #expect(abs(Steering.catchFt(ptPerFt: 30) * 12 - 1.6) < 1e-9)
+        #expect(abs(Steering.catchFt(steered: false, ptPerFt: 30) * 12 - 8) < 1e-9)
+        #expect(abs(Steering.catchFt(ptPerFt: 90) * 12 - 1.6 / 3) < 1e-9)
+    }
+
     @Test func aFloorLeavesOutTheTubAndTheShowerFloor() {
         var shower = EstimateSection()
         shower.area = .shower
