@@ -350,7 +350,11 @@ the tile, else usual for its shape), benches, niches, corner pieces, the
 curb, stone in a stone colour, and the fixtures the scanner found
 (`ScannedRoom.fixtures`, kept from 2026-10-07 scans on; switchable). The
 room's own walls are drawn from inside only, like a doll's house, so the
-near walls drop away whichever way it's turned. Views: into this area
+near walls drop away whichever way it's turned. A partition (a scanned wall
+with an end partway along another, `isPartition`) is drawn solid, both faces
+showing; tile, niches and benches on a scanned wall go on the side toward
+their area's floor (else the room's middle) — a shower behind a partition
+had its tile on the room side (fixed 2026-10-08). Views: into this area
 (from its open side) and the whole room; turn and pinch by hand. In 3-D, **Place** (shower) picks a door, window,
 niche, corner piece or bench, then a tap on a wall puts it there (`tap3D`,
 `Room3DHit`: scene nodes are named "wall|id" and "item|id"): a niche or

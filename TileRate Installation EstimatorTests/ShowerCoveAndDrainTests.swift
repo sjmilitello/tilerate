@@ -1,4 +1,5 @@
 import Foundation
+import SceneKit
 import Testing
 @testable import TileRate_Installation_Estimator
 
@@ -167,5 +168,35 @@ struct ShowerCoveAndDrainTests {
         var prices = StonePrices()
         prices.stone[.curb] = StoneRate(perLinFt: 30, widthIn: 6)
         #expect(abs(prices.curbWidthFt - 4.5 / 12) < 1e-12)
+    }
+
+    @Test func inThreeDTheTileIsOnTheShowersSideOfAPartition() throws {
+        // A 12′ × 10′ room; a partition (P) from wall A at x = 4 into the room,
+        // 4′ long. The shower is the cove behind it (x 0–4, y 0–4): the side of P
+        // away from the room's middle.
+        var r = ScannedRoom()
+        func wall(_ l: String, _ a: (Double, Double), _ b: (Double, Double)) -> ScannedRoom.Wall {
+            ScannedRoom.Wall(label: l, lengthFt: hypot(b.0 - a.0, b.1 - a.1), heightFt: 8,
+                             start: .init(x: a.0, y: a.1), end: .init(x: b.0, y: b.1))
+        }
+        r.walls = [wall("A", (0, 0), (12, 0)), wall("B", (12, 0), (12, 10)), wall("C", (12, 10), (0, 10)),
+                   wall("D", (0, 10), (0, 0)), wall("P", (4, 0), (4, 4))]
+        let p = r.walls[4]
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.floorRect = .init(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1), widthFt: 4, depthFt: 4)
+        t.pieces = [.init(wallID: p.id, fromFt: 0, toFt: 4, heightIn: 96)]
+        let c = Room3DContent(room: r, takeoff: t, area: .shower, tile: nil, floorTile: nil, others: [],
+                              curbHeightIn: 4, stoneParts: [], showFixtures: false)
+        let scene = Room3DScene.build(c)
+        let node = try #require(scene.rootNode.childNode(withName: "wall|\(p.id.uuidString)", recursively: true))
+        // The tile: planes standing just off the wall's face.
+        let tiles = node.childNodes.filter { $0.geometry is SCNPlane && abs(abs($0.position.z) - Float(4.0 / 12 / 2 + 0.006)) < 1e-4 }
+        #expect(!tiles.isEmpty)
+        for tile in tiles {
+            #expect(node.convertPosition(tile.position, to: nil).x < 4)     // on the shower's side
+        }
+        // The partition is solid, so its room side shows too.
+        #expect(node.childNodes.contains { $0.geometry is SCNBox })
     }
 }

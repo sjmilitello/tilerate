@@ -265,11 +265,13 @@ enum Room3DScene {
                 Rect(x0: $0.fromFt, x1: $0.toFt, y0: $0.bottomIn / 12, y1: ($0.bottomIn + $0.heightIn) / 12)
             }
             let wallColor = UIColor(white: w.planned ? 0.78 : 0.86, alpha: 1)
+            // A partition has the room on both sides: drawn solid, so both faces show.
+            let solid = w.planned || PlanDimensions.isPartition(w, in: room)
             // The room's own walls are seen from inside only, like a doll's
             // house: whichever way it's turned, the near walls drop away.
             let inside = faceSign(w, face: 0, room: room)
             for cell in cells(Rect(x0: 0, x1: w.lengthFt, y0: 0, y1: w.heightFt), minus: holes) {
-                if w.planned {
+                if solid {
                     let box = SCNBox(width: cell.w, height: cell.h, length: t, chamferRadius: 0)
                     box.firstMaterial = plain(wallColor)
                     let n = SCNNode(geometry: box)
@@ -297,7 +299,9 @@ enum Room3DScene {
             // Tile on this wall, from every area.
             for a in areas {
                 for p in a.pieces where p.wallID == w.id {
-                    let side = faceSign(w, face: p.face, room: room)
+                    // On the side toward the area's own floor (a shower behind a
+                    // partition is on its far side from the room's middle).
+                    let side = faceSign(w, face: p.face, room: room, toward: a.floor?.center)
                     for cell in cells(Rect(x0: p.fromFt, x1: p.toFt, y0: 0, y1: p.heightIn / 12), minus: holes) {
                         let plane = SCNPlane(width: cell.w, height: cell.h)
                         plane.firstMaterial = tileMaterial(a.tile, widthFt: cell.w, heightFt: cell.h, x0: cell.x0, y0: cell.y0)
@@ -325,7 +329,8 @@ enum Room3DScene {
             let node = wallFrame(w)
             node.name = "item|\(item.id.uuidString)"
             let t = thickness(w)
-            let side = Double(faceSign(w, face: item.face, room: room))
+            let side = Double(faceSign(w, face: item.face, room: room,
+                                       toward: c.takeoff.floor == .drawn ? c.takeoff.floorRect?.center : nil))
             switch item.kind {
             case .framedBench, .floatingBench:
                 let depth = item.depthIn / 12
@@ -563,13 +568,15 @@ enum Room3DScene {
     }
 
     /// Which side of the wall (+1 its first face, −1 the other) a piece's tile is on:
-    /// a planned wall's chosen face; a scanned wall's side toward the room.
-    private static func faceSign(_ w: ScannedRoom.Wall, face: Int, room: ScannedRoom) -> Float {
+    /// a planned wall's chosen face; a scanned wall's side toward `toward` (the
+    /// area's floor), else toward the room's middle.
+    private static func faceSign(_ w: ScannedRoom.Wall, face: Int, room: ScannedRoom,
+                                 toward: ScannedRoom.Point? = nil) -> Float {
         if w.planned { return face == 0 ? 1 : -1 }
         let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
         let pts = room.floorOutline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : room.floorOutline
-        let cx = pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1))
-        let cy = pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1))
+        let cx = toward?.x ?? pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1))
+        let cy = toward?.y ?? pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1))
         let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
         return (cx - mid.x) * -dy + (cy - mid.y) * dx >= 0 ? 1 : -1
     }
