@@ -256,6 +256,14 @@ struct AdminSheet: View {
                 EstimateLayoutsSection(rates: $rates)
 
                 PricingEngineSection()
+
+                Section {
+                    NavigationLink("Catch test") { CatchTestView() }
+                } header: {
+                    Text("Model")
+                } footer: {
+                    Text("Measures how close your own aim gets on the model, to set how near something must be before it catches on a wall, corner or edge.")
+                }
             }
             .scrollDismissesKeyboard(.immediately)
         }

@@ -95,8 +95,8 @@ struct ShowerCoveAndDrainTests {
         let d = t.drainShown()!
         #expect(d.kind == .center)
         #expect(abs(d.alongWidthFt - r.widthFt / 2) < 1e-9 && abs(d.alongDepthFt - r.depthFt / 2) < 1e-9)
-        // Dragged 2″ off the middle: back to it. 6″ off: stays, to the sixteenth.
-        let near = AreaTakeoff.snappedDrain(d, in: r, alongWidth: r.widthFt / 2 + 2.0 / 12, alongDepth: 1)
+        // Dragged 1″ off the middle: back to it. 6″ off: stays, to the sixteenth.
+        let near = AreaTakeoff.snappedDrain(d, in: r, alongWidth: r.widthFt / 2 + 1.0 / 12, alongDepth: 1)
         #expect(abs(near.alongWidthFt - r.widthFt / 2) < 1e-9)
         let off = AreaTakeoff.snappedDrain(d, in: r, alongWidth: r.widthFt / 2 + 0.5, alongDepth: 1)
         #expect(abs(off.alongWidthFt - (r.widthFt / 2 + 0.5)) < 1e-9)

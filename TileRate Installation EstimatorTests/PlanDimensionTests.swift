@@ -157,4 +157,12 @@ struct PlanDimensionTests {
         let height = placed.first { $0.dimension.id == "height" }!, column = placed.first { $0.dimension.id == "up-1" }!
         #expect(height.line.0.x > column.line.0.x)
     }
+
+    @Test func theCatchTestSumsUpTheMissNineteenTriesInTwentyStayWithin() {
+        let misses = (1...20).map(Double.init)          // 1 … 20 points
+        #expect(CatchTestView.percentile(misses, 0.95) == 19)
+        #expect(CatchTestView.percentile(misses, 0.5) == 10)
+        #expect(CatchTestView.percentile([4], 0.95) == 4)
+        #expect(CatchTestView.percentile([], 0.95) == nil)
+    }
 }

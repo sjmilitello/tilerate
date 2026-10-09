@@ -97,18 +97,20 @@ extension ScannedRoom {
     }
 
     /// The end of a new or moved planned wall: straightened to run square
-    /// with the room, its length rounded to the inch, and onto a wall it
-    /// nearly reaches.
-    func plannedEnd(from a: Point, toward b: Point, except: UUID? = nil) -> Point {
+    /// with the room, its length to the sixteenth, and onto a wall within
+    /// 1½″ (`Steering`) — drawing a new wall and dragging an end alike.
+    func plannedEnd(from a: Point, toward b: Point, except: UUID? = nil,
+                    step: Double = Steering.stepFt, reach: Double = Steering.catchFt) -> Point {
         let dx = b.x - a.x, dy = b.y - a.y
         let length = (dx * dx + dy * dy).squareRoot()
         guard length > 0.01 else { return b }
         // Nearest of the room's four square directions.
         let base = squaringAngle
         let raw = atan2(dy, dx)
-        let step = Double.pi / 2
-        let a0 = base + ((raw - base) / step).rounded() * step
-        var len = (length * 12).rounded() / 12
+        let quarter = Double.pi / 2
+        let a0 = base + ((raw - base) / quarter).rounded() * quarter
+        let per = (1 / step).rounded()          // 12 or 192 to the foot, exactly
+        var len = (length * per).rounded() / per
         // Stop on a wall it nearly reaches.
         let dir = Point(x: cos(a0), y: sin(a0))
         for w in walls where w.id != except {
@@ -117,7 +119,7 @@ extension ScannedRoom {
             guard abs(den) > 1e-6 else { continue }
             let t = ((w.start.x - a.x) * ey - (w.start.y - a.y) * ex) / den
             let s = ((w.start.x - a.x) * dir.y - (w.start.y - a.y) * dir.x) / den
-            if t > 0.5, s >= -0.05, s <= 1.05, abs(t - len) < 0.5 { len = t }
+            if t > 0.5, s >= -0.05, s <= 1.05, abs(t - len) < reach { len = t }
         }
         return Point(x: a.x + dir.x * len, y: a.y + dir.y * len)
     }
@@ -159,19 +161,19 @@ extension ScannedRoom {
 
     /// A planned wall moved whole, by `d` feet from where it was
     /// (`original`), keeping its length, tile and door. Each way rounds to
-    /// the inch; across, its line snaps within 3″ to `guides` (e.g. the
+    /// the sixteenth; across, its line snaps within 1½″ to `guides` (e.g. the
     /// shower floor's corners) and other walls' ends; along, an end snaps
-    /// onto a wall within 3″.
+    /// onto a wall within 1½″.
     mutating func movePlannedWall(_ original: Wall, by d: Point, guides: [Point] = []) {
         guard let i = walls.firstIndex(where: { $0.id == original.id }), walls[i].planned else { return }
         let dx = original.end.x - original.start.x, dy = original.end.y - original.start.y
         let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
         let u = Point(x: dx / l, y: dy / l), n = Point(x: -u.y, y: u.x)
-        var along = ((d.x * u.x + d.y * u.y) * 12).rounded() / 12
-        var across = ((d.x * n.x + d.y * n.y) * 12).rounded() / 12
+        var along = ((d.x * u.x + d.y * u.y) * 192).rounded() / 192
+        var across = ((d.x * n.x + d.y * n.y) * 192).rounded() / 192
         // Across: line up with a guide or another wall's end.
         let raw = d.x * n.x + d.y * n.y
-        var best = 0.25
+        var best = Steering.catchFt
         for p in guides + walls.filter({ $0.id != original.id }).flatMap({ [$0.start, $0.end] }) {
             let c = (p.x - original.start.x) * n.x + (p.y - original.start.y) * n.y
             if abs(c - raw) < best { best = abs(c - raw); across = c }
@@ -179,7 +181,7 @@ extension ScannedRoom {
         // Along: an end onto a wall it nearly touches.
         let rawAlong = d.x * u.x + d.y * u.y
         let base = Point(x: original.start.x + n.x * across, y: original.start.y + n.y * across)
-        best = 0.25
+        best = Steering.catchFt
         for w in walls where w.id != original.id {
             let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
             let den = u.x * ey - u.y * ex
@@ -251,10 +253,11 @@ extension ScannedRoom {
     }
 }
 
-/// Rounds to the nearest inch, or to a snap point within `pull` feet.
-func snapped(_ ft: Double, to points: [Double], pull: Double = 0.25, step: Double = 1.0 / 12) -> Double {
+/// Rounds to the sixteenth, or to a snap point within 1½″ (`Steering`).
+func snapped(_ ft: Double, to points: [Double], pull: Double = Steering.catchFt, step: Double = Steering.stepFt) -> Double {
     if let near = points.min(by: { abs($0 - ft) < abs($1 - ft) }), abs(near - ft) <= pull { return near }
-    return (ft / step).rounded() * step
+    let per = (1 / step).rounded()
+    return (ft * per).rounded() / per
 }
 
 extension AreaTakeoff {
@@ -344,8 +347,8 @@ extension AreaTakeoff {
         case .tub:
             if room.tubOutline.count > 2 {
                 let (w, d) = boundingSize(room.tubOutline)
-                t.floorWidthFt = (max(w, d) * 12).rounded() / 12
-                t.floorDepthFt = (min(w, d) * 12).rounded() / 12
+                t.floorWidthFt = (max(w, d) * 192).rounded() / 192
+                t.floorDepthFt = (min(w, d) * 192).rounded() / 192
             }
         default:
             break
@@ -1575,12 +1578,12 @@ extension AreaTakeoff {
     /// A linear drain moved to `w`, `d` (feet along the floor's width and
     /// depth): its long side snaps flush to a side of the floor (a wall, or
     /// the outside corners of a curbless cove) and its middle to the
-    /// floor's middle, within 3″.
+    /// floor's middle, within 1½″.
     static func snappedDrain(_ drain: Drain, in r: FloorRect, alongWidth w: Double, alongDepth d: Double) -> Drain {
         var out = drain
-        let pull = 3.0 / 12
+        let pull = Steering.catchFt
         func snap(_ v: Double, _ targets: [Double]) -> Double {
-            // To the sixteenth, or to a target within 3″.
+            // To the sixteenth, or to a target within 1½″.
             targets.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) < pull ? $0 : nil } ?? (v * 192).rounded() / 192
         }
         let half = linearDrainWidthFt / 2
@@ -1650,18 +1653,55 @@ extension ScannedRoom {
         distanceToWall(p, w) < 0.35 && Self.dist(p, w.start) > 0.35 && Self.dist(p, w.end) > 0.35
     }
 
-    /// A wall slid sideways (square to itself) by `d` feet on the plan,
-    /// rounded to the inch, keeping the room joined: a wall sharing a corner
-    /// stretches to follow; an end that meets the middle of another wall slides
-    /// along it; a wall running into this one follows it. Doors and windows
-    /// keep their places in their walls, and the floor outline follows.
+    /// Scanned walls in line with `id` and up to 5′ from it end to end: one
+    /// wall the scanner gave in pieces either side of a doorway (owner,
+    /// 2026-10-08: "a doorway doesn't create two walls"). They move together.
+    func inLine(with id: UUID) -> [Wall] {
+        guard let w = wall(id), !w.planned else { return [] }
+        var group = [w]
+        var grew = true
+        while grew {
+            grew = false
+            for o in walls where !o.planned && !group.contains(where: { $0.id == o.id }) {
+                let joined = group.contains { g in
+                    let u = Self.unit(g), n = Point(x: -u.y, y: u.x)
+                    guard abs(u.x * Self.unit(o).x + u.y * Self.unit(o).y) > 0.996 else { return false }
+                    func off(_ p: Point) -> Double { abs((p.x - g.start.x) * n.x + (p.y - g.start.y) * n.y) }
+                    guard off(o.start) < 0.15, off(o.end) < 0.15 else { return false }
+                    let gap = [Self.dist(g.start, o.start), Self.dist(g.start, o.end),
+                               Self.dist(g.end, o.start), Self.dist(g.end, o.end)].min()!
+                    return gap <= 5
+                }
+                if joined { group.append(o); grew = true }
+            }
+        }
+        return group
+    }
+
+    /// A wall slid sideways (square to itself) by `d` feet on the plan, to
+    /// the sixteenth, with any pieces of it across a doorway (`inLine`),
+    /// keeping the room joined: a wall sharing a corner stretches to follow;
+    /// an end that meets the middle of another wall slides along it; a wall
+    /// running into this one follows it. Doors and windows keep their places
+    /// in their walls, and the floor outline follows.
     mutating func moveWall(_ id: UUID, by d: Point) {
         guard let w = wall(id) else { return }
         let u = Self.unit(w), n = Point(x: -u.y, y: u.x)
-        let off = ((d.x * n.x + d.y * n.y) * 12).rounded() / 12
+        let off = ((d.x * n.x + d.y * n.y) * 192).rounded() / 192
         guard abs(off) > 1e-9 else { return }
         let before = self
-        let shift = Point(x: n.x * off, y: n.y * off)
+        let pieces = inLine(with: id).map(\.id)
+        for piece in pieces.isEmpty ? [id] : pieces {
+            slide(piece, by: Point(x: n.x * off, y: n.y * off))
+        }
+        followAll(from: before)
+    }
+
+    /// One wall slid by `shift` (square to it), keeping the room joined.
+    private mutating func slide(_ id: UUID, by shift: Point) {
+        guard let w = wall(id) else { return }
+        let u = Self.unit(w)
+        let before = self
         let lineP = Point(x: w.start.x + shift.x, y: w.start.y + shift.y)
         // Each end: on another wall's run, it slides along that wall; else it moves with the wall.
         func newEnd(_ old: Point) -> Point {
@@ -1680,13 +1720,29 @@ extension ScannedRoom {
             }
             walls[j].lengthFt = Self.dist(walls[j].start, walls[j].end)
         }
-        followAll(from: before)
     }
 
-    /// One end of a wall moved to `p`: a wall sharing that corner follows.
+    /// One end of a wall moved to `p`. A wall square across that end (the
+    /// closet's door wall at the end of a divider) slides with it, whole —
+    /// with its pieces across a doorway — so the room stays square; any
+    /// other wall sharing the corner follows the corner.
     mutating func moveWallEnd(_ id: UUID, start: Bool, to p: Point) {
         guard let w = wall(id) else { return }
         let before = self
+        let old = start ? w.start : w.end
+        let u = Self.unit(w)
+        if let across = walls.first(where: { o in
+            o.id != id && (Self.dist(o.start, old) < 0.35 || Self.dist(o.end, old) < 0.35)
+                && abs(Self.unit(o).x * u.x + Self.unit(o).y * u.y) < 0.3
+        }) {
+            let along = (p.x - old.x) * u.x + (p.y - old.y) * u.y
+            let pieces = inLine(with: across.id).map(\.id)
+            for piece in pieces.isEmpty ? [across.id] : pieces {
+                slide(piece, by: Point(x: u.x * along, y: u.y * along))
+            }
+            followAll(from: before)
+            return
+        }
         setEnds(id, start: start ? p : w.start, end: start ? w.end : p, from: before)
         followAll(from: before)
     }

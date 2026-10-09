@@ -73,10 +73,11 @@ struct RoomScanTests {
         #expect(backsplash.addPiece(on: B, area: .backsplash, others: [])?.heightIn == 18)
     }
 
-    @Test func snappingRoundsToTheInchOrToANearbyEdge() {
-        #expect(snapped(4.93, to: [5]) == 5)
-        #expect(snapped(4.6, to: [5]) == (4.6 * 12).rounded() / 12)
-        #expect(snapped(1.04, to: []) == 1)
+    @Test func snappingRoundsToTheSixteenthOrToAnEdgeWithinAnInchAndAHalf() {
+        #expect(snapped(4.93, to: [5]) == 5)                                   // 0.84″ away: caught
+        #expect(snapped(4.85, to: [5]) == (4.85 * 192).rounded() / 192)        // 1.8″ away: not
+        #expect(snapped(1.04, to: []) == 200.0 / 192)
+        #expect(Steering.stepFt == 1.0 / 192 && Steering.catchFt == 1.5 / 12)
     }
 
     @Test func aFloorLeavesOutTheTubAndTheShowerFloor() {
@@ -200,8 +201,8 @@ struct RoomScanTests {
         // Drawn from wall C (bottom, y = 8) up toward the middle, a little crooked.
         let start = r.snappedToWall(.init(x: 6, y: 7.8))
         #expect(abs(start.y - 8) < 1e-9 && abs(start.x - 6) < 1e-9)
-        let end = r.plannedEnd(from: start, toward: .init(x: 6.3, y: 4.04))
-        #expect(abs(end.x - 6) < 1e-9 && abs(end.y - 4) < 1e-9)          // straightened, 4′ to the inch
+        let end = r.plannedEnd(from: start, toward: .init(x: 6.02, y: 4.0))
+        #expect(abs(end.x - 6) < 1e-9 && abs(end.y - 4) < 1e-9)          // straightened, to the sixteenth
         let wall = r.addPlannedWall(from: start, to: end, heightIn: 42, thicknessIn: 4.5)
         #expect(wall.label == "E" && wall.planned && abs(wall.lengthFt - 4) < 1e-9)
         // Against wall C at its start; its far end is open.
@@ -372,9 +373,9 @@ struct RoomScanTests {
         let moved = try #require(r.wall(w.id))
         #expect(abs(moved.start.y - 3) < 1e-9 && abs(moved.end.y - 3) < 1e-9)
         #expect(abs(moved.end.x - 9) < 1e-9 && abs(moved.lengthFt - 4) < 1e-9)
-        // Away from anything to snap to, it moves to the inch.
+        // Away from anything to snap to, it moves to the sixteenth.
         r.movePlannedWall(moved, by: .init(x: 0, y: 1.52))
-        #expect(abs(r.wall(w.id)!.start.y - (3 + 18.0 / 12)) < 1e-9)
+        #expect(abs(r.wall(w.id)!.start.y - (3 + 292.0 / 192)) < 1e-9)
     }
 
     @Test func aNewWallDrawnNearTheShowerSnapsJustOutsideItsFloor() throws {
@@ -636,7 +637,7 @@ struct RoomScanTests {
         t.pieces = [piece(back, 0, 5, 96), piece(divider, 0, 4, 96)]   // the shower: back wall to the divider, and the divider
         let before = r
         // Divider dragged 1′ toward the closet (to x = 6): the shower grows, the closet shrinks.
-        r.moveWall(divider.id, by: .init(x: 1.04, y: 0.3))   // only the sideways part counts, to the inch
+        r.moveWall(divider.id, by: .init(x: 1.0, y: 0.3))    // only the sideways part counts
         let d = r.wall(divider.id)!
         #expect(abs(d.start.x - 6) < 1e-9 && abs(d.end.x - 6) < 1e-9 && abs(d.start.y) < 1e-9 && abs(d.end.y - 4) < 1e-9)
         #expect(abs(r.wall(back.id)!.lengthFt - 12) < 1e-9)          // the back wall is untouched
@@ -702,7 +703,51 @@ struct RoomScanTests {
         let closet = r.walls[2], east = r.walls[3]
         r.moveWallEnd(closet.id, start: false, to: .init(x: 13, y: 4))
         #expect(abs(r.wall(closet.id)!.lengthFt - 8) < 1e-9)
-        #expect(abs(r.wall(east.id)!.start.x - 13) < 1e-9)   // the wall from that corner went with it
+        // The wall square across that end slid with it, whole: still square, the back wall longer.
+        let e = r.wall(east.id)!
+        #expect(abs(e.start.x - 13) < 1e-9 && abs(e.end.x - 13) < 1e-9)
+        #expect(abs(r.walls[0].lengthFt - 13) < 1e-9)
+    }
+
+    @Test func wallsMoveToTheSixteenth() {
+        var r = dividerRoom()
+        let divider = r.walls[1]
+        r.moveWall(divider.id, by: .init(x: 1.0 / 16 / 12, y: 0))
+        #expect(abs(r.wall(divider.id)!.start.x - (5 + 1.0 / 192)) < 1e-12)
+        // An end dragged: the length to the sixteenth, not caught by a wall 3″ away.
+        let end = r.plannedEnd(from: .init(x: 0, y: 2), toward: .init(x: 4.6 + 1.0 / 192, y: 2), except: nil,
+                               step: 1.0 / 192, reach: 1.5 / 12)
+        #expect(abs(end.x - (4.6 + 1.0 / 192)) < 1.0 / 384)
+    }
+
+    /// The divider room with the closet's door wall in two pieces either
+    /// side of its doorway (x 9 to 11½), as the scanner sometimes gives it.
+    private func doorWallInPieces() -> ScannedRoom {
+        var r = ScannedRoom()
+        func wall(_ l: String, _ a: (Double, Double), _ b: (Double, Double)) -> ScannedRoom.Wall {
+            ScannedRoom.Wall(label: l, lengthFt: hypot(b.0 - a.0, b.1 - a.1), heightFt: 8,
+                             start: .init(x: a.0, y: a.1), end: .init(x: b.0, y: b.1))
+        }
+        r.walls = [wall("A", (0, 0), (12, 0)), wall("B", (5, 0), (5, 4)), wall("C", (5, 4), (9, 4)),
+                   wall("D", (11.5, 4), (12, 4)), wall("E", (12, 4), (12, 0))]
+        return r
+    }
+
+    @Test func aWallInPiecesAcrossADoorwayMovesAsOne() {
+        var r = doorWallInPieces()
+        let divider = r.walls[1], near = r.walls[2], far = r.walls[3], east = r.walls[4]
+        #expect(Set(r.inLine(with: near.id).map(\.id)) == [near.id, far.id])
+        // The divider lengthened a foot: the whole door wall slides out with its end.
+        r.moveWallEnd(divider.id, start: false, to: .init(x: 5, y: 5))
+        #expect(abs(r.wall(divider.id)!.lengthFt - 5) < 1e-9)
+        for id in [near.id, far.id] {
+            let w = r.wall(id)!
+            #expect(abs(w.start.y - 5) < 1e-9 && abs(w.end.y - 5) < 1e-9)
+        }
+        #expect(abs(r.wall(east.id)!.lengthFt - 5) < 1e-9)
+        // Slid back by itself: both pieces again.
+        r.moveWall(far.id, by: .init(x: 0, y: -1))
+        #expect(abs(r.wall(near.id)!.start.y - 4) < 1e-9 && abs(r.wall(far.id)!.end.y - 4) < 1e-9)
     }
 
     @Test func calibratingAgainKeepsWhatWasTapedBefore() {

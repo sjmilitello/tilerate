@@ -26,6 +26,13 @@ enum Steering {
         return CGSize(width: delta.width * k, height: delta.height * k)
     }
 
+    /// Everything dragged moves this far at a time — a sixteenth of an inch
+    /// (owner's call, 2026-10-08: "everything should move in 1/16"
+    /// increments the same way") —
+    static let stepFt = 1.0 / 192
+    /// — and catches on a wall, corner, edge or the middle only this close: 1½″.
+    static let catchFt = 1.5 / 12
+
     /// Rounded to the sixteenth of an inch, in feet.
     static func sixteenth(_ feet: Double) -> Double { (feet * 192).rounded() / 192 }
 }

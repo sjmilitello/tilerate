@@ -220,7 +220,7 @@ areas' floors, or width × depth for a shower floor) and ceiling.
 A shower floor is drawn on the plan (`FloorSource.drawn`, `FloorRect`:
 a corner, two side directions, width and depth), placed in the corner its
 walls make (`suggestedFloorRect`) and dragged to size: green handles on the
-plan for width, depth and moving, sides snapping to the inch and to walls
+plan for width, depth and moving, sides snapping to the sixteenth and to walls
 (owner asked 2026-10-07: the whole room floor was being used). Other areas
 see it faintly in orange. The floor has one move handle in its middle; tapping it lights the outline
 and gives each edge a grip (the opposite edge stays put), with the size,
@@ -234,7 +234,7 @@ brightness. Zooming the camera out isn't possible: RoomPlan always shows the
 Walls that aren't built yet (knee walls, owner asked 2026-10-07) are drawn
 on the plan from the editor's menu: drag from start to end; the start snaps
 onto a wall, the line straightens to the room's square directions, its
-length rounds to the inch and stops on a wall it nearly reaches
+length rounds to the sixteenth and stops on a wall within 1½″
 (`snappedToWall`, `plannedEnd`). A planned wall (`Wall.planned`,
 `thicknessIn`, starting from `Rates.kneeWallThicknessIn`, 4½″, Admin → Knee
 walls) is dashed and as thick as it will be; it is saved with the scan, so
@@ -298,7 +298,7 @@ once a width is set — per square foot instead (length × width). The floor's o
 wall across part of the front leaves the rest as the entry, with its curb
 and jambs. A selected planned wall has a move
 handle in its middle (`movePlannedWall`): whole inches, its line snapping
-within 3″ to those lines and to other walls' ends, an end onto a wall it
+within 1½″ to those lines and to other walls' ends, an end onto a wall it
 nearly touches. Its ends drag on the plan; height, thickness and
 length can be typed; it can be deleted.
 
@@ -401,7 +401,7 @@ would change.
 The editor (`ScanEditor`): floor plan on top (`PlanCanvas`: tap a wall,
 pinch to zoom round the fingers, drag to pan, double-tap or Fit to reset;
 this area's tile blue, other areas' orange), the chosen wall face-on below
-(`WallElevation`: drag a piece's sides and top; ends snap to the inch and to
+(`WallElevation`: drag a piece's sides and top; ends snap to the sixteenth and to
 corners, openings, the tub and other areas' ends; tap a door or window to
 take it off), height chips, From/To/Height typed in inches, Add tile,
 Split, Remove tile. A new piece takes the wall's longest free stretch at a
@@ -447,7 +447,7 @@ scanned room answers the physical ones on its model instead of in fields.
 - **Edit walls** (Measure, any area; owner asked 2026-10-08): every wall,
   scanned or drawn in, can be changed after scanning and calibrating. Tap it
   on the plan or in 3-D; drag its middle to slide it (`moveWall`, square to
-  itself, to the inch) or an end to lengthen it (`moveWallEnd`); type length
+  itself, to the sixteenth) or an end to lengthen it (`moveWallEnd`); type length
   and height; split it in two (`splitWall`, `Wall.splitFrom`/`splitAtFt`);
   delete it. The chosen wall shows face-on with its doors, windows and
   openings (`WallElevation.editOpenings`): tap one to choose it, drag it
@@ -470,6 +470,28 @@ scanned room answers the physical ones on its model instead of in fields.
   the room as the drag began (`dragBase`). Leaving the model with changes
   asks Apply changes / Discard changes / Keep editing; 2-D and 3-D are the
   same model, so switching between them needs no prompt.
+- **One rule for everything dragged** (owner, 2026-10-08: "everything
+  should move in 1/16" increments the same way"): it moves to the
+  sixteenth (`Steering.stepFt`) and catches on a wall, corner, edge, end or
+  middle only within 1½″ (`Steering.catchFt`) — walls slid, ends dragged,
+  walls drawn in (drawing and moving), the shower floor and its edges,
+  drains, tile pieces, doors, windows, niches and benches (`snapped`,
+  `plannedEnd`, `movePlannedWall`, `snapLength`, `snappedDrain`). Only where
+  a new wall *starts* still catches onto a wall within 7″ (`snappedToWall`),
+  since that's about touching a wall, not a size. Lengthening or
+  shortening a wall slides the wall square across its end whole, so the
+  room stays square. A wall the scanner gave in pieces either side of a
+  doorway — in line, up to 5′ end to end (`inLine(with:)`) — moves as one
+  (owner: "a doorway doesn't create two walls"); the pieces keep their own
+  letters.
+- **Admin → Catch test** (`CatchTest.swift`, owner asked 2026-10-08): three
+  drills — tap on a wall's line (where a new wall starts), steer a held
+  wall end to touch a wall, steer a tile edge to a window's side — at the
+  fitted plan's scale (30 pt/ft; wall view 24) and zoomed ×3, nothing
+  catching, 15 tries each. Misses are kept in points and inches
+  (UserDefaults "catchTest.v1"; Copy results) and summed up as the miss 19
+  tries in 20 stay within. Meant to set the catch in screen points from
+  the owner's real aim, converted at the current zoom — not done yet.
 - The model opens in the mode of the step it came from, and a **Measure |
   Extras** switch at its top changes mode without leaving it (owner asked
   2026-10-08).
@@ -502,7 +524,7 @@ scanned room answers the physical ones on its model instead of in fields.
   anywhere. **Linear** starts against the floor's longest wall side, wall to
   wall (`startingLinearDrain`); it snaps flush to each side of the floor —
   walls, and the open side, which is the outside corners when curbless —
-  and to the middle, within 3″ (`snappedDrain`); held, its ends drag (snap
+  and to the middle, within 1½″ (`snappedDrain`); held, its ends drag (snap
   to the sides), Turn turns it a quarter turn (`turnedDrain`); length typed
   in the panel. "Linear Drain" goes on the estimate per linear foot of
   drain, with its minimum (materials, taxable; switchable in Admin).

@@ -4,7 +4,7 @@ import SwiftUI
 // drag to pan, double-tap to fit, tap a wall to tile it), the chosen wall
 // face-on underneath (drag a piece's sides to where the tile starts and stops,
 // drag its top to its height, tap a door or window to take it off), then the
-// floor and ceiling. Everything snaps to the inch and to edges nearby.
+// floor and ceiling. Everything moves to the sixteenth and catches on edges within 1½″.
 
 /// Another area in the same room, shown faintly so walls aren't counted twice.
 struct OtherAreaPieces: Equatable {
@@ -1344,7 +1344,7 @@ struct ScanEditor: View {
     private func split(_ id: UUID) {
         guard let i = takeoff.pieces.firstIndex(where: { $0.id == id }) else { return }
         let p = takeoff.pieces[i]
-        let mid = ((p.fromFt + p.toFt) / 2 * 12).rounded() / 12
+        let mid = ((p.fromFt + p.toFt) / 2 * 192).rounded() / 192
         takeoff.pieces[i].toFt = mid
         var second = p
         second.id = UUID()
@@ -2137,14 +2137,14 @@ struct PlanCanvas: View {
         case .drainEnd(let atStart):
             guard let start = steerDrain, start.kind == .linear, let r = floorRect?.wrappedValue, let binding = drain else { return }
             // Along its run: the held end moves, the other stays; an end
-            // snaps to the floor's side within 3″, else to the sixteenth.
+            // snaps to the floor's side within 1½″, else to the sixteenth.
             let dir = start.runsAlongWidth ? r.u : r.v
             let run = start.runsAlongWidth ? r.widthFt : r.depthFt
             let mid = start.runsAlongWidth ? start.alongWidthFt : start.alongDepthFt
             var lo = mid - start.lengthFt / 2, hi = mid + start.lengthFt / 2
             let moved = steered.x * dir.x + steered.y * dir.y
             func snapEnd(_ v: Double) -> Double {
-                for t in [0, run] where abs(v - t) < 3.0 / 12 { return t }
+                for t in [0, run] where abs(v - t) < Steering.catchFt { return t }
                 return Steering.sixteenth(v)
             }
             if atStart { lo = min(max(0, snapEnd(lo + moved)), hi - 6.0 / 12) } else { hi = max(min(run, snapEnd(hi + moved)), lo + 6.0 / 12) }
@@ -2158,10 +2158,10 @@ struct PlanCanvas: View {
     }
 
     /// A length rounded to the sixteenth, or to where it would meet a wall
-    /// when within 3″, measured from `from` toward `dir`.
+    /// when within 1½″, measured from `from` toward `dir`.
     private func snapLength(_ length: Double, from o: ScannedRoom.Point, toward dir: ScannedRoom.Point) -> Double {
         var best = max(6.0 / 12, Steering.sixteenth(length))
-        var bestGap = 0.25
+        var bestGap = Steering.catchFt
         for w in room.walls {
             let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
             let den = dir.x * ey - dir.y * ex
@@ -2760,14 +2760,14 @@ struct WallElevation: View {
             guard let start = holdPiece else { return }
             switch part {
             case .left:
-                let ft = snapped(start.fromFt + dx, to: snaps, pull: 1.0 / 8, step: sixteenth)
+                let ft = snapped(start.fromFt + dx, to: snaps)
                 takeoff.pieces[i].fromFt = min(max(0, ft), takeoff.pieces[i].toFt - 1.0 / 12)
             case .right:
-                let ft = snapped(start.toFt + dx, to: snaps, pull: 1.0 / 8, step: sixteenth)
+                let ft = snapped(start.toFt + dx, to: snaps)
                 takeoff.pieces[i].toFt = max(min(wall.lengthFt, ft), takeoff.pieces[i].fromFt + 1.0 / 12)
             case .top:
                 let tops = [wall.heightFt] + room.openings.filter { $0.wallID == wall.id }.flatMap { [$0.bottomFt, $0.bottomFt + $0.heightFt] }
-                let up = snapped(start.heightIn / 12 + dy, to: tops, pull: 1.0 / 12, step: sixteenth)
+                let up = snapped(start.heightIn / 12 + dy, to: tops)
                 takeoff.pieces[i].heightIn = min(max(1, up * 12), wall.heightFt * 12)
             default: break
             }
@@ -2809,7 +2809,7 @@ struct WallElevation: View {
             var n = start
             switch part {
             case .move:
-                let left = min(max(0, snapped(s0.lowerBound + dx, to: [0, wall.lengthFt - width], pull: 1.0 / 8, step: sixteenth)),
+                let left = min(max(0, snapped(s0.lowerBound + dx, to: [0, wall.lengthFt - width])),
                                max(0, wall.lengthFt - width))
                 n.alongFt = left + width / 2
                 if start.kind != .door && start.kind != .showerDoor {
@@ -2822,7 +2822,7 @@ struct WallElevation: View {
                 let right = max(min(wall.lengthFt, s16(s0.upperBound + dx)), s0.lowerBound + 1.0 / 6)
                 n = moved(start, left: s0.lowerBound, right: right)
             case .top:
-                let top = snapped(start.bottomFt + start.heightFt + dy, to: [wall.heightFt], pull: 1.0 / 8, step: sixteenth)
+                let top = snapped(start.bottomFt + start.heightFt + dy, to: [wall.heightFt])
                 n.heightFt = min(max(start.bottomFt + 1.0 / 6, top), wall.heightFt) - start.bottomFt
                 if start.kind == .showerDoor { n.heightFt = max(n.heightFt, 3) }
             case .bottom:
