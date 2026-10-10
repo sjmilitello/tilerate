@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// Setting up one area, one step at a time: Area, Tile, Measure, Extras,
@@ -272,7 +273,10 @@ struct AreaFlowView: View {
                 length: sec.tileLengthIn,
                 mosaicStyle: sec.mosaicStyle,
                 pieces: sec.multiTilePieces,
-                rates: store.pricingRates
+                rates: store.pricingRates,
+                vertical: sec.tileVertical,
+                photoID: sec.tilePhotoID,
+                turnedOver: sec.tileTurnedOver
             )
             if section.area == .shower || section.area == .tub {
                 Text("Walls, the shower floor and the ceiling can each have their own tile on the Measure step.")
@@ -1151,9 +1155,34 @@ struct NDTileFields: View {
     @Binding var mosaicStyle: MosaicStyle?
     @Binding var pieces: [TilePiece]
     let rates: Rates
+    /// Long side up, and a photo of the real tile (owner, 2026-10-09); nil
+    /// where a screen doesn't keep them.
+    var vertical: Binding<Bool>? = nil
+    var photoID: Binding<String?>? = nil
+    /// Fishscale round side down.
+    var turnedOver: Binding<Bool>? = nil
 
     private var isMosaic: Bool { size == .mosaic }
     private var isMultiTile: Bool { !isMosaic && layout == .multiTile }
+    @State private var pickedPhoto: PhotosPickerItem? = nil
+    @State private var takingPhoto = false
+
+    /// The tile as chosen so far, for the 3-D swatch.
+    private var choice: TileChoice? {
+        guard let type, let size else { return nil }
+        return TileChoice(tileType: type, tileSize: size, layout: layout ?? .straightStacked,
+                          tileWidthIn: width, tileLengthIn: length, mosaicStyle: mosaicStyle, pieces: pieces,
+                          vertical: vertical?.wrappedValue ?? false, photoID: photoID?.wrappedValue,
+                          turnedOver: turnedOver?.wrappedValue ?? false)
+    }
+    /// Shapes with a long side, which can run across or up.
+    private var hasLongSide: Bool {
+        if isMosaic { return mosaicStyle == .pill }
+        guard !isMultiTile, let size else { return false }
+        return [.rectangle, .picket, .pill].contains(size)
+            && ![.diagonal, .diagonalHerringbone, .herringbone, .doubleHerringbone, .basketweave, .versailles, .hopscotch]
+                .contains(layout ?? .straightStacked)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -1194,6 +1223,87 @@ struct NDTileFields: View {
                     }
                 }
                 sizeFields
+            }
+            if hasLongSide, let vertical {
+                VStack(alignment: .leading, spacing: 10) {
+                    NDLabel("Long side")
+                    NDFlow {
+                        NDChip(title: "Across (horizontal)", selected: !vertical.wrappedValue) { vertical.wrappedValue = false }
+                        NDChip(title: "Up (vertical)", selected: vertical.wrappedValue) { vertical.wrappedValue = true }
+                    }
+                }
+            }
+            if let turnedOver, size == .fishscale || (isMosaic && mosaicStyle == .fishscale) {
+                VStack(alignment: .leading, spacing: 10) {
+                    NDLabel("Round side")
+                    NDFlow {
+                        NDChip(title: "Up", selected: !turnedOver.wrappedValue) { turnedOver.wrappedValue = false }
+                        NDChip(title: "Down", selected: turnedOver.wrappedValue) { turnedOver.wrappedValue = true }
+                    }
+                }
+            }
+            if let choice { swatch(choice) }
+        }
+        .onChange(of: pickedPhoto) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
+                   let id = TilePhotos.save(image) {
+                    photoID?.wrappedValue = id
+                }
+                pickedPhoto = nil
+            }
+        }
+        .sheet(isPresented: $takingPhoto) {
+            CameraPicker { image in
+                if let image, let id = TilePhotos.save(image) { photoID?.wrappedValue = id }
+                takingPhoto = false
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    /// How the tile looks in the 3-D view, about two feet of it, with the
+    /// photo of the real tile when there is one.
+    private func swatch(_ t: TileChoice) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NDLabel("In 3-D")
+            HStack(alignment: .top, spacing: 14) {
+                let made = TilePattern.make(t)
+                let span = max(12, min(48, 4 * TilePattern.drawnSize(t).0))
+                Canvas { ctx, size in
+                    // `span` inches across the box, the repeat drawn at that scale.
+                    let ptPerIn = size.width / span
+                    let tw = made.periodIn.width * ptPerIn, th = made.periodIn.height * ptPerIn
+                    let image = ctx.resolve(Image(uiImage: made.image))
+                    var y = 0.0
+                    while y < size.height {
+                        var x = 0.0
+                        while x < size.width { ctx.draw(image, in: CGRect(x: x, y: y, width: tw, height: th)); x += tw }
+                        y += th
+                    }
+                }
+                .frame(width: 120, height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ND.border))
+                if let photoID {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(photoID.wrappedValue == nil ? "Add a photo of the real tile and the 3-D view uses it for each tile's face."
+                                                         : "Using your photo of the tile.")
+                            .font(.system(size: 13)).foregroundStyle(ND.secondary)
+                        PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                            Label(photoID.wrappedValue == nil ? "Choose photo" : "Change photo", systemImage: "photo")
+                        }
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Button { takingPhoto = true } label: { Label("Take photo", systemImage: "camera") }
+                        }
+                        if photoID.wrappedValue != nil {
+                            Button(role: .destructive) { photoID.wrappedValue = nil } label: { Label("Remove photo", systemImage: "trash") }
+                        }
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .tint(ND.link)
+                }
             }
         }
     }
@@ -1393,14 +1503,15 @@ struct NDLayoutPattern: Shape {
         case .diagonal:
             for i in stride(from: -0.6, through: 1.0, by: 0.4) { line(i, 1, i + 0.65, 0) }
             for i in stride(from: 0.0, through: 1.6, by: 0.4) { line(i - 0.65, 0, i, 1) }
-        case .herringbone:
+        case .herringbone, .diagonalHerringbone, .doubleHerringbone:
             // 3:1 planks in a herringbone: staircases of alternating
-            // horizontal and vertical planks, repeated every (L, -L), then
-            // turned 45° so the planks form V rows. Clipped to the frame.
-            let pw: CGFloat = 1, pl: CGFloat = 3
+            // horizontal and vertical planks, repeated every (L, -L) — as
+            // the 3-D view draws Herringbone; Diagonal Herringbone turns it
+            // 45° so the planks form V rows; Double pairs each plank.
+            let pw: CGFloat = layout == .doubleHerringbone ? 2 : 1, pl: CGFloat = 3
             let unit = h / 5.5
             let turn = CGAffineTransform(translationX: r.midX, y: r.midY)
-                .rotated(by: .pi / 4)
+                .rotated(by: layout == .diagonalHerringbone ? .pi / 4 : 0)
                 .scaledBy(x: unit, y: unit)
             for m in -8...8 {
                 for k in -12...12 {
@@ -1408,6 +1519,58 @@ struct NDLayoutPattern: Shape {
                     let oy = CGFloat(k) * pw - CGFloat(m) * pl
                     p.addRect(CGRect(x: ox, y: oy, width: pl, height: pw), transform: turn)
                     p.addRect(CGRect(x: ox, y: oy + pw, width: pw, height: pl), transform: turn)
+                    if layout == .doubleHerringbone {
+                        p.move(to: CGPoint(x: ox, y: oy + pw / 2).applying(turn))
+                        p.addLine(to: CGPoint(x: ox + pl, y: oy + pw / 2).applying(turn))
+                        p.move(to: CGPoint(x: ox + pw / 2, y: oy + pw).applying(turn))
+                        p.addLine(to: CGPoint(x: ox + pw / 2, y: oy + pw + pl).applying(turn))
+                    }
+                }
+            }
+        case .oneThirdOffset:
+            for i in 1...2 { line(0, CGFloat(i) / 3, 1, CGFloat(i) / 3) }
+            for (row, xs) in [[0.2, 0.6], [0.33, 0.73], [0.47, 0.87]].enumerated() {
+                for x in xs { line(x, CGFloat(row) / 3, x, CGFloat(row + 1) / 3) }
+            }
+        case .chevron:
+            // Planks cut at 45°: zigzag rows.
+            for row in stride(from: -1.0, through: 1.5, by: 0.34) {
+                var x = 0.0
+                while x < 1 {
+                    line(x, row + 0.25, x + 0.25, row); line(x + 0.25, row, x + 0.5, row + 0.25)
+                    x += 0.5
+                }
+            }
+            for x in stride(from: 0.25, through: 1, by: 0.25) { line(x, 0, x, 1) }
+        case .basketweave:
+            for bx in 0..<4 {
+                for by in 0..<2 {
+                    let x0 = CGFloat(bx) / 4, y0 = CGFloat(by) / 2
+                    if (bx + by).isMultiple(of: 2) { line(x0, y0 + 0.25, x0 + 0.25, y0 + 0.25) }
+                    else { line(x0 + 0.125, y0, x0 + 0.125, y0 + 0.5) }
+                }
+            }
+            for i in 1...3 { line(CGFloat(i) / 4, 0, CGFloat(i) / 4, 1) }
+            line(0, 0.5, 1, 0.5)
+        case .versailles:
+            // Four sizes of square and rectangle in a block.
+            let u = h / 6
+            for (x, y, bw, bh) in [(0, 0, 3, 2), (3, 0, 2, 2), (5, 0, 1, 2), (0, 2, 2, 3), (2, 2, 1, 1), (3, 2, 2, 1), (5, 2, 1, 1),
+                                   (2, 3, 1, 2), (3, 3, 3, 2), (0, 5, 2, 1), (2, 5, 2, 1), (4, 5, 2, 1)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+                for ox in [0, 6] as [CGFloat] {
+                    p.addRect(CGRect(x: r.minX + (x + ox) * u, y: r.minY + y * u, width: bw * u, height: bh * u).intersection(r))
+                }
+            }
+        case .hopscotch:
+            // Big squares with a small square at each one's corner.
+            let s = h / 2.5
+            for i in -2...4 {
+                for j in -2...3 {
+                    let x = r.minX + CGFloat(i) * 2 * s - CGFloat(j) * s, y = r.minY + CGFloat(i) * s + CGFloat(j) * 2 * s
+                    for box in [CGRect(x: x, y: y, width: 2 * s, height: 2 * s), CGRect(x: x + 2 * s, y: y, width: s, height: s)] {
+                        let c = box.intersection(r)
+                        if !c.isNull, c.width > 0.5, c.height > 0.5 { p.addRect(c) }
+                    }
                 }
             }
         case .multiTile:
@@ -1452,7 +1615,10 @@ struct NDTileSheet: View {
                     length: $tile.tileLengthIn,
                     mosaicStyle: $tile.mosaicStyle,
                     pieces: $tile.pieces,
-                    rates: rates
+                    rates: rates,
+                    vertical: $tile.vertical,
+                    photoID: $tile.photoID,
+                    turnedOver: $tile.turnedOver
                 )
                 .padding(20)
             }
@@ -1523,4 +1689,25 @@ struct NDLineItemSheet: View {
 private struct ScanCoversModifier<Out: View>: ViewModifier {
     let apply: (AnyView) -> Out
     func body(content: Content) -> some View { apply(AnyView(content)) }
+}
+
+/// The camera, for a photo of a tile.
+struct CameraPicker: UIViewControllerRepresentable {
+    let done: (UIImage?) -> Void
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let c = UIImagePickerController()
+        c.sourceType = .camera
+        c.delegate = context.coordinator
+        return c
+    }
+    func updateUIViewController(_ c: UIImagePickerController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: (UIImage?) -> Void
+        init(done: @escaping (UIImage?) -> Void) { self.done = done }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            done(info[.originalImage] as? UIImage)
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
+    }
 }

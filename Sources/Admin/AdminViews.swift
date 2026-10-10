@@ -194,6 +194,11 @@ struct AdminSheet: View {
                     sizeRow(.starCross, "Star/Cross")
                     sizeRow(.arabesque, "Arabesque")
                     sizeRow(.hexagon, "Hexagon")
+                    sizeRow(.diamond, "Diamond")
+                    sizeRow(.triangle, "Triangle")
+                    sizeRow(.fishscale, "Fishscale")
+                    sizeRow(.picket, "Picket")
+                    sizeRow(.pill, "Pill")
 
                     Text("Square/Rectangle Size").font(.subheadline)
                     NumericRow(title: "Standard tile size (sq in)", value: $rates.sizeBaseAreaSqIn, fractionDigits: 2)
@@ -215,6 +220,13 @@ struct AdminSheet: View {
                     layoutRow(.diagonal, "Diagonal")
                     layoutRow(.herringbone, "Herringbone")
                     layoutRow(.multiTile, "Multi-Tile")
+                    layoutRow(.oneThirdOffset, "1/3 Offset")
+                    layoutRow(.diagonalHerringbone, "Diagonal Herringbone")
+                    layoutRow(.doubleHerringbone, "Double Herringbone")
+                    layoutRow(.chevron, "Chevron")
+                    layoutRow(.basketweave, "Basketweave")
+                    layoutRow(.versailles, "Versailles")
+                    layoutRow(.hopscotch, "Hopscotch")
                     Picker("Units", selection: $rates.layoutAdderUnit) {
                         ForEach(AdderUnit.allCases) { u in Text(u.rawValue).tag(u) }
                     }

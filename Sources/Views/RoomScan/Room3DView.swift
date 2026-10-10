@@ -713,8 +713,9 @@ enum Room3DScene {
     }
 }
 
-/// One repeat of a tile pattern as an image: the tile's colour, its size
-/// (the long side across) and layout, with grout lines.
+/// One repeat of a tile pattern as an image: the tile's colour, its real
+/// shape, size and layout, with grout lines (owner, 2026-10-09: "the
+/// patterns should be accurate"; each one checked by the owner on a sheet).
 enum TilePattern {
     struct Made { let image: UIImage; let periodIn: CGSize }
     private static var cache: [String: Made] = [:]
@@ -746,70 +747,522 @@ enum TilePattern {
         case .mosaic: (2, 2)
         case .hexagon: (8, 8)
         case .arabesque, .starCross: (6, 6)
+        case .diamond: (4, 8)
+        case .triangle, .fishscale: (6, 6)
+        case .picket: (3, 12)
+        case .pill: (2, 6)
         }
         let a = w ?? l ?? fallback.0, b = l ?? w ?? fallback.1
         return (max(a, b, 0.5), max(min(a, b), 0.5))
     }
 
-    static func make(_ t: TileChoice?) -> Made {
-        let (long, short) = size(t)
+    /// The shape a tile is drawn as: its shape and layout, or for a mosaic its style.
+    enum Shape: String {
+        case rect, hexagon, pennyRound, octagonDot, diamond, rhombus, cube, triangle,
+             picket, pill, chevron, basketweave, pinwheel, hopscotch, fishscale, arabesque, starCross,
+             pebble, randomStrip, mixedStick, miniBrick, herringbone, doubleHerringbone, versailles, waterjet
+    }
+
+    static func shape(_ t: TileChoice?) -> Shape {
+        guard let t else { return .rect }
+        switch t.tileSize {
+        case .square, .rectangle:
+            switch t.layout {
+            case .chevron: return .chevron
+            case .basketweave: return .basketweave
+            case .versailles: return .versailles
+            case .hopscotch: return .hopscotch
+            case .doubleHerringbone: return .doubleHerringbone
+            default: return .rect
+            }
+        case .hexagon: return .hexagon
+        case .arabesque: return .arabesque
+        case .starCross: return .starCross
+        case .diamond: return .rhombus
+        case .triangle: return .triangle
+        case .fishscale: return .fishscale
+        case .picket: return .picket
+        case .pill: return .pill
+        case .mosaic:
+            switch t.mosaicStyle ?? .square {
+            case .square, .rectangular: return .rect
+            case .hexagon: return .hexagon
+            case .octagonDot: return .octagonDot
+            case .diamond: return .diamond
+            case .waterjet: return .waterjet
+            case .miniBrick: return .miniBrick
+            case .picket: return .picket
+            case .herringbone: return .herringbone
+            case .chevron: return .chevron
+            case .basketweave: return .basketweave
+            case .pinwheel: return .pinwheel
+            case .pennyRound: return .pennyRound
+            case .fishscale: return .fishscale
+            case .arabesque: return .arabesque
+            case .pebble: return .pebble
+            case .randomStrip: return .randomStrip
+            case .cube: return .cube
+            case .triangle: return .triangle
+            case .mixedStick: return .mixedStick
+            case .pill: return .pill
+            }
+        }
+    }
+
+    /// A mosaic piece's usual size (inches, long side first) when none was entered.
+    private static func mosaicSize(_ style: MosaicStyle) -> (Double, Double) {
+        switch style {
+        case .square, .hexagon, .octagonDot, .diamond, .fishscale, .triangle: (2, 2)
+        case .rectangular, .herringbone, .basketweave, .pinwheel: (2, 1)
+        case .pennyRound: (0.75, 0.75)
+        case .miniBrick: (2, 0.625)
+        case .picket: (4, 1)
+        case .chevron: (3, 1)
+        case .arabesque: (2.3, 2)
+        case .pebble: (1.5, 1)
+        case .randomStrip, .mixedStick: (3, 0.625)
+        case .pill: (3, 1)
+        case .waterjet: (12, 12)
+        case .cube: (1.5, 1.5)
+        }
+    }
+
+    /// Waterjet designs: the owner chose Floral from five drawn on
+    /// 2026-10-09 (floral, wave, quatrefoil, ogee, vine).
+    enum WaterjetDesign: String, CaseIterable { case floral }
+    static var waterjetDesign: WaterjetDesign = .floral
+
+    /// One tile in the repeat: its outline (inches) and its tone (0 the
+    /// tile's colour, 1 a darker shade, 2 darker still, 3 lighter).
+    private struct Piece { var path: CGPath; var tone: Int = 0 }
+
+    /// The size it's drawn at (long side first): as entered, else usual for
+    /// its shape or mosaic style.
+    static func drawnSize(_ t: TileChoice?) -> (Double, Double) {
+        if t?.tileSize == .mosaic, t?.tileWidthIn == nil, t?.tileLengthIn == nil {
+            return mosaicSize(t?.mosaicStyle ?? .square)
+        }
+        return size(t)
+    }
+
+    static func make(_ t: TileChoice?, waterjet: WaterjetDesign? = nil) -> Made {
+        let shape = shape(t)
+        let (long, short) = drawnSize(t)
         let layout = t?.layout ?? .straightStacked
-        let key = "\(t?.tileType.rawValue ?? "-")|\(long)|\(short)|\(layout.rawValue)"
+        let design = waterjet ?? waterjetDesign
+        let key = "\(t?.tileType.rawValue ?? "-")|\(long)|\(short)|\(layout.rawValue)|\(shape.rawValue)|\(design.rawValue)"
+            + "|\(t?.vertical == true)|\(t?.photoID ?? "")|\(t?.turnedOver == true)"
         if let m = cache[key] { return m }
 
-        // Tiles as rectangles (inches) in one repeat of the pattern.
-        var rects: [CGRect] = []
-        var rotated = false
-        var period: CGSize
-        switch layout {
-        case .runningBond:
-            period = CGSize(width: long, height: short * 2)
-            rects = [CGRect(x: 0, y: 0, width: long, height: short),
-                     CGRect(x: -long / 2, y: short, width: long, height: short),
-                     CGRect(x: long / 2, y: short, width: long, height: short)]
-        case .herringbone:
-            // Staircase strips of one flat and one upright tile, each strip
-            // shifted (long, −long): repeats every 2·long·short/gcd both ways.
-            let L = long.rounded(), W = max(short.rounded(), 1)
-            let g = gcd(Int(L), Int(W))
-            let p = 2 * L * W / Double(max(g, 1))
-            period = CGSize(width: p, height: p)
-            let steps = Int((2 * p) / W) + 4
-            for strip in -steps...steps {
-                let ox = Double(strip) * L, oy = Double(-strip) * L
-                for k in -steps...steps {
-                    let x = ox + Double(k) * W, y = oy + Double(k) * W
-                    rects.append(CGRect(x: x, y: y, width: L, height: W))
-                    rects.append(CGRect(x: x, y: y + W, width: W, height: L))
+        var pieces: [Piece] = []
+        var period = CGSize(width: long, height: short)
+        /// The ground between pieces: grout, or a tone (crosses, a waterjet's field).
+        var groundTone: Int? = nil
+        /// Drawn in order with no copies at the edges (overlapping scales).
+        var ordered = false
+
+        func rect(_ x: Double, _ y: Double, _ w: Double, _ h: Double, tone: Int = 0) -> Piece {
+            Piece(path: CGPath(rect: CGRect(x: x, y: y, width: w, height: h), transform: nil), tone: tone)
+        }
+        func poly(_ pts: [(Double, Double)], tone: Int = 0) -> Piece {
+            let path = CGMutablePath()
+            path.addLines(between: pts.map { CGPoint(x: $0.0, y: $0.1) })
+            path.closeSubpath()
+            return Piece(path: path, tone: tone)
+        }
+        func circle(_ cx: Double, _ cy: Double, _ r: Double, tone: Int = 0) -> Piece {
+            Piece(path: CGPath(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r), transform: nil), tone: tone)
+        }
+        /// Hexagons pointed left and right in columns half a height apart.
+        func pointedHexes(p: Double, edge: Double, h: Double) {
+            let pts = [(0.0, h / 2), (p, 0), (p + edge, 0), (2 * p + edge, h / 2), (p + edge, h), (p, h)]
+            let dx = p + edge
+            period = CGSize(width: 2 * dx, height: h)
+            for (ox, oy) in [(0.0, 0.0), (dx, h / 2), (dx, -h / 2)] {
+                pieces.append(poly(pts.map { ($0.0 + ox, $0.1 + oy) }))
+            }
+        }
+        /// A base repeat turned 45°: whole tiles laid on the diagonal. The
+        /// turned repeat is square, √2 × the base repeat's common multiple.
+        func turned45(_ base: [Piece], _ bw: Double, _ bh: Double) {
+            func eighths(_ v: Double) -> Int { max(1, Int((v * 8).rounded())) }
+            let m = Double(lcm(eighths(bw), eighths(bh))) / 8
+            let side = m * 2.squareRoot()
+            period = CGSize(width: side, height: side)
+            let reach = Int((side * 1.5 / min(bw, bh)).rounded(.up)) + 2
+            let turn = CGAffineTransform(rotationAngle: .pi / 4)
+            let box = CGRect(x: -1, y: -1, width: side + 2, height: side + 2)
+            for i in -reach...reach {
+                for j in -reach...reach {
+                    var move = CGAffineTransform(translationX: Double(i) * bw, y: Double(j) * bh).concatenating(turn)
+                    for p in base {
+                        guard let moved = p.path.copy(using: &move), moved.boundingBox.intersects(box) else { continue }
+                        pieces.append(Piece(path: moved, tone: p.tone))
+                    }
                 }
             }
-            rects = rects.filter { $0.maxX > 0 && $0.minX < p && $0.maxY > 0 && $0.minY < p }
-        case .diagonal:
-            period = CGSize(width: short * 2.squareRoot(), height: short * 2.squareRoot())
-            rotated = true
-        default:
-            period = CGSize(width: long, height: short)
-            rects = [CGRect(x: 0, y: 0, width: long, height: short)]
         }
+        /// Herringbone of l × w planks: staircases of one flat and one upright
+        /// plank, each shifted (l, −l); it repeats every 2·l·w/gcd both ways.
+        func herringbone(_ l: Double, _ w: Double, split: Int = 1) -> (Double, [Piece]) {
+            func eighths(_ v: Double) -> Int { max(1, Int((v * 8).rounded())) }
+            let g = gcd(eighths(l), eighths(w))
+            let p = 2 * Double(eighths(l)) * Double(eighths(w)) / Double(max(g, 1)) / 8
+            var out: [Piece] = []
+            let steps = Int((2 * p) / w) + 4
+            for strip in -steps...steps {
+                let ox = Double(strip) * l, oy = Double(-strip) * l
+                for k in -steps...steps {
+                    let x = ox + Double(k) * w, y = oy + Double(k) * w
+                    for (r, flat) in [(CGRect(x: x, y: y, width: l, height: w), true), (CGRect(x: x, y: y + w, width: w, height: l), false)]
+                    where r.maxX > -l && r.minX < p + l && r.maxY > -l && r.minY < p + l {
+                        // Double herringbone: each plank is `split` narrower planks side by side.
+                        for s in 0..<split {
+                            let f = Double(s) / Double(split), n = 1 / Double(split)
+                            let part = flat ? CGRect(x: r.minX, y: r.minY + r.height * f, width: r.width, height: r.height * n)
+                                            : CGRect(x: r.minX + r.width * f, y: r.minY, width: r.width * n, height: r.height)
+                            out.append(Piece(path: CGPath(rect: part, transform: nil)))
+                        }
+                    }
+                }
+            }
+            return (p, out)
+        }
+        var seed: UInt32 = 7
+        func rnd() -> Double { seed = seed &* 1_664_525 &+ 1_013_904_223; return Double(seed >> 8) / Double(1 << 24) }
 
-        // One image holds several tiles each way (to about 8′), so each tile
-        // can have its own shade, as real tile does (owner: "there is no tile
-        // shown", 2026-10-09 — flat colour with hairline grout read as paint).
-        let one = period
-        let rx = rotated || layout == .herringbone ? 1 : max(1, min(4, Int((96 / one.width).rounded(.up))))
-        let ry = rotated || layout == .herringbone ? 1 : max(1, min(4, Int((96 / one.height).rounded(.up))))
-        period = CGSize(width: one.width * Double(rx), height: one.height * Double(ry))
-        var tiles: [CGRect] = []
-        for i in 0..<rx {
-            for j in 0..<ry {
-                tiles += rects.map { $0.offsetBy(dx: one.width * Double(i), dy: one.height * Double(j)) }
+        switch shape {
+        case .rect:
+            switch layout {
+            case .runningBond, .oneThirdOffset:
+                // Each row shifted a half (or a third) of a tile.
+                let rows = layout == .runningBond ? 2 : 3
+                period = CGSize(width: long, height: short * Double(rows))
+                for r in 0..<rows {
+                    let shift = long * Double(r) / Double(rows)
+                    pieces.append(rect(shift, short * Double(r), long, short))
+                    pieces.append(rect(shift - long, short * Double(r), long, short))
+                }
+            case .herringbone:
+                let (p, hb) = herringbone(long, short)
+                period = CGSize(width: p, height: p); pieces = hb
+            case .diagonalHerringbone:
+                let (p, hb) = herringbone(long, short)
+                turned45(hb, p, p)
+            case .diagonal:
+                // The tile itself on the diagonal (a 3 × 12 stays a 3 × 12), stacked.
+                turned45([rect(0, 0, long, short)], long, short)
+            default:
+                period = CGSize(width: long, height: short)
+                pieces = [rect(0, 0, long, short)]
+            }
+        case .doubleHerringbone:
+            let (p, hb) = herringbone(long, short * 2, split: 2)
+            period = CGSize(width: p, height: p); pieces = hb
+        case .herringbone:
+            let (p, hb) = herringbone(long, short)
+            period = CGSize(width: p, height: p); pieces = hb
+        case .miniBrick:
+            period = CGSize(width: long, height: short * 2)
+            pieces = [rect(0, 0, long, short), rect(-long / 2, short, long, short), rect(long / 2, short, long, short)]
+        case .hexagon:
+            // Regular hexagons, `short` across the flats.
+            let r = short / 3.squareRoot()
+            pointedHexes(p: r / 2, edge: r, h: short)
+        case .picket:
+            // Pickets: pointed ends, nested in the next row.
+            pointedHexes(p: short / 2, edge: max(long - short, 0.1), h: short)
+        case .pill:
+            // Pills (capsules): fully rounded ends, rows offset half a pill so
+            // each end sits against the side of the next row.
+            period = CGSize(width: long, height: short * 2)
+            func pill(_ x: Double, _ y: Double) -> Piece {
+                Piece(path: CGPath(roundedRect: CGRect(x: x, y: y, width: long, height: short),
+                                   cornerWidth: short / 2, cornerHeight: short / 2, transform: nil))
+            }
+            pieces = [pill(0, 0), pill(-long / 2, short), pill(long / 2, short)]
+        case .pennyRound:
+            let d = short
+            period = CGSize(width: d, height: d * 3.squareRoot())
+            pieces = [circle(0, 0, d / 2), circle(d / 2, d * 3.squareRoot() / 2, d / 2)]
+        case .fishscale:
+            // Fan-shaped scales, rows half a scale apart, each row lapping the
+            // one before it the same way all over: round side up, or down
+            // when turned over (both are installed; scallop is the same tile).
+            let d = long, r = d / 2
+            period = CGSize(width: d, height: d)
+            ordered = true
+            let rows = (-3...6).map { Double($0) }
+            for row in (t?.turnedOver == true ? rows : rows.reversed()) {
+                for col in -2...3 {
+                    let cx = Double(col) * d + (Int(row).isMultiple(of: 2) ? 0 : r)
+                    pieces.append(circle(cx, row * r, r))
+                }
+            }
+        case .octagonDot:
+            let d = short, c = d / (2 + 2.squareRoot())
+            period = CGSize(width: d, height: d)
+            pieces = [poly([(c, 0), (d - c, 0), (d, c), (d, d - c), (d - c, d), (c, d), (0, d - c), (0, c)]),
+                      poly([(0, -c), (c, 0), (0, c), (-c, 0)], tone: 1)]
+        case .diamond:
+            // Squares turned 45°.
+            let d = short * 2.squareRoot()
+            period = CGSize(width: d, height: d)
+            for (cx, cy) in [(d / 2, d / 2), (0.0, 0.0)] {
+                pieces.append(poly([(cx, cy - d / 2), (cx + d / 2, cy), (cx, cy + d / 2), (cx - d / 2, cy)]))
+            }
+        case .rhombus:
+            // Long diamonds: `long` the long diagonal (across), `short` the short one.
+            let a = long, b = short
+            period = CGSize(width: a, height: b)
+            for (cx, cy) in [(a / 2, b / 2), (0.0, 0.0)] {
+                pieces.append(poly([(cx, cy - b / 2), (cx + a / 2, cy), (cx, cy + b / 2), (cx - a / 2, cy)]))
+            }
+        case .cube:
+            // Tumbling blocks: three 60° diamonds in each hexagon, light, mid and dark.
+            let a = short, w = a * 3.squareRoot()
+            period = CGSize(width: w, height: 3 * a)
+            for (cx, cy) in [(0.0, 0.0), (w / 2, 1.5 * a), (w, 0.0), (0.0, 3 * a), (w, 3 * a), (w / 2, -1.5 * a)] {
+                let top = (cx, cy - a), ur = (cx + w / 2, cy - a / 2), lr = (cx + w / 2, cy + a / 2)
+                let bot = (cx, cy + a), ll = (cx - w / 2, cy + a / 2), ul = (cx - w / 2, cy - a / 2), c = (cx, cy)
+                pieces.append(poly([top, ur, c, ul], tone: 3))
+                pieces.append(poly([c, ur, lr, bot], tone: 2))
+                pieces.append(poly([ul, c, bot, ll], tone: 1))
+            }
+        case .triangle:
+            // Equilateral triangles, point up and point down.
+            let a = long, h = a * 3.squareRoot() / 2
+            period = CGSize(width: a, height: 2 * h)
+            for row in 0..<2 {
+                let y = Double(row) * h, shift = row == 0 ? 0 : a / 2
+                for k in -1...1 {
+                    let x = Double(k) * a + shift
+                    pieces.append(poly([(x, y + h), (x + a / 2, y), (x + a, y + h)]))
+                    pieces.append(poly([(x + a / 2, y), (x + a, y + h), (x + 1.5 * a, y)]))
+                }
+            }
+        case .chevron:
+            // Planks cut at 45°, leaning up in one column and down in the next.
+            let c = long * 0.7071, h = short * 1.4142
+            period = CGSize(width: 2 * c, height: h)
+            for k in -2...2 {
+                let y = Double(k) * h
+                pieces.append(poly([(0, y + c), (c, y), (c, y + h), (0, y + c + h)]))
+                pieces.append(poly([(c, y), (2 * c, y + c), (2 * c, y + c + h), (c, y + h)]))
+            }
+        case .basketweave:
+            // Planks in pairs (or as many as fill a square), turned a quarter each square.
+            let l = long, n = max(2, Int((long / short).rounded())), w = l / Double(n)
+            period = CGSize(width: 2 * l, height: 2 * l)
+            for (bx, by, flat) in [(0.0, 0.0, true), (l, 0.0, false), (0.0, l, false), (l, l, true)] {
+                for k in 0..<n {
+                    pieces.append(flat ? rect(bx, by + Double(k) * w, l, w) : rect(bx + Double(k) * w, by, w, l))
+                }
+            }
+        case .pinwheel:
+            // A small square with four planks turning round it, in blocks.
+            let l = long, w = short, side = l + w
+            period = CGSize(width: side, height: side)
+            pieces = [rect(0, 0, l, w), rect(l, 0, w, l), rect(w, l, l, w), rect(0, w, w, l),
+                      rect(w, w, max(l - w, 0.05), max(l - w, 0.05), tone: 1)]
+        case .hopscotch:
+            // Big squares, each with a small square at one corner's turn.
+            let big = long, sm = long / 2
+            period = CGSize(width: 5 * sm, height: 5 * sm)
+            for i in -2...3 {
+                for j in -2...3 {
+                    let x = Double(i) * big - Double(j) * sm, y = Double(i) * sm + Double(j) * big
+                    pieces.append(rect(x, y, big, big))
+                    pieces.append(rect(x + big, y, sm, sm))
+                }
+            }
+        case .versailles:
+            // The French pattern as sold (a 16 sq ft set): 8×8, 8×16, 16×16
+            // and 16×24 in the standard 12-piece motif, which repeats every
+            // 48″ each way (u = half the long side, usually 8″).
+            let u = max(long / 2, 2)
+            let set: [(Double, Double, Double, Double)] =
+                [(0, 1, 2, 3), (2, 0, 2, 2), (4, 0, 1, 1), (4, 1, 2, 2), (2, 2, 1, 2), (3, 2, 1, 1),
+                 (3, 3, 3, 2), (0, 4, 1, 1), (1, 4, 2, 2), (3, 5, 2, 1), (5, 5, 2, 2), (1, 6, 1, 1)]
+            period = CGSize(width: 6 * u, height: 6 * u)
+            for (x, y, w, h) in set { pieces.append(rect(x * u, y * u, w * u, h * u)) }
+        case .arabesque:
+            // Lanterns: an onion point top and bottom, full round sides.
+            // Laid on a diamond lattice, each edge an S-curve its neighbour
+            // shares, so they lock together with no gaps.
+            let w = short, h = max(long, short * 1.2)
+            period = CGSize(width: w, height: h)
+            func lantern(_ ox: Double, _ oy: Double) -> Piece {
+                let top = CGPoint(x: ox, y: oy), right = CGPoint(x: ox + w / 2, y: oy + h / 2)
+                let bottom = CGPoint(x: ox, y: oy + h), left = CGPoint(x: ox - w / 2, y: oy + h / 2)
+                // The curve on edges running down-right (top→right, left→bottom),
+                // and its mirror on edges running down-left.
+                func edge(_ a: CGPoint, _ b: CGPoint, mirror: Bool) -> [CGPoint] {
+                    let dx = b.x - a.x, dy = b.y - a.y, len = (dx * dx + dy * dy).squareRoot()
+                    // Normal pointing up-right for down-right edges; mirrored for down-left.
+                    var nx = dy / len, ny = -dx / len
+                    if mirror { nx = -nx; ny = -ny }
+                    return (1...24).map { i in
+                        let s = Double(i) / 24
+                        // In at the tip, out at the side: just enough that the
+                        // curve leaves each tip straight up or down (a sharp
+                        // onion point) and meets the side upright (smooth and
+                        // widest there), as real arabesque tile is cut.
+                        let f = -(w / (2 * .pi * h)) * len * sin(2 * .pi * s)
+                        return CGPoint(x: a.x + dx * s + nx * f, y: a.y + dy * s + ny * f)
+                    }
+                }
+                func back(_ a: CGPoint, _ b: CGPoint, mirror: Bool) -> [CGPoint] {
+                    Array(([a] + edge(a, b, mirror: mirror)).reversed().dropFirst())
+                }
+                // One unbroken outline, clockwise from the top point.
+                let outline = [top] + edge(top, right, mirror: false) + edge(right, bottom, mirror: true)
+                    + back(left, bottom, mirror: false) + back(top, left, mirror: true)
+                let path = CGMutablePath()
+                path.addLines(between: outline)
+                path.closeSubpath()
+                return Piece(path: path)
+            }
+            pieces = [lantern(0, 0), lantern(w / 2, h / 2), lantern(-w / 2, h / 2), lantern(0, -h), lantern(w, 0)]
+        case .starCross:
+            // Eight-point stars (two squares, one turned 45°) touching tip to
+            // tip; the four-armed crosses between them in a darker shade.
+            let d = long
+            period = CGSize(width: d, height: d)
+            var pts: [(Double, Double)] = []
+            for k in 0..<16 {
+                let a = Double(k) * .pi / 8
+                let r = k.isMultiple(of: 2) ? d * 0.5 : d * 0.5 * cos(.pi / 4) / cos(.pi / 8)
+                pts.append((d / 2 + r * cos(a), d / 2 + r * sin(a)))
+            }
+            pieces = [poly(pts)]
+            groundTone = 1
+        case .pebble:
+            // Flat river pebbles of mixed size and shade packed tight, thin
+            // grout between: each pebble is the stone's own patch of ground
+            // (the space nearer its middle than any other's), shrunk by the
+            // grout and its corners rounded off.
+            let cell = long * 0.85, n = 7
+            period = CGSize(width: cell * Double(n), height: cell * Double(n))
+            var seeds: [CGPoint] = []
+            for i in 0..<n {
+                for j in 0..<n {
+                    seeds.append(CGPoint(x: (Double(i) + 0.5 + (rnd() - 0.5) * 0.8) * cell,
+                                         y: (Double(j) + 0.5 + (rnd() - 0.5) * 0.8) * cell))
+                }
+            }
+            // Every seed and its copies one repeat over, for the pebbles at the edges.
+            var all: [CGPoint] = []
+            for dx in [-1.0, 0, 1] { for dy in [-1.0, 0, 1] {
+                all += seeds.map { CGPoint(x: $0.x + dx * period.width, y: $0.y + dy * period.height) }
+            } }
+            for c in seeds {
+                // Start from a square round the seed, cut by each neighbour's halfway line.
+                var poly = [CGPoint(x: c.x - 2 * cell, y: c.y - 2 * cell), CGPoint(x: c.x + 2 * cell, y: c.y - 2 * cell),
+                            CGPoint(x: c.x + 2 * cell, y: c.y + 2 * cell), CGPoint(x: c.x - 2 * cell, y: c.y + 2 * cell)]
+                for o in all where o != c && hypot(o.x - c.x, o.y - c.y) < 3 * cell {
+                    let m = CGPoint(x: (c.x + o.x) / 2, y: (c.y + o.y) / 2), nx = o.x - c.x, ny = o.y - c.y
+                    func inside(_ p: CGPoint) -> Bool { (p.x - m.x) * nx + (p.y - m.y) * ny <= 0 }
+                    var out: [CGPoint] = []
+                    for k in poly.indices {
+                        let a = poly[k], b = poly[(k + 1) % poly.count]
+                        if inside(a) { out.append(a) }
+                        if inside(a) != inside(b) {
+                            let t = ((m.x - a.x) * nx + (m.y - a.y) * ny) / ((b.x - a.x) * nx + (b.y - a.y) * ny)
+                            out.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+                        }
+                    }
+                    poly = out
+                }
+                guard poly.count > 2 else { continue }
+                // Shrink toward its middle by the grout, then round the corners (three passes).
+                let mid = CGPoint(x: poly.map(\.x).reduce(0, +) / Double(poly.count), y: poly.map(\.y).reduce(0, +) / Double(poly.count))
+                let shrink = 0.93 + rnd() * 0.03
+                poly = poly.map { CGPoint(x: mid.x + ($0.x - mid.x) * shrink, y: mid.y + ($0.y - mid.y) * shrink) }
+                for _ in 0..<3 {
+                    var r: [CGPoint] = []
+                    for k in poly.indices {
+                        let a = poly[k], b = poly[(k + 1) % poly.count]
+                        r.append(CGPoint(x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25))
+                        r.append(CGPoint(x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75))
+                    }
+                    poly = r
+                }
+                let path = CGMutablePath()
+                path.addLines(between: poly)
+                path.closeSubpath()
+                pieces.append(Piece(path: path, tone: [0, 0, 1, 3, 2, 0, 3][Int(rnd() * 7) % 7]))
+            }
+        case .randomStrip, .mixedStick:
+            // Rows of strips of mixed lengths; mixed stick also mixes the row heights and shades.
+            let rows = 8
+            let heights = (0..<rows).map { _ in shape == .mixedStick ? short * (rnd() < 0.5 ? 1 : 1.6) : short }
+            period = CGSize(width: long * 4, height: heights.reduce(0, +))
+            var y = 0.0
+            for r in 0..<rows {
+                var x = -rnd() * long
+                while x < period.width {
+                    let len = long * (0.5 + rnd())
+                    let a = max(x, 0), b = min(x + len, period.width)
+                    if b - a > 0.2 {
+                        let tone = shape == .mixedStick ? [0, 1, 3, 0][Int(rnd() * 4) % 4] : 0
+                        pieces.append(rect(a, y, b - a, heights[r], tone: tone))
+                    }
+                    x += len
+                }
+                y += heights[r]
+            }
+        case .waterjet:
+            let d = long
+            period = CGSize(width: d, height: d)
+            groundTone = 0
+            // Floral, the owner's pick of five drawn designs (2026-10-09).
+            switch design {
+            case .floral:
+                groundTone = 1
+                // A flower of four petals round a round centre, a small leaf
+                // flower at the corners, in a darker field.
+                for (cx, cy, size, tone) in [(d / 2, d / 2, 1.0, 3), (0.0, 0.0, 0.45, 2)] {
+                    for k in 0..<4 {
+                        let a = Double(k) * .pi / 2 + .pi / 4
+                        let path = CGMutablePath()
+                        let pl = d * 0.24 * size, pw = d * 0.13 * size
+                        path.move(to: .zero)
+                        path.addQuadCurve(to: CGPoint(x: 2 * pl, y: 0), control: CGPoint(x: pl, y: -pw * 1.6))
+                        path.addQuadCurve(to: .zero, control: CGPoint(x: pl, y: pw * 1.6))
+                        var place = CGAffineTransform(rotationAngle: a).concatenating(CGAffineTransform(translationX: cx, y: cy))
+                        if let p = path.copy(using: &place) { pieces.append(Piece(path: p, tone: tone)) }
+                    }
+                    pieces.append(circle(cx, cy, d * 0.07 * size, tone: 1))
+                }
             }
         }
 
-        let ppi = min(10, 1024 / max(period.width, period.height))
+        // One image holds several repeats each way, so each tile can have its
+        // own shade, as real tile does.
+        let one = period
+        let target = max(24, min(96, 4 * long))
+        let rx = ordered ? 1 : max(1, min(6, Int((target / one.width).rounded(.up))))
+        let ry = ordered ? 1 : max(1, min(6, Int((target / one.height).rounded(.up))))
+        period = CGSize(width: one.width * Double(rx), height: one.height * Double(ry))
+        var all: [Piece] = []
+        for j in 0..<ry {
+            for i in 0..<rx {
+                var move = CGAffineTransform(translationX: one.width * Double(i), y: one.height * Double(j))
+                all += pieces.compactMap { p in p.path.copy(using: &move).map { Piece(path: $0, tone: p.tone) } }
+            }
+        }
+        if t?.vertical == true {
+            // Vertical: the same pattern with its long side up.
+            var flip = CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)
+            all = all.compactMap { p in p.path.copy(using: &flip).map { Piece(path: $0, tone: p.tone) } }
+            period = CGSize(width: period.height, height: period.width)
+        }
+
+        let ppi = min(24, 1024 / max(period.width, period.height))
         let px = CGSize(width: max(8, period.width * ppi), height: max(8, period.height * ppi))
-        // Grout wide enough to see on a phone: 1/8″, but never under 2½ pixels.
-        let grout = max(2.5, 0.125 * ppi)
+        // Grout wide enough to see on a phone: 1/8″ (1/16″ on mosaics), never under 2 pixels.
+        let grout = max(2, (long <= 4 ? 0.0625 : 0.125) * ppi)
         let face = color(t?.tileType)
         // Grout that stands out from the tile: light on darker tile, grey on light.
         var fr: CGFloat = 0, fg: CGFloat = 0, fb: CGFloat = 0, fa: CGFloat = 0
@@ -818,44 +1271,60 @@ enum TilePattern {
         let joint = UIColor(white: lum > 0.75 ? 0.55 : 0.88, alpha: 1)
         // Each tile's own shade: a little lighter or darker, more for handmade tile.
         let spread: CGFloat = t?.tileType == .zellige || t?.tileType == .terracotta ? 0.12 : 0.05
-        func shade(_ k: Int) -> UIColor {
+        let toneFactor: [CGFloat] = [1, 0.8, 0.62, 1.12]
+        func shade(_ k: Int, tone: Int) -> UIColor {
             var h = UInt32(truncatingIfNeeded: k &* 2_654_435_761)
             h ^= h >> 15
-            let f = 1 + spread * (CGFloat(h % 1000) / 500 - 1)
+            let f = toneFactor[min(max(tone, 0), 3)] * (1 + spread * (CGFloat(h % 1000) / 500 - 1))
             return UIColor(red: min(1, fr * f), green: min(1, fg * f), blue: min(1, fb * f), alpha: 1)
         }
+        let photo = TilePhotos.image(t?.photoID)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let image = UIGraphicsImageRenderer(size: px, format: format).image { ctx in
             let g = ctx.cgContext
-            joint.setFill()
+            (groundTone.map { shade(-1, tone: $0) } ?? joint).setFill()
             g.fill(CGRect(origin: .zero, size: px))
-            face.setFill()
-            if rotated {
-                // Squares turned 45°: a diamond, with its neighbours' corners.
-                let s = px.width
-                for (k, (cx, cy)) in [(s / 2, s / 2), (0.0, 0.0), (s, 0.0), (0.0, s), (s, s)].enumerated() {
-                    shade(k == 0 ? 0 : 1).setFill()
-                    let d = s / 2 - grout / 2
-                    let path = UIBezierPath()
-                    path.move(to: CGPoint(x: cx, y: cy - d))
-                    path.addLine(to: CGPoint(x: cx + d, y: cy))
-                    path.addLine(to: CGPoint(x: cx, y: cy + d))
-                    path.addLine(to: CGPoint(x: cx - d, y: cy))
-                    path.close()
-                    path.fill()
-                }
-            } else {
-                for (k, r) in tiles.enumerated() {
-                    shade(k).setFill()
-                    // Each tile, and its copies one repeat over, so edges wrap.
-                    for dx in [-period.width, 0, period.width] {
-                        for dy in [-period.height, 0, period.height] {
-                            let rr = CGRect(x: (r.minX + dx) * ppi + grout / 2, y: (r.minY + dy) * ppi + grout / 2,
-                                            width: r.width * ppi - grout, height: r.height * ppi - grout)
-                            g.fill(rr)
+            g.scaleBy(x: ppi, y: ppi)
+            g.setLineWidth(grout / ppi)
+            g.setLineJoin(.round)
+            // Each tile filled (with the tile's photo when there is one), then
+            // its edge drawn in grout — and its copies one repeat over, so the
+            // edges wrap (not for overlapping scales, drawn in order).
+            let shifts: [(Double, Double)] = ordered ? [(0, 0)]
+                : [-1, 0, 1].flatMap { i in [-1, 0, 1].map { j in (Double(i) * period.width, Double(j) * period.height) } }
+            for (k, p) in all.enumerated() {
+                for (dx, dy) in shifts {
+                    g.saveGState()
+                    g.translateBy(x: dx, y: dy)
+                    if let photo, let cg = photo.cgImage {
+                        g.saveGState()
+                        g.addPath(p.path)
+                        g.clip()
+                        let box = p.path.boundingBox
+                        // Each tile shows a different part of the photo, as real tiles differ.
+                        var h = UInt32(truncatingIfNeeded: k &* 2_246_822_519); h ^= h >> 13
+                        let side = max(box.width, box.height)
+                        let zoom = 1.0 + Double(h % 100) / 200
+                        let draw = CGRect(x: box.midX - side * zoom / 2, y: box.midY - side * zoom / 2, width: side * zoom, height: side * zoom)
+                        g.translateBy(x: 0, y: draw.minY * 2 + draw.height)
+                        g.scaleBy(x: 1, y: -1)
+                        g.draw(cg, in: draw)
+                        g.restoreGState()
+                        if p.tone != 0 {
+                            g.addPath(p.path)
+                            g.setFillColor(UIColor(white: 0, alpha: p.tone == 3 ? 0 : 0.12 * Double(p.tone)).cgColor)
+                            g.fillPath()
                         }
+                    } else {
+                        g.addPath(p.path)
+                        g.setFillColor(shade(k, tone: p.tone).cgColor)
+                        g.fillPath()
                     }
+                    g.addPath(p.path)
+                    g.setStrokeColor(joint.cgColor)
+                    g.strokePath()
+                    g.restoreGState()
                 }
             }
         }
@@ -865,4 +1334,5 @@ enum TilePattern {
     }
 
     private static func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? abs(a) : gcd(b, a % b) }
+    private static func lcm(_ a: Int, _ b: Int) -> Int { a / max(gcd(a, b), 1) * b }
 }

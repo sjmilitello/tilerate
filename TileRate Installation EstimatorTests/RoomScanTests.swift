@@ -992,9 +992,21 @@ struct RoomScanTests {
         #expect(TilePattern.size(t) == (24, 12))
         t.tileSize = .mosaic
         #expect(TilePattern.size(t) == (2, 2))
-        // Herringbone 12 × 24 repeats every 48″.
+        // Herringbone 12 × 24 repeats every 48″ (the image holds whole repeats,
+        // several of them so each tile can have its own shade).
         t = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: .herringbone, tileWidthIn: 12, tileLengthIn: 24)
-        #expect(TilePattern.make(t).periodIn == CGSize(width: 48, height: 48))
+        let p = TilePattern.make(t).periodIn
+        #expect(p.width >= 48 && p.width.truncatingRemainder(dividingBy: 48) == 0)
+        #expect(p.height >= 48 && p.height.truncatingRemainder(dividingBy: 48) == 0)
+        // A hexagon mosaic is drawn as hexagons, not squares.
+        t = TileChoice(tileType: .porcelain, tileSize: .mosaic, layout: .straightStacked, tileWidthIn: 2, tileLengthIn: 2)
+        t.mosaicStyle = .hexagon
+        #expect(TilePattern.shape(t) == .hexagon)
+        // 2″ across the flats: the repeat is 2″ high and 2 × 1½ × (2/√3) wide.
+        let hex = TilePattern.make(t).periodIn
+        let across = 3 * 2 / 3.0.squareRoot()
+        #expect(abs((hex.width / across).rounded() * across - hex.width) < 1e-6)
+        #expect(abs((hex.height / 2).rounded() * 2 - hex.height) < 1e-6)
     }
 
     @Test func theScanIsSavedWithTheRoomAndTheChoicesWithTheArea() throws {

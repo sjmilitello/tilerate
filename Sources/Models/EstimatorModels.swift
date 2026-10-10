@@ -146,6 +146,14 @@ enum TileSize: String, CaseIterable, Hashable, Codable, Identifiable {
     case arabesque = "Arabesque"
     case starCross = "Star/Cross"
     case mosaic = "Mosaic"
+    // Added 2026-10-09 (owner: 3-D views for as many styles as possible).
+    // (Kite and elongated hexagon are drawn and sold like picket; scallop
+    // is fishscale — the owner's calls.)
+    case diamond = "Diamond"
+    case triangle = "Triangle"
+    case fishscale = "Fishscale"
+    case picket = "Picket"
+    case pill = "Pill"
 
     var id: String { rawValue }
 }
@@ -156,6 +164,14 @@ enum Layout: String, CaseIterable, Codable, Identifiable {
     case diagonal = "Diagonal"
     case herringbone = "Herringbone"
     case multiTile = "Multi-Tile"
+    // Added 2026-10-09 (owner: large-tile layouts).
+    case oneThirdOffset = "1/3 Offset"
+    case diagonalHerringbone = "Diagonal Herringbone"
+    case doubleHerringbone = "Double Herringbone"
+    case chevron = "Chevron"
+    case basketweave = "Basketweave"
+    case versailles = "Versailles"
+    case hopscotch = "Hopscotch"
     var id: String { rawValue }
 }
 
@@ -179,6 +195,11 @@ enum MosaicStyle: String, CaseIterable, Codable, Identifiable {
     case pebble = "Pebble"
     case randomStrip = "Random Strip"
     case waterjet = "Waterjet"
+    // Added 2026-10-09 (owner: more mosaic styles).
+    case cube = "3-D Cube"
+    case triangle = "Triangle"
+    case mixedStick = "Mixed Stick"
+    case pill = "Pill"
     var id: String { rawValue }
 }
 
@@ -220,10 +241,13 @@ struct Rates: Codable, Equatable {
         .granite: 0, .quartzite: 0, .cement: 0, .terracotta: 0, .zellige: 0
     ]
     var sizeAdder: [TileSize: Double] = [
-        .mosaic: 0, .starCross: 0, .arabesque: 0, .hexagon: 0, .rectangle: 0, .square: 0
+        .mosaic: 0, .starCross: 0, .arabesque: 0, .hexagon: 0, .rectangle: 0, .square: 0,
+        .diamond: 0, .triangle: 0, .fishscale: 0, .picket: 0, .pill: 0
     ]
     var layoutAdder: [Layout: Double] = [
-        .straightStacked: 0, .runningBond: 0, .diagonal: 0, .herringbone: 0, .multiTile: 0
+        .straightStacked: 0, .runningBond: 0, .diagonal: 0, .herringbone: 0, .multiTile: 0,
+        .oneThirdOffset: 0, .diagonalHerringbone: 0, .doubleHerringbone: 0, .chevron: 0, .basketweave: 0,
+        .versailles: 0, .hopscotch: 0
     ]
     /// Added on top of the Mosaic size adder for a mosaic of that style.
     var mosaicStyleAdder: [MosaicStyle: Double] =
@@ -732,6 +756,13 @@ struct TileChoice: Codable, Equatable, Hashable {
     var mosaicStyle: MosaicStyle? = nil
     /// The tiles in a Multi-Tile layout, each with its own shape and size.
     var pieces: [TilePiece] = []
+    /// Laid with its long side up (owner, 2026-10-09). Only how it's drawn
+    /// and named; it doesn't change the price.
+    var vertical: Bool = false
+    /// A photo of the real tile (`TilePhotos`), drawn as its face in 3-D.
+    var photoID: String? = nil
+    /// Fishscale laid round side down (owner: either way is installed).
+    var turnedOver: Bool = false
 }
 
 /// One shower or tub-surround wall with its own tile, used when the walls are
@@ -1078,6 +1109,10 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     var mosaicStyle: MosaicStyle? = nil
     /// The main tile's pieces, used when its layout is Multi-Tile.
     var multiTilePieces: [TilePiece] = []
+    /// The main tile laid long side up, and a photo of it (see `TileChoice`).
+    var tileVertical: Bool = false
+    var tilePhotoID: String? = nil
+    var tileTurnedOver: Bool = false
     /// nil means the shower floor / ceiling uses the main tile.
     var showerFloorTile: TileChoice? = nil
     var ceilingTile: TileChoice? = nil
@@ -1393,6 +1428,9 @@ extension EstimateSection {
         c.read(.tileLengthIn, into: &tileLengthIn)
         c.read(.mosaicStyle, into: &mosaicStyle)
         c.read(.multiTilePieces, into: &multiTilePieces)
+        c.read(.tileVertical, into: &tileVertical)
+        c.read(.tilePhotoID, into: &tilePhotoID)
+        c.read(.tileTurnedOver, into: &tileTurnedOver)
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
@@ -1463,6 +1501,9 @@ extension TileChoice {
         c.read(.tileLengthIn, into: &tileLengthIn)
         c.read(.mosaicStyle, into: &mosaicStyle)
         c.read(.pieces, into: &pieces)
+        c.read(.vertical, into: &vertical)
+        c.read(.photoID, into: &photoID)
+        c.read(.turnedOver, into: &turnedOver)
     }
 }
 
@@ -1716,7 +1757,8 @@ extension EstimateSection {
         guard let type = tileType, let size = tileSize else { return nil }
         return TileChoice(tileType: type, tileSize: size, layout: layout ?? .straightStacked,
                           tileWidthIn: tileWidthIn, tileLengthIn: tileLengthIn,
-                          mosaicStyle: mosaicStyle, pieces: multiTilePieces)
+                          mosaicStyle: mosaicStyle, pieces: multiTilePieces,
+                          vertical: tileVertical, photoID: tilePhotoID, turnedOver: tileTurnedOver)
     }
 }
 

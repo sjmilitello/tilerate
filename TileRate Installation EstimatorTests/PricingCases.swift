@@ -113,6 +113,12 @@ enum PricingCases {
         return s
     }
 
+    static let recordedLayouts: [Layout] = [.straightStacked, .runningBond, .diagonal, .herringbone, .multiTile]
+    static let recordedShapes: [TileSize] = [.square, .rectangle, .hexagon, .arabesque, .starCross, .mosaic]
+    static let recordedStyles: [MosaicStyle] = [.square, .hexagon, .octagonDot, .diamond, .rectangular, .miniBrick,
+                                                 .picket, .herringbone, .chevron, .basketweave, .pinwheel, .pennyRound,
+                                                 .fishscale, .arabesque, .pebble, .randomStrip, .waterjet]
+
     static var all: [PricingCase] {
         var out: [PricingCase] = []
         let main = tiles[0].1
@@ -154,15 +160,17 @@ enum PricingCases {
                 out.append(.init(name: "material/\(rn)/\(m.rawValue)", rates: r,
                                  section: section(.wall, tile: tile(m, .hexagon, .straightStacked), sqft: 80)))
             }
-            for l in Layout.allCases {
+            // The layouts, shapes and styles there were when this was recorded
+            // (2026-10-06); later ones are tested in NewTileChoicesTests.
+            for l in Self.recordedLayouts {
                 out.append(.init(name: "layout/\(rn)/\(l.rawValue)", rates: r,
                                  section: section(.wall, tile: tile(.ceramic, .hexagon, l), sqft: 80)))
             }
-            for s in TileSize.allCases {
+            for s in Self.recordedShapes {
                 out.append(.init(name: "shape/\(rn)/\(s.rawValue)", rates: r,
                                  section: section(.wall, tile: tile(.ceramic, s, .straightStacked, w: 6, l: 6), sqft: 80)))
             }
-            for st in MosaicStyle.allCases {
+            for st in Self.recordedStyles {
                 out.append(.init(name: "mosaic/\(rn)/\(st.rawValue)", rates: r,
                                  section: section(.backsplash, tile: tile(.ceramic, .mosaic, .runningBond, style: st), sqft: 30)))
             }

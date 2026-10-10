@@ -128,7 +128,8 @@ private func sentenceParts(_ section: EstimateSection, wording: WordingTemplates
     let mainPhrase = fillTemplate(wording.tile, tileValues(
         type: section.tileType?.rawValue ?? "Tile", size: section.tileSize,
         layout: section.layout?.rawValue ?? "Layout", widthIn: section.tileWidthIn,
-        lengthIn: section.tileLengthIn, style: section.mosaicStyle, pieces: section.multiTilePieces))
+        lengthIn: section.tileLengthIn, style: section.mosaicStyle, pieces: section.multiTilePieces,
+        vertical: section.tileVertical))
 
     // The surfaces the area's own tile goes on, from the measurements entered.
     var surfaces: [String] = []
@@ -207,12 +208,12 @@ private func sentenceParts(_ section: EstimateSection, wording: WordingTemplates
 func tilePhrase(_ t: TileChoice, _ wording: WordingTemplates) -> String {
     fillTemplate(wording.tile, tileValues(type: t.tileType.rawValue, size: t.tileSize, layout: t.layout.rawValue,
                                           widthIn: t.tileWidthIn, lengthIn: t.tileLengthIn,
-                                          style: t.mosaicStyle, pieces: t.pieces))
+                                          style: t.mosaicStyle, pieces: t.pieces, vertical: t.vertical))
 }
 
 /// What the tile template's brace words stand for, for one tile.
 private func tileValues(type: String, size shape: TileSize?, layout: String, widthIn: Double?, lengthIn: Double?,
-                        style: MosaicStyle?, pieces: [TilePiece]) -> [String: String] {
+                        style: MosaicStyle?, pieces: [TilePiece], vertical: Bool = false) -> [String: String] {
     let isMosaic = shape == .mosaic
     // A multi-tile layout's sizes are listed with its pieces instead.
     let isMultiTile = layout == Layout.multiTile.rawValue && !isMosaic
@@ -224,7 +225,8 @@ private func tileValues(type: String, size shape: TileSize?, layout: String, wid
         "tile": tileWord(size: shape, style: style),
         "shape": shape?.rawValue ?? "",
         "mosaic": isMosaic ? (style?.rawValue ?? "") : "",
-        "layout": isMosaic ? "" : layout,
+        // Laid long side up: "Vertical Straight Stacked" (owner, 2026-10-09).
+        "layout": isMosaic ? "" : (vertical ? "Vertical " + layout : layout),
         "pieces": isMultiTile ? pieceList : "",
     ]
 }

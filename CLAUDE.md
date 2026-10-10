@@ -361,29 +361,34 @@ Tile has to read as tile at phone size (owner, 2026-10-09: a 24×48 wall
 looked painted): `TilePattern` draws several tiles to the image (to about
 8′ each way), each a slightly different shade (more for zellige and
 terracotta), grout at least 2½ pixels wide in a colour that stands out
-from the tile (light on darker tile), filtered anisotropically. The
-room's own walls are drawn from inside only, like a doll's house, so the
-near walls drop away whichever way it's turned. A partition (a scanned wall
-with an end partway along another, `isPartition`) is drawn solid, both faces
-showing; tile, niches and benches on a scanned wall go on the side toward
-their area's floor (else the room's middle) — a shower behind a partition
-had its tile on the room side (fixed 2026-10-08). A niche is a 3½″ recess cut into the
-face it's on (`Room3DScene.nicheDepthFt`; the wall's tile has a hole there):
-its back in the wall's tile (or its own, `Item.tile`: the niche panel's
-Niche tile → Choose, the usual tile sheet; Use wall tile clears it), grout lined up; top, sides and sill in tile, or
-stone per its choice (all around: top, sides, sill, dividers; shelves only:
-sill and dividers). Its faces show from inside only, so nothing pokes out
-behind a wall seen from outside; a solid wall keeps the rest of its
-thickness behind it. A chosen niche gets a green frame, not the green tint,
-so its tile and stone still show. Stone in 3-D is the plan's tan
-(`stoneColor`), not cream, so it reads apart from light tile. Views: into this area
-(from its open side) and the whole room; turn and pinch by hand. In 3-D, **Place** (shower) picks a door, window,
-niche, corner piece or bench, then a tap on a wall puts it there (`tap3D`,
-`Room3DHit`: scene nodes are named "wall|id" and "item|id"): a niche or
-window centred on the tap, a corner piece in the nearer corner at the tapped
-height, a bench along that wall, a door at that spot (moving the wall's door
-if it has one). Without Place, tapping a wall or item chooses it, and the
-face-on drawing below fine-tunes it; the chosen item is lit up.
+from the tile (light on darker tile), filtered anisotropically. Each tile
+is drawn in its real shape (owner: "the patterns should be accurate";
+every pattern checked by the owner on a sheet, three rounds, 2026-10-09):
+`TilePattern.shape`. Square and rectangle by layout — stacked, running
+bond, 1/3 offset, herringbone (planks square to the wall), diagonal (the
+tile itself at 45°), diagonal herringbone (planks at 45°), double
+herringbone, chevron, basketweave, Versailles (the 12-piece set as sold —
+8×8, 8×16, 16×16, 16×24 — repeating every 48″), hopscotch (checked against
+a published drawing); hexagon, arabesque (lanterns traced from a photo:
+each side an S-curve its neighbour shares, leaving the tip straight and
+meeting the side upright), star and cross (stars from two squares touching
+tip to tip, crosses a darker shade), diamond, triangle, fishscale,
+picket and pill (capsule, rows offset half a pill) shapes (owner: kite and elongated hexagon are picket, scallop is
+fishscale — one each); and every mosaic style (leaf and rhombus taken out), waterjet
+as the owner's chosen floral design. Fishscale is laid round side up or,
+turned over (`turnedOver`, `tileTurnedOver`; "Round side" on the Tile
+step), round side down. A mosaic with no size uses its style's usual piece
+size (`drawnSize`). Long side up (`TileChoice.vertical`,
+`EstimateSection.tileVertical`; "Long side" on the Tile step) turns the
+pattern and names it ("Vertical Running Bond"); price unchanged. A photo
+of the real tile (`photoID`, `tilePhotoID`; Choose / Take photo on the
+Tile step and the tile sheet) is kept in Documents/Tile Photos
+(`TilePhotos`), only its id in the estimate, and is each tile's face in
+3-D (each tile a different part of it); a missing photo draws as the
+colour. The Tile step shows an "In 3-D" swatch at true scale. New layouts,
+shapes and mosaic styles each have their own adder in Admin, starting at
+$0. `PricingCases` keeps the enum values there were when it was recorded
+(`recordedLayouts` etc.); later ones are tested in `NewTileChoicesTests`.
 
 Pictures for the PDF (owner's calls, 2026-10-07): the estimate keeps the
 3-D views chosen for it (`EstimateDocument.pictures`, `EstimatePicture`:

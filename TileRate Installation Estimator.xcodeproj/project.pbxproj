@@ -509,7 +509,7 @@
 				INFOPLIST_FILE = "";
 				INFOPLIST_KEY_CFBundleDisplayName = TileRate;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
-				INFOPLIST_KEY_NSCameraUsageDescription = "TileRate uses the camera to scan rooms for measurements and to capture your logo.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "TileRate uses the camera to scan rooms for measurements, photograph tile and capture your logo.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to access admin settings.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"We need permission to save exported estimates as images to your library.\"";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "\"We need access to your photo library to select your business card or logo\"";
@@ -559,7 +559,7 @@
 				INFOPLIST_FILE = "";
 				INFOPLIST_KEY_CFBundleDisplayName = TileRate;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
-				INFOPLIST_KEY_NSCameraUsageDescription = "TileRate uses the camera to scan rooms for measurements and to capture your logo.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "TileRate uses the camera to scan rooms for measurements, photograph tile and capture your logo.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to access admin settings.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"We need permission to save exported estimates as images to your library.\"";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "\"We need access to your photo library to select your business card or logo\"";
