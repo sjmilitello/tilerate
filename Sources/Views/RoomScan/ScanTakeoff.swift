@@ -854,6 +854,22 @@ extension AreaTakeoff {
         return 0...wall.lengthFt
     }
 
+    /// After the shower floor changed (`old` is how it was): a framed bench
+    /// whose end was out at the curb line — flush with the curb's outside —
+    /// stays there, longer or shorter with the floor (owner, 2026-10-10).
+    mutating func benchesFollowFloor(from old: FloorRect, in room: ScannedRoom, curbWidthFt: Double) {
+        guard floor == .drawn, floorRect != nil else { return }
+        var before = self
+        before.floorRect = old
+        for i in items.indices where items[i].kind == .framedBench {
+            guard let w = room.wall(items[i].wallID),
+                  let was = before.benchSpan(on: w, in: room, floating: false, curbWidthFt: curbWidthFt),
+                  let now = benchSpan(on: w, in: room, floating: false, curbWidthFt: curbWidthFt) else { continue }
+            if abs(items[i].toFt - was.upperBound) < 0.05 { items[i].toFt = now.upperBound }
+            if abs(items[i].fromFt - was.lowerBound) < 0.05 { items[i].fromFt = now.lowerBound }
+        }
+    }
+
     /// A new niche or window in the middle of this area's tile on a wall.
     func middle(of wall: ScannedRoom.Wall, face: Int) -> Double {
         let mine = pieces.filter { $0.wallID == wall.id && $0.face == face }

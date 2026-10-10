@@ -664,6 +664,52 @@ struct RoomScanTests {
         #expect(abs(t.trimPieces(in: room, area: .shower, curbHeightIn: 4).first { $0.name == "Curb" }!.lengthFt - 9) < 1e-9)
     }
 
+    @Test func aFramedBenchOutToTheCurbFollowsItWhenTheFloorChanges() throws {
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 9, depthFt: 3)
+        let curb = 4.5 / 12
+        let span = try #require(t.benchSpan(on: D, in: room, floating: false, curbWidthFt: curb))
+        t.items = [.init(kind: .framedBench, wallID: D.id, fromFt: span.lowerBound, toFt: span.upperBound, heightIn: 20, depthIn: 15)]
+        let length = t.items[0].widthFt
+        // The curb dragged out 6″: the floor is 6″ deeper and the bench 6″ longer.
+        let old = t.floorRect!
+        t.floorRect?.depthFt = 3.5
+        t.benchesFollowFloor(from: old, in: room, curbWidthFt: curb)
+        #expect(abs(t.items[0].widthFt - (length + 0.5)) < 1e-6)
+        // A bench that stopped short of the curb stays as it was.
+        t.items[0].toFt -= 1
+        t.items[0].fromFt = min(t.items[0].fromFt, t.items[0].toFt - 0.5)
+        let short = t.items[0]
+        let old2 = t.floorRect!
+        t.floorRect?.depthFt = 3
+        t.benchesFollowFloor(from: old2, in: room, curbWidthFt: curb)
+        #expect(t.items[0].toFt == short.toFt)
+    }
+
+    @Test func aWallOnTheCurbFillsTheOpeningAndTheCurbFillsWhatsLeftWhenItsShortened() throws {
+        // The open shower across the top: 9′ wide, open at y = 3.
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(D, 5, 8, 96), piece(A, 0, 9, 96), piece(B, 0, 3, 96)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 9, depthFt: 3)
+        var r = room
+        // A full wall on the curb, filling the opening, no door: no curb left.
+        let w = r.addPlannedWall(from: .init(x: 0, y: 3), to: .init(x: 9, y: 3), heightIn: 96, thicknessIn: 4.5)
+        #expect(r.openings.filter { $0.wallID == w.id }.isEmpty)
+        #expect(t.curbEdges(in: r).isEmpty)
+        // Its end dragged in 2′: the curb fills those 2′, with a jamb against the wall.
+        r.movePlannedEnd(w.id, start: false, to: .init(x: 7, y: 3))
+        let edges = t.curbEdges(in: r)
+        #expect(edges.count == 1)
+        #expect(abs(edges.reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) } - 2) < 0.02)
+        let trim = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
+        #expect(abs(trim.first { $0.name == "Curb" }!.lengthFt - 2) < 0.02)
+        #expect(trim.filter { $0.kind == .jamb }.count == 2)
+    }
+
     @Test func aBenchReachingIntoTheDoorwayIsFlagged() {
         // Shower in the A/B corner, 4′ × 3′, closed by new full walls E (x = 5)
         // and F (y = 3, running from wall B to E), door in F; a 15″ framed bench along B.

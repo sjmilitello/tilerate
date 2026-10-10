@@ -243,10 +243,16 @@ looks toward). A planned wall as high as the ceiling is a full wall ("New
 wall F", `isKneeWall` false), with no cap. A wall drawn in a shower along an open
 side of its floor (roughly parallel, within 2′) snaps onto the curb line
 (`snappedNewWall`, `newWallLines`; owner asked 2026-10-07). Tapping the curb
-on the plan, or "Add a wall on the curb" under Shower entry, adds one with no
-drawing (`closeSide`): a full wall with a door in its middle, or a knee wall
-from the side's end against a wall, leaving a door's width open. Its first
-face looks into the shower and is tiled. Adding a wall where a drawn-in one already lies
+on the plan holds it (lit green, owner's call 2026-10-10): drag to move it
+in or out — the floor's open edge follows (the curb's inside face is the
+floor's edge), a framed bench out to the curb follows it
+(`benchesFollowFloor`), and it catches with its outside face flush with a
+side wall's end (`curbCatch`), with Catch off and nudge arrows as usual.
+Add a Wall → Full Wall or Half Wall, then tap the curb: the wall goes on
+the curb filling the opening, with no door (`closeSide`; most showers have
+no header — Add door is there for one); drag its end in and the curb fills
+the gap with its jambs. Its first face looks into the shower and is
+tiled. Adding a wall where a drawn-in one already lies
 uses that one (`plannedWall(along:)`), so two never stack and hide each
 other. ⋯ → "Delete a wall I added" lists them all; in a Floor area they
 can be selected and deleted too. Deleting one re-measures the room's other

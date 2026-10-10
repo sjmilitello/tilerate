@@ -123,8 +123,6 @@ struct ScanEditor: View {
     }
     @State private var showFixtures = true
     /// An open side of the shower floor tapped on the plan: offer to close it.
-    @State private var closingSide: AreaTakeoff.OpenSide? = nil
-    @State private var askClose = false
     /// As the editor opened: Cancel asks before throwing changes away.
     private let openedRoom: ScannedRoom
     private let openedTakeoff: AreaTakeoff
@@ -278,13 +276,9 @@ struct ScanEditor: View {
                            onWallDragEnded: { dragBase = nil },
                            openSides: openSides.map { ($0.a, $0.b) },
                            onTapOpenSide: { i in
-                               if addingWall {
-                                   addingWall = false
-                                   closeSide(openSides[i], door: addingFullWall)
-                               } else {
-                                   closingSide = openSides[i]
-                                   askClose = true
-                               }
+                               // Adding a wall: it goes on the curb, filling the opening.
+                               addingWall = false
+                               closeSide(openSides[i], full: addingFullWall)
                            },
                            snapNewWall: { a, b in
                                area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
@@ -428,13 +422,6 @@ struct ScanEditor: View {
                                 rates: rates)
                 }
             }
-            .confirmationDialog("Add a wall on the curb", isPresented: $askClose, titleVisibility: .visible,
-                                presenting: closingSide) { side in
-                Button("Full wall (with a door)") { closeSide(side, door: true) }
-                Button("Half wall") { closeSide(side, door: false) }
-            } message: { side in
-                Text("Along the open side of the shower, \(inchText(side.lengthFt)). Move or resize it after.")
-            }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -491,6 +478,11 @@ struct ScanEditor: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 if settleToken == token { history.settle(now) }
             }
+        }
+        .onChange(of: takeoff.floorRect) { old, new in
+            // A framed bench out to the curb stays flush with it as the floor changes.
+            guard let old, let new, old != new else { return }
+            takeoff.benchesFollowFloor(from: old, in: room, curbWidthFt: takeoff.curbless ? 0 : stone.curbWidthFt)
         }
         .onChange(of: room) { _, now in
             // A wall a divider meets partway is cut into sections, each its
@@ -601,21 +593,13 @@ struct ScanEditor: View {
         return w
     }
 
-    /// A wall added on an open side of the shower floor, on the curb: a
-    /// full wall with a door in its middle, or a knee wall leaving room for
-    /// a door beside it (from the side's end against a wall). Its first
-    /// face looks into the shower and is tiled.
-    private func closeSide(_ side: AreaTakeoff.OpenSide, door: Bool) {
+    /// A wall added on an open side of the shower floor, on the curb,
+    /// filling the opening, with no door (owner, 2026-10-10: most showers
+    /// have no header; drag an end in to open the entry and the curb fills
+    /// the gap; Add door is there for a header). A half wall stands at its
+    /// usual height. Its first face looks into the shower and is tiled.
+    private func closeSide(_ side: AreaTakeoff.OpenSide, full: Bool) {
         var a = side.a, b = side.b
-        if !door {
-            let length = side.lengthFt
-            let doorFt = stone.doorWidthIn / 12
-            let knee = length > doorFt + 1 ? length - doorFt : length / 2
-            // From the end against a wall.
-            if side.startWall == nil, side.endWall != nil { swap(&a, &b) }
-            let t = knee / max(length, 1e-9)
-            b = .init(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
-        }
         // Its first face toward the shower.
         if let r = takeoff.floorRect {
             let c = r.corners
@@ -624,7 +608,7 @@ struct ScanEditor: View {
             if (center.x - a.x) * n.x + (center.y - a.y) * n.y < 0 { swap(&a, &b) }
         }
         let ceiling = room.ceilingFt * 12
-        let w = placeWall(from: a, to: b, heightIn: door ? ceiling : min(42, ceiling), door: door)
+        let w = placeWall(from: a, to: b, heightIn: full ? ceiling : min(42, ceiling), door: false)
         face = 0
         tapWall(w.id)
     }
@@ -1337,20 +1321,6 @@ struct ScanEditor: View {
                         set: { takeoff.curbHeightIn = $0 }))
                         .frame(maxWidth: 140, alignment: .leading)
                 }
-                ForEach(Array(openSides.enumerated()), id: \.offset) { _, side in
-                    Menu {
-                        Button { closeSide(side, door: true) } label: {
-                            Label("Full Wall (with a door)", systemImage: "rectangle.portrait")
-                        }
-                        Button { closeSide(side, door: false) } label: {
-                            Label("Half Wall", systemImage: "rectangle.bottomhalf.filled")
-                        }
-                    } label: {
-                        Label("Add a wall on the \(takeoff.curbless ? "opening" : "curb") (\(inchText(side.lengthFt)) open)", systemImage: "plus.rectangle.on.rectangle")
-                    }
-                    .buttonStyle(.bordered)
-                    .font(.subheadline)
-                }
                 if pieces.isEmpty {
                     Text("Draw the shower floor on the plan and choose its walls; the curb and jambs are measured from them.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -1824,6 +1794,8 @@ struct PlanCanvas: View {
     enum Axis: Equatable { case u, v }
 
     @State private var hold: Hold? = nil
+    /// The held floor edge was taken by the curb: it's lit, and catches flush with walls' ends.
+    @State private var curbHeld = false
     @State private var viewport = PlanViewport()
     /// The viewport as a pinch or pan began.
     @State private var viewportStart: PlanViewport? = nil
@@ -1935,6 +1907,7 @@ struct PlanCanvas: View {
         .onChange(of: hold) { _, h in
             caught = false
             if h == nil { catchOff = false }
+            if case .floorEdge = h {} else { curbHeld = false }
         }
         .onChange(of: selectedWall) { _, id in
             // Chosen elsewhere (3-D, the panels): let go of a different wall.
@@ -2110,7 +2083,7 @@ struct PlanCanvas: View {
         }
         // The floor's edges and body, once the floor is held.
         if floorHeld, let r = floorRect?.wrappedValue {
-            if let e = floorEdge(at: location, r, f) { hold = .floorEdge(e.axis, near: e.near); return }
+            if let e = floorEdge(at: location, r, f) { hold = .floorEdge(e.axis, near: e.near); curbHeld = false; return }
             if inside(location, r, f) { hold = .floor; return }
         }
         // Inside the floor (not right on its edge) is the floor, before the curb or a wall.
@@ -2118,7 +2091,22 @@ struct PlanCanvas: View {
             hold = .floor
             return
         }
-        if let side = openSide(at: location, f) { hold = nil; onTapOpenSide(side); return }
+        if let side = openSide(at: location, f) {
+            if addingWall { hold = nil; onTapOpenSide(side); return }
+            // The curb: hold the floor's edge it's on (the curb's inside face);
+            // dragging moves the curb, the floor following (owner, 2026-10-10).
+            if let r = floorRect?.wrappedValue {
+                let (a, b) = openSides[side]
+                let mid = CGPoint(x: (f.at(a).x + f.at(b).x) / 2, y: (f.at(a).y + f.at(b).y) / 2)
+                if let e = floorEdge(at: mid, r, f, reach: 6) {
+                    hold = .floorEdge(e.axis, near: e.near)
+                    curbHeld = true
+                    return
+                }
+            }
+            hold = nil
+            return
+        }
         if let id = wall(at: location, f) {
             onTapWall(id)
             if let w = room.wall(id), editable(w) { hold = .wall(id) } else { hold = nil }
@@ -2373,8 +2361,13 @@ struct PlanCanvas: View {
             let sideLen = axis == .u ? start.depthFt : start.widthFt
             var anchor = ScannedRoom.Point(x: start.origin.x + side.x * sideLen / 2, y: start.origin.y + side.y * sideLen / 2)
             if near { anchor = .init(x: anchor.x + dir.x * old, y: anchor.y + dir.y * old) }
-            let length = snapLength(old + steered.x * out.x + steered.y * out.y, from: anchor, toward: out, reach: reach)
-            let free = snapLength(old + steered.x * out.x + steered.y * out.y, from: anchor, toward: out, reach: 0)
+            let raw = old + steered.x * out.x + steered.y * out.y
+            var length = snapLength(raw, from: anchor, toward: out, reach: reach)
+            let free = snapLength(raw, from: anchor, toward: out, reach: 0)
+            if curbHeld, let c = curbCatch(raw, from: anchor, toward: out, across: side, half: sideLen / 2, reach: reach),
+               abs(length - free) < 1e-9 || abs(c - raw) < abs(length - raw) {
+                length = c
+            }
             cue(abs(length - free) > 1e-9, at: .init(x: anchor.x + out.x * length, y: anchor.y + out.y * length))
             var updated = start
             if axis == .u { updated.widthFt = length } else { updated.depthFt = length }
@@ -2435,6 +2428,24 @@ struct PlanCanvas: View {
             bestGap = abs(t - length)
         }
         return best
+    }
+
+    /// The floor's depth that puts the curb's outside face flush with a
+    /// wall's end beside the floor (the side wall's outside corner), when
+    /// one is within reach.
+    private func curbCatch(_ length: Double, from o: ScannedRoom.Point, toward dir: ScannedRoom.Point,
+                           across side: ScannedRoom.Point, half: Double, reach: Double) -> Double? {
+        var best: (Double, Double)? = nil
+        for w in room.walls {
+            for p in [w.start, w.end] {
+                let lateral = abs((p.x - o.x) * side.x + (p.y - o.y) * side.y)
+                guard lateral < half + 0.75 else { continue }
+                let t = (p.x - o.x) * dir.x + (p.y - o.y) * dir.y - curbWidthFt
+                guard t > 0.5, abs(t - length) <= reach, abs(t - length) < (best?.1 ?? .infinity) else { continue }
+                best = (t, abs(t - length))
+            }
+        }
+        return best?.0
     }
 
     private func midpoint(_ a: ScannedRoom.Point, _ b: ScannedRoom.Point, _ f: Frame) -> CGPoint {
@@ -2745,7 +2756,9 @@ struct PlanCanvas: View {
             var band = Path()
             band.addLines([f.at(a), f.at(b), f.at(.init(x: b.x + n.x * w, y: b.y + n.y * w)), f.at(.init(x: a.x + n.x * w, y: a.y + n.y * w))])
             band.closeSubpath()
-            ctx.fill(band, with: .color(Color(red: 0.85, green: 0.78, blue: 0.62)))
+            let lit = curbHeld && floorHeld
+            ctx.fill(band, with: .color(lit ? Color.green.opacity(0.85) : Color(red: 0.85, green: 0.78, blue: 0.62)))
+            if lit { ctx.stroke(band, with: .color(.white), lineWidth: 1.5) }
             let m = CGPoint(x: (f.at(a).x + f.at(b).x) / 2, y: (f.at(a).y + f.at(b).y) / 2)
             if interactive, !showDimensions {
                 ctx.draw(Text("Curb").font(.system(size: 10, weight: .semibold))
