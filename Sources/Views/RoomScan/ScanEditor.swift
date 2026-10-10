@@ -169,7 +169,50 @@ struct ScanEditor: View {
                              curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
                              showFixtures: showFixtures, selectedItem: selectedItem, curbWidthFt: stone.curbWidthFt)
     }
-    private var otherPieces: [AreaTakeoff.Piece] { others.flatMap(\.pieces) }
+    private var otherPieces: [AreaTakeoff.Piece] { othersHere.flatMap(\.pieces) }
+
+    private func isDivider(_ w: ScannedRoom.Wall) -> Bool { room.isDivider(w) }
+
+    /// Where this area's own side of a wall is: toward its drawn floor, else the room's middle.
+    private var ownTarget: ScannedRoom.Point {
+        if takeoff.floor == .drawn, let r = takeoff.floorRect {
+            let c = r.corners
+            return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+        }
+        return room.middle
+    }
+
+    private func inward(_ w: ScannedRoom.Wall, face: Int) -> ScannedRoom.Point {
+        room.sideNormal(of: w, face: face, toward: ownTarget)
+    }
+
+    /// Other areas' tile, with the side of a scanned divider each piece is on
+    /// given this area's way: their face 0 is their own side (toward their
+    /// floor, else the room's middle), which may be this area's other side.
+    private var othersHere: [OtherAreaPieces] {
+        others.map { o in
+            let theirs: ScannedRoom.Point = o.floor.map { r in
+                let c = r.corners
+                return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+            } ?? room.middle
+            return OtherAreaPieces(name: o.name, pieces: o.pieces.map { p in
+                guard let w = room.wall(p.wallID), room.isDivider(w) else { return p }
+                let theirSide = room.sideNormal(of: w, face: p.face, toward: theirs)
+                let mine = inward(w, face: 0)
+                var q = p
+                q.face = theirSide.x * mine.x + theirSide.y * mine.y > 0 ? 0 : 1
+                return q
+            }, floor: o.floor, tile: o.tile, floorTile: o.floorTile, roomFloor: o.roomFloor)
+        }
+    }
+
+    /// The name of a side of a wall: a wall drawn in by the wall it faces; a
+    /// scanned divider's own side "Shower side" in a shower, else by the wall it faces.
+    private func sideName(_ w: ScannedRoom.Wall, _ k: Int) -> String {
+        if w.planned { return room.faceName(of: w, face: k) }
+        if k == 0, area == .shower { return "Shower side" }
+        return room.faceName(of: w, looking: inward(w, face: k)) ?? (k == 0 ? "This side" : "Other side")
+    }
 
     var body: some View {
         NavigationStack {
@@ -195,7 +238,7 @@ struct ScanEditor: View {
                             }
                         }
                 } else {
-                PlanCanvas(room: room, mine: takeoff.pieces, others: others, selectedWall: selectedWall,
+                PlanCanvas(room: room, mine: takeoff.pieces, others: othersHere, selectedWall: selectedWall,
                            floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
                            onTapPoint: placingShower ? { p in
                                placingShower = false
@@ -449,6 +492,15 @@ struct ScanEditor: View {
                 if settleToken == token { history.settle(now) }
             }
         }
+        .onChange(of: room) { _, now in
+            // A wall a divider meets partway is cut into sections, each its
+            // own wall; sections whose divider has gone join again.
+            var r = now
+            guard r.sectionAtDividers() else { return }
+            takeoff = takeoff.following(old: now, new: r)
+            room = r
+            if let id = selectedWall, room.wall(id) == nil { selectedWall = nil }
+        }
     }
 
     private func undo() {
@@ -626,15 +678,18 @@ struct ScanEditor: View {
             guard let wall = room.wall(id) else { return }
             let along = room.along(.init(x: Double(hit.point.x), y: Double(hit.point.z)), on: wall)
             let upIn = (Double(hit.point.y) * 12).rounded()
-            // A wall drawn in has two sides: the one tapped.
+            // A wall drawn in or a scanned divider has two sides: the one tapped.
             var side = 0
             if wall.planned {
                 let n0 = (x: -(wall.end.y - wall.start.y), y: wall.end.x - wall.start.x)
                 side = Double(hit.normal.x) * n0.x + Double(hit.normal.z) * n0.y >= 0 ? 0 : 1
+            } else if isDivider(wall) {
+                let own = inward(wall, face: 0)
+                side = Double(hit.normal.x) * own.x + Double(hit.normal.z) * own.y >= 0 ? 0 : 1
             }
             guard let p = placing3D else {
                 tapWall(id)
-                if wall.planned {
+                if wall.planned || isDivider(wall) {
                     face = side
                     selectedPiece = takeoff.pieces.first { $0.wallID == id && $0.face == side }?.id
                 }
@@ -932,23 +987,25 @@ struct ScanEditor: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                     Spacer()
                 }
-                if wall.planned {
-                    if mode == .measure { plannedWallControls(wall) }
+                if wall.planned, mode == .measure { plannedWallControls(wall) }
+                if wall.planned || isDivider(wall) {
+                    // Either side of a wall drawn in or a scanned divider, or both.
                     Picker("Side", selection: Binding(get: { face }, set: { new in
                         face = new
                         selectedPiece = takeoff.pieces.first { $0.wallID == wallID && $0.face == new }?.id
                     })) {
-                        Text(room.faceName(of: wall, face: 0)).tag(0)
-                        Text(room.faceName(of: wall, face: 1)).tag(1)
+                        Text(sideName(wall, 0)).tag(0)
+                        Text(sideName(wall, 1)).tag(1)
                     }
                     .pickerStyle(.segmented)
                 }
-                Text(wall.planned ? "Seen from the \(room.faceName(of: wall, face: face).replacingOccurrences(of: "Side", with: "side"))"
-                                  : (area == .shower ? "Seen from inside the shower" : "Seen from inside the room"))
+                Text(wall.planned || isDivider(wall)
+                     ? "Seen from the \(sideName(wall, face).prefix(1).lowercased() + sideName(wall, face).dropFirst())"
+                     : (area == .shower ? "Seen from inside the shower" : "Seen from inside the room"))
                     .font(.caption).foregroundStyle(.secondary)
                 WallElevation(room: room, wall: wall, face: face, takeoff: $takeoff, selectedPiece: $selectedPiece,
                               endNames: (cornerName(wall, atStart: true), cornerName(wall, atStart: false)),
-                              others: others, snaps: room.snapPoints(on: wall, others: otherPieces.filter { $0.face == face }),
+                              others: othersHere, snaps: room.snapPoints(on: wall, others: otherPieces.filter { $0.face == face }),
                               onDoor: { d in
                                   if let i = room.openings.firstIndex(where: { $0.id == d.id }) { room.openings[i] = d }
                               },
@@ -1394,10 +1451,13 @@ struct ScanEditor: View {
     /// "wall D corner" for the end of a wall that meets another.
     private func cornerName(_ wall: ScannedRoom.Wall, atStart: Bool) -> String {
         let end = atStart ? wall.start : wall.end
+        // Not the wall's own other sections: at a divider, it's the divider.
+        let mine = Set(room.sections(of: wall.id).map(\.id))
+        let others = room.walls.filter { !mine.contains($0.id) && $0.id != wall.id }
         // The wall this end touches (anywhere along it), else the nearest corner.
-        let touching = room.walls.filter { $0.id != wall.id }.min { room.distanceToWall(end, $0) < room.distanceToWall(end, $1) }
+        let touching = others.min { room.distanceToWall(end, $0) < room.distanceToWall(end, $1) }
         if let touching, room.distanceToWall(end, touching) < 0.6 { return "wall \(touching.label)" }
-        let near = room.walls.filter { $0.id != wall.id }.min { a, b in
+        let near = others.min { a, b in
             min(dist(a.start, end), dist(a.end, end)) < min(dist(b.start, end), dist(b.end, end))
         }
         if let near, min(dist(near.start, end), dist(near.end, end)) < 1.5 { return "wall \(near.label)" }
@@ -1836,8 +1896,9 @@ struct PlanCanvas: View {
         let minX = tx.min() ?? -1, maxX = tx.max() ?? 1, minY = ty.min() ?? -1, maxY = ty.max() ?? 1
         // Room round the edge for the dimension lines — a row more where a
         // wall's stretches go outside it.
-        let rows = interactive && showDimensions && room.walls.contains { w in
-            !w.planned && !PlanDimensions.isPartition(w, in: room) && !PlanDimensions.stretches(of: w, in: room).isEmpty
+        let joined = room.joiningSections()
+        let rows = interactive && showDimensions && joined.walls.contains { w in
+            !w.planned && !PlanDimensions.isPartition(w, in: joined) && !PlanDimensions.stretches(of: w, in: joined).isEmpty
         }
         let margin: CGFloat = interactive && showDimensions ? (rows ? 118 : 100) : 60
         // And a strip along the bottom kept for the hint and the 2D/3D switch.
@@ -2436,6 +2497,15 @@ struct PlanCanvas: View {
     /// A tiled piece as a line on the plan; on a planned wall, along the face it's on.
     private func pieceLine(_ p: AreaTakeoff.Piece, _ f: Frame) -> Path? {
         guard let w = room.wall(p.wallID) else { return nil }
+        if room.isDivider(w) {
+            // A divider's tile just off the side it's on, so both sides show.
+            let n = inward(w, face: p.face), off = 3 / Double(f.scale)
+            let a = room.point(on: w, along: p.fromFt), b = room.point(on: w, along: p.toFt)
+            var path = Path()
+            path.move(to: f.at(.init(x: a.x + n.x * off, y: a.y + n.y * off)))
+            path.addLine(to: f.at(.init(x: b.x + n.x * off, y: b.y + n.y * off)))
+            return path
+        }
         guard w.planned else { return segment(p.wallID, from: p.fromFt, to: p.toFt, f) }
         let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
         let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
@@ -2451,21 +2521,14 @@ struct PlanCanvas: View {
     /// The unit vector from a wall toward the shower (its floor's middle),
     /// else into the room; a planned wall's from the face given.
     private func inward(_ w: ScannedRoom.Wall, face: Int) -> ScannedRoom.Point {
-        let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
-        let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
-        var n = ScannedRoom.Point(x: -dy / l, y: dx / l)
-        if w.planned { return face == 0 ? n : .init(x: -n.x, y: -n.y) }
         let target: ScannedRoom.Point
         if let r = floorRect?.wrappedValue ?? floorRectShown {
             let c = r.corners
             target = .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
         } else {
-            let pts = room.floorOutline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : room.floorOutline
-            target = .init(x: pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1)), y: pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1)))
+            target = room.middle
         }
-        let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
-        if (target.x - mid.x) * n.x + (target.y - mid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
-        return n
+        return room.sideNormal(of: w, face: face, toward: target)
     }
 
     private func segment(_ wallID: UUID, from: Double, to: Double, _ f: Frame) -> Path? {
@@ -2705,17 +2768,18 @@ struct PlanCanvas: View {
             }
         }
 
-        // Wall labels, just inside the room.
+        // Wall letters, on the middle of each wall (owner, 2026-10-09).
         let cx = room.walls.map { ($0.start.x + $0.end.x) / 2 }.reduce(0, +) / Double(max(room.walls.count, 1))
         let cy = room.walls.map { ($0.start.y + $0.end.y) / 2 }.reduce(0, +) / Double(max(room.walls.count, 1))
-        for w in room.walls {
-            let toward = letterSpot(w, f, center: .init(x: cx, y: cy))
-            let label = Text(interactive && !showDimensions ? "\(w.label)  \(inchText(w.lengthFt))" : w.label)
-                .font(.system(size: interactive ? 11 : 10, weight: .semibold))
-                .foregroundColor(mine.contains { $0.wallID == w.id } ? .blue : Color(white: 0.75))
-            ctx.draw(label, at: f.at(toward))
-        }
         if interactive && showDimensions { drawDimensions(ctx, f, center: .init(x: cx, y: cy)) }
+        // Over the dimensions' extension lines.
+        for (w, box, label) in letterBoxes(ctx, f) {
+            let ink = mine.contains { $0.wallID == w.id } ? Color.blue : Color(white: 0.75)
+            let badge = Path(roundedRect: box, cornerRadius: box.height / 2)
+            ctx.fill(badge, with: .color(Color(white: 0.09)))
+            ctx.stroke(badge, with: .color(ink), lineWidth: 1)
+            ctx.draw(label.foregroundColor(ink), at: CGPoint(x: box.midX, y: box.midY))
+        }
         // Just caught on something: a green flash where.
         if let flash {
             let c = f.at(flash.at)
@@ -2754,23 +2818,34 @@ struct PlanCanvas: View {
             let t = room.tubOutline.map(f.at)
             for i in t.indices { placer.claim(from: t[i], to: t[(i + 1) % t.count]) }
         }
-        for w in room.walls {
-            let at = f.at(letterSpot(w, f, center: center))
-            placer.claimForLabelsOnly(CGRect(x: at.x - 8, y: at.y - 8, width: 16, height: 16))
-        }
+        for (_, box, _) in letterBoxes(ctx, f) { placer.claimForLabelsOnly(box) }
         placer.claimForLabelsOnly(CGRect(x: 0, y: f.size.height - Self.controlStrip,
                                          width: f.size.width, height: Self.controlStrip))
         placer.page = CGRect(x: 0, y: 0, width: f.size.width, height: f.size.height - Self.controlStrip)
         DimensionDrawing.draw(ctx, placer.layout(dims, at: f.at, measure: { DimensionDrawing.measure(ctx, $0) }))
     }
 
-    /// Where a wall's letter goes: just inside the wall, a fixed distance on screen.
-    private func letterSpot(_ w: ScannedRoom.Wall, _ f: Frame, center: ScannedRoom.Point) -> ScannedRoom.Point {
-        let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
-        let dx = center.x - mid.x, dy = center.y - mid.y
-        let len = max((dx * dx + dy * dy).squareRoot(), 1e-9)
-        let inward = Double(interactive ? 16 : 9) / Double(f.scale)
-        return ScannedRoom.Point(x: mid.x + dx / len * inward, y: mid.y + dy / len * inward)
+    /// Each wall's letter: a badge centred on the middle of the wall
+    /// (owner, 2026-10-09) — slid along it only where it would sit on
+    /// another wall's letter (short walls side by side).
+    private func letterBoxes(_ ctx: GraphicsContext, _ f: Frame) -> [(ScannedRoom.Wall, CGRect, Text)] {
+        var out: [(ScannedRoom.Wall, CGRect, Text)] = []
+        // Longest first, so a short wall's letter is the one that moves.
+        for w in room.walls.sorted(by: { $0.lengthFt > $1.lengthFt }) {
+            let label = Text(interactive && !showDimensions ? "\(w.label)  \(inchText(w.lengthFt))" : w.label)
+                .font(.system(size: interactive ? 10 : 8, weight: .semibold))
+            let size = ctx.resolve(label).measure(in: CGSize(width: 400, height: 100))
+            let h = max(size.height + 2, interactive ? 14 : 11), wd = max(size.width + 6, h)
+            let a = f.at(w.start), b = f.at(w.end)
+            func box(_ t: Double) -> CGRect {
+                CGRect(x: a.x + (b.x - a.x) * t - wd / 2, y: a.y + (b.y - a.y) * t - h / 2, width: wd, height: h)
+            }
+            let free = [0.5, 0.35, 0.65, 0.2, 0.8].map(box).first { r in
+                !out.contains { $0.1.insetBy(dx: -1, dy: -1).intersects(r) }
+            }
+            out.append((w, free ?? box(0.5), label))
+        }
+        return out
     }
 }
 

@@ -644,7 +644,9 @@ enum Room3DScene {
         let cx = toward?.x ?? pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1))
         let cy = toward?.y ?? pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1))
         let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
-        return (cx - mid.x) * -dy + (cy - mid.y) * dx >= 0 ? 1 : -1
+        let own: Float = (cx - mid.x) * -dy + (cy - mid.y) * dx >= 0 ? 1 : -1
+        // A scanned divider's face 1 is the far side from the area (2026-10-09).
+        return face == 1 ? -own : own
     }
 
     private static func bounds(_ pts: [ScannedRoom.Point]) -> (x0: Double, y0: Double, w: Double, h: Double) {

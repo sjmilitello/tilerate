@@ -205,8 +205,8 @@ iPhone's LiDAR (Apple's RoomPlan; `RoomScanner.isAvailable`, the owner's
 every area in the room measures from it; "Scan just this area" keeps a scan
 on the area instead (`EstimateSection.roomScan`, e.g. from inside a shower).
 `ScannedRoom(captured:)` converts RoomPlan's result to feet: walls (pieces
-the scanner split are merged back, `mergingStraightRuns`; lettered A, B…
-round the room, each running with the room on its right), doors, windows and
+the scanner split are merged back, `mergingStraightRuns`; each running with
+the room on its right; lettered as below), doors, windows and
 openings (wall, width, height, height off the floor, position along the
 wall), the floor outline and area, and the bathtub's outline.
 
@@ -537,6 +537,61 @@ scanned room answers the physical ones on its model instead of in fields.
   (owner's rule, 2026-10-08; tub surrounds were 84″).
 - Calibrating or deleting a wall re-measures only areas measured on the
   model; typed numbers are never overwritten.
+
+## Wall letters and sections (owner's calls, 2026-10-09)
+
+**Sections.** A wall a divider meets partway is cut into sections, each a
+wall of its own with its own letter and its own face-on view ("each wall
+section should have its own letter and be its own view when tapped on"):
+`ScannedRoom.sectionAtDividers`. A divider is any full-height wall, scanned
+or drawn in, with an end on a scanned wall at least 6″ from its ends; half
+walls don't divide (the wall carries on above them) and walls drawn in are
+never divided. The section after a divider has `Wall.startsAtDivider`;
+when no divider meets its joint any more (deleted, moved off) it joins the
+wall before it again — a wall split by hand never does. Section ids come
+from the wall and the divider (`sectionID`), so a drag that divides a wall
+at every step keeps them. It runs on every change in the editor
+(`onChange(of: room)`), on a new scan, and once on scans saved before.
+Areas follow (`AreaTakeoff.following`: tile across a joint is cut in two,
+joined again when the sections join; items and corner pieces go with their
+section; several splits at once are taken in order). Sections are in line
+and joined, so they slide as one wall (`inLine`) and a divider moved drags
+their joint along. The plan dimensions a wall in sections as one —
+overall, and the stretches between dividers (`joiningSections`, used by
+`PlanDimensions.build`) — and a divider is still a partition (drawn solid
+in 3-D). A face-on view's end at a divider is named for the divider, not
+the next section. Cove filling and tiling round a shower floor reach across
+sections (`sections(of:)`).
+
+**Both sides of a divider.** A scanned divider (`ScannedRoom.isDivider`)
+has the Side switch walls drawn in have, so one area can tile either side
+or both ("Shower side" / "Side facing wall N"; each side's square feet
+count). For a scanned wall `Piece.face`/`Item.face` 0 is the area's own
+side — toward its drawn floor, else the room's middle, as always — and 1
+the far side (`sideNormal(of:face:toward:)`; a wall drawn in keeps face 0
+on its left), so nothing saved before moves. Other areas' tile on a
+divider is turned into this area's sides for the face-on view and the plan
+(`othersHere`); the plan draws a divider's tile just off the side it's on;
+a tap in 3-D picks the side tapped.
+
+**Letters** go in the order you'd meet the walls going clockwise round the
+plan as it shows on screen (turned square, `squaringAngle`): A is the top
+wall, then along each outside wall, and straight after a wall the walls
+that run into it, in order along it, each followed by any running on from
+it (a closet's walls follow the wall they stand on); walls standing on
+their own go last (`ScannedRoom.reletter`, `wallsInMeetingOrder`). It
+replaced lettering by angle round the room's middle, which mixed closet
+walls in with the outside ones. Only letters change, never a wall's
+direction. Scans saved before (`ScannedRoom.lettering` < 2) are cut into
+sections and lettered again when read (`EstimateRoom.reletterOldScans`,
+`upgradeLettering`): areas follow, and walls named by the old letters
+("Wall C" with its own tile) are renamed to match — a wall now in sections
+gives its tile to each section, the first keeping the square feet (the
+rest 0) until the area is measured again, so prices don't move. Walls
+added, split or divided later take the next free letter; nothing is
+re-lettered while editing. On the plan the letter is a badge centred on its
+wall, over the dimension lines, slid along the wall only where it would
+sit on another wall's letter. `WallLetteringTests`.
 
 ## Placing a shower, curbless showers and drains (owner's calls, 2026-10-08)
 

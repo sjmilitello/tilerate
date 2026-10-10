@@ -845,6 +845,10 @@ struct ScannedRoom: Codable, Hashable, Equatable {
         /// so areas measured from the scan move their tile onto this part.
         var splitFrom: UUID? = nil
         var splitAtFt: Double = 0
+        /// A section of a wall that starts where a divider meets it
+        /// (`sectionAtDividers`): it joins the wall before it again when no
+        /// divider is there any more. A wall split by hand never does.
+        var startsAtDivider: Bool = false
     }
 
     enum OpeningKind: String, Codable, CaseIterable {
@@ -881,6 +885,12 @@ struct ScannedRoom: Codable, Hashable, Equatable {
     var fixtures: [Fixture] = []
     /// Corrections from tape measurements, oldest first (the last can be undone).
     var calibrations: [ScanCalibration] = []
+    /// How the walls were lettered: scans saved before 2026-10-09 (0) were
+    /// lettered by angle round the room, with a wall a divider meets partway
+    /// as one wall; they are cut into sections and lettered again when read
+    /// (`EstimateRoom.init(from:)`, `upgradeLettering`).
+    var lettering: Int = ScannedRoom.letteringVersion
+    static let letteringVersion = 2
 
     /// Something the scanner found in the room: its footprint and height.
     struct Fixture: Codable, Hashable, Equatable {
@@ -1464,6 +1474,53 @@ extension EstimateRoom {
         c.read(.name, into: &name)
         c.read(.sections, into: &sections)
         c.read(.scan, into: &scan)
+        reletterOldScans()
+    }
+
+    /// Scans saved before walls were cut into sections at dividers and
+    /// lettered in the order you meet them are brought up to date; each
+    /// area measured from one follows (its tile and items onto the
+    /// sections), and its walls named by the old letters ("Wall C", with
+    /// its own tile) are renamed to match — a wall now in sections gives its
+    /// tile to each section, the first keeping the square feet until the
+    /// area is measured again, so nothing is priced differently.
+    mutating func reletterOldScans() {
+        if var s = scan, s.lettering < ScannedRoom.letteringVersion {
+            let before = s
+            let names = s.upgradeLettering()
+            scan = s
+            for i in sections.indices where sections[i].roomScan == nil {
+                sections[i].scanTakeoff = sections[i].scanTakeoff?.following(old: before, new: s)
+                sections[i].renameWalls(names)
+            }
+        }
+        for i in sections.indices {
+            guard var s = sections[i].roomScan, s.lettering < ScannedRoom.letteringVersion else { continue }
+            let before = s
+            let names = s.upgradeLettering()
+            sections[i].roomScan = s
+            sections[i].scanTakeoff = sections[i].scanTakeoff?.following(old: before, new: s)
+            sections[i].renameWalls(names)
+        }
+    }
+}
+
+extension EstimateSection {
+    /// Walls named by a scan's letters, renamed (old name → new names, all
+    /// at once); a wall now in sections adds one for each further section,
+    /// in the same tile with no square feet of its own yet.
+    mutating func renameWalls(_ names: [String: [String]]) {
+        var out: [TiledWall] = []
+        for w in walls {
+            guard let to = names[w.name], let first = to.first else { out.append(w); continue }
+            var renamed = w
+            renamed.name = first
+            out.append(renamed)
+            for more in to.dropFirst() where !walls.contains(where: { $0.name == more }) {
+                out.append(TiledWall(name: more, sqft: 0, tile: w.tile))
+            }
+        }
+        walls = out
     }
 }
 
@@ -1608,6 +1665,8 @@ extension ScannedRoom {
         c.read(.tubOutline, into: &tubOutline)
         c.read(.fixtures, into: &fixtures)
         c.read(.calibrations, into: &calibrations)
+        lettering = 0
+        c.read(.lettering, into: &lettering)
     }
 }
 
@@ -1684,6 +1743,7 @@ extension ScannedRoom.Wall {
         c.read(.thicknessIn, into: &thicknessIn)
         c.read(.splitFrom, into: &splitFrom)
         c.read(.splitAtFt, into: &splitAtFt)
+        c.read(.startsAtDivider, into: &startsAtDivider)
     }
 }
 

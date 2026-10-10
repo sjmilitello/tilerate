@@ -78,6 +78,149 @@ extension ScannedRoom {
         return o
     }
 
+    /// Letters every wall A, B, C… in the order you'd meet them going
+    /// clockwise round the room on the plan (owner's call, 2026-10-09): from
+    /// the top wall, along each outside wall, and straight after it the walls
+    /// that run into it (in order along it), each followed by any running on
+    /// from that one — so a closet's walls follow the wall they stand on.
+    /// Walls not reached that way go last, clockwise round the room. Returns
+    /// each wall's old name → new name, for areas that named walls by letter.
+    /// Never turns a wall round: only its letter changes.
+    @discardableResult
+    mutating func reletter() -> [String: String] {
+        let order = wallsInMeetingOrder()
+        var before: [UUID: String] = [:]
+        for w in walls { before[w.id] = name(of: w) }
+        let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        for (n, id) in order.enumerated() {
+            if let i = walls.firstIndex(where: { $0.id == id }) {
+                walls[i].label = n < letters.count ? String(letters[n]) : "\(n + 1)"
+            }
+        }
+        lettering = Self.letteringVersion
+        var renames: [String: String] = [:]
+        for w in walls {
+            guard let old = before[w.id] else { continue }
+            renames[old] = name(of: w)
+            if w.planned { renames["Knee wall \(old.split(separator: " ").last ?? "")"] = name(of: w) }
+        }
+        return renames.filter { $0.key != $0.value }
+    }
+
+    /// A scan saved before brought up to date (`lettering`): walls cut into
+    /// sections at dividers, then lettered in the order you meet them.
+    /// Returns each old wall name → its new names: one, or one per section
+    /// in order along it ("Knee wall X" names too, from before half walls).
+    mutating func upgradeLettering() -> [String: [String]] {
+        let before = self
+        sectionAtDividers()
+        reletter()
+        var out: [String: [String]] = [:]
+        for w in before.walls {
+            let now = sections(of: w.id).map { name(of: $0) }
+            let old = before.name(of: w)
+            if now != [old] { out[old] = now }
+            if w.planned, let first = now.first { out["Knee wall \(w.label)"] = [first] }
+        }
+        return out
+    }
+
+    /// The walls' ids in lettering order (`reletter`).
+    func wallsInMeetingOrder() -> [UUID] {
+        guard !walls.isEmpty else { return [] }
+        // As on screen: turned square (`squaringAngle`), y down, so clockwise
+        // is the way atan2 grows.
+        let a = -squaringAngle, cosA = cos(a), sinA = sin(a)
+        func turned(_ p: Point) -> SIMD2<Double> { SIMD2(p.x * cosA - p.y * sinA, p.x * sinA + p.y * cosA) }
+        let ends = Dictionary(uniqueKeysWithValues: walls.map { ($0.id, (turned($0.start), turned($0.end))) })
+        let joined = 0.5
+        func length(_ v: SIMD2<Double>) -> Double { (v.x * v.x + v.y * v.y).squareRoot() }
+        var order: [UUID] = []
+        var done = Set<UUID>()
+
+        // The outside walls: from the top wall, left to right, then at each
+        // corner the wall turning furthest out (leftmost, walking clockwise).
+        let flat = walls.filter { w in
+            let (p, q) = ends[w.id]!
+            return !w.planned && abs(q.x - p.x) >= abs(q.y - p.y)
+        }
+        let top = flat.min { l, r in
+            let ly = (ends[l.id]!.0.y + ends[l.id]!.1.y) / 2, ry = (ends[r.id]!.0.y + ends[r.id]!.1.y) / 2
+            if abs(ly - ry) > joined { return ly < ry }
+            return min(ends[l.id]!.0.x, ends[l.id]!.1.x) < min(ends[r.id]!.0.x, ends[r.id]!.1.x)
+        } ?? walls[0]
+        var outside: [(id: UUID, from: SIMD2<Double>, to: SIMD2<Double>)] = []
+        var (from, to) = ends[top.id]!
+        if from.x > to.x { swap(&from, &to) }
+        outside.append((top.id, from, to)); done.insert(top.id)
+        while length(to - outside[0].from) >= joined {
+            let dir = to - from
+            var best: (id: UUID, from: SIMD2<Double>, to: SIMD2<Double>, turn: Double)?
+            for w in walls where !done.contains(w.id) && !w.planned {
+                let (p, q) = ends[w.id]!
+                for (near, far) in [(p, q), (q, p)] where length(near - to) < joined {
+                    let d = far - near
+                    var turn = atan2(dir.x * d.y - dir.y * d.x, dir.x * d.x + dir.y * d.y)
+                    if turn < -.pi + 0.01 { turn = .pi }  // straight back is never the way round
+                    if turn < (best?.turn ?? .infinity) { best = (w.id, near, far, turn) }
+                }
+            }
+            if best == nil {
+                // A gap (an opening with no wall): the nearest outside wall end within 8′.
+                var gap = 8.0
+                for w in walls where !done.contains(w.id) && !w.planned && !PlanDimensions.isPartition(w, in: self) {
+                    let (p, q) = ends[w.id]!
+                    for (near, far) in [(p, q), (q, p)] where length(near - to) < gap {
+                        gap = length(near - to); best = (w.id, near, far, 0)
+                    }
+                }
+            }
+            guard let next = best else { break }
+            outside.append((next.id, next.from, next.to)); done.insert(next.id)
+            from = next.from; to = next.to
+        }
+
+        // How far along a wall (walked from → to) a point lies, when it's on it.
+        func along(_ p: SIMD2<Double>, _ from: SIMD2<Double>, _ to: SIMD2<Double>) -> Double? {
+            let d = to - from, len = length(d)
+            guard len > 0.01 else { return nil }
+            let u = d / len, v = p - from
+            let t = u.x * v.x + u.y * v.y
+            let off = abs(u.x * v.y - u.y * v.x)
+            return off < 0.35 && t > -joined && t < len + joined ? t : nil
+        }
+        // A wall, then those running into it, each followed by its own.
+        func visit(_ id: UUID, from: SIMD2<Double>, to: SIMD2<Double>) {
+            order.append(id); done.insert(id)
+            var into: [(t: Double, id: UUID, from: SIMD2<Double>, to: SIMD2<Double>)] = []
+            for w in walls where !done.contains(w.id) {
+                let (p, q) = ends[w.id]!
+                let tp = along(p, from, to), tq = along(q, from, to)
+                if let t = tp, tq == nil || t <= tq! { into.append((t, w.id, p, q)) }
+                else if let t = tq { into.append((t, w.id, q, p)) }
+            }
+            for w in into.sorted(by: { $0.t < $1.t }) where !done.contains(w.id) {
+                visit(w.id, from: w.from, to: w.to)
+            }
+        }
+        let outsideIDs = Set(outside.map(\.id))
+        done = outsideIDs
+        for w in outside {
+            done.remove(w.id)
+            visit(w.id, from: w.from, to: w.to)
+        }
+
+        // Anything left (standing on its own): clockwise round the room.
+        let rest = walls.filter { !done.contains($0.id) }
+        let mids = walls.map { (ends[$0.id]!.0 + ends[$0.id]!.1) / 2 }
+        let c = mids.reduce(SIMD2<Double>(0, 0), +) / Double(mids.count)
+        order += rest.sorted { l, r in
+            let a = (ends[l.id]!.0 + ends[l.id]!.1) / 2 - c, b = (ends[r.id]!.0 + ends[r.id]!.1) / 2 - c
+            return atan2(a.y, a.x) < atan2(b.y, b.x)
+        }.map(\.id)
+        return order
+    }
+
     /// The next free wall letter after the scanned ones.
     var nextWallLabel: String {
         let used = Set(walls.map(\.label))
@@ -246,6 +389,37 @@ extension ScannedRoom {
         let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
         var n = Point(x: -dy / l, y: dx / l)
         if face == 1 { n = Point(x: -n.x, y: -n.y) }
+        return faceName(of: wall, looking: n) ?? (face == 0 ? "Side 1" : "Side 2")
+    }
+
+    /// A scanned wall with the room on both sides (a partition): it can be
+    /// tiled on either side or both, like a wall drawn in (owner, 2026-10-09).
+    func isDivider(_ w: Wall) -> Bool { !w.planned && PlanDimensions.isPartition(w, in: self) }
+
+    /// The room's middle: its floor outline's, else its walls'.
+    var middle: Point {
+        let pts = floorOutline.isEmpty ? walls.flatMap { [$0.start, $0.end] } : floorOutline
+        return .init(x: pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1)), y: pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1)))
+    }
+
+    /// The unit vector square to a wall on one of its sides. A wall drawn in:
+    /// face 0 is its left-hand side. A scanned wall: face 0 is the side
+    /// toward `target` (an area's floor, else the room's middle) and face 1,
+    /// on a divider, the far side.
+    func sideNormal(of w: Wall, face: Int, toward target: Point) -> Point {
+        let dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+        let l = max((dx * dx + dy * dy).squareRoot(), 1e-9)
+        var n = Point(x: -dy / l, y: dx / l)
+        if !w.planned {
+            let mid = Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
+            if (target.x - mid.x) * n.x + (target.y - mid.y) * n.y < 0 { n = Point(x: -n.x, y: -n.y) }
+        }
+        return face == 1 ? Point(x: -n.x, y: -n.y) : n
+    }
+
+    /// "Side facing wall C": the wall a side of `wall` looks toward (`n`,
+    /// a unit vector square to it), or nil when it faces none.
+    func faceName(of wall: Wall, looking n: Point) -> String? {
         let mid = Point(x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2)
         var best: (String, Double)? = nil
         for w in walls where w.id != wall.id {
@@ -256,7 +430,7 @@ extension ScannedRoom {
             let s = ((w.start.x - mid.x) * n.y - (w.start.y - mid.y) * n.x) / den
             if t > 0.05, s >= 0, s <= 1, t < (best?.1 ?? .infinity) { best = (w.label, t) }
         }
-        return best.map { "Side facing wall \($0.0)" } ?? (face == 0 ? "Side 1" : "Side 2")
+        return best.map { "Side facing wall \($0.0)" }
     }
 
     /// The bathtub's footprint, in square feet.
@@ -1428,8 +1602,11 @@ extension ScannedRoom {
                   abs(dot(unit(h2.wall), back)) > 0.9 else { continue }
             let b = Point(x: p.x + back.x * hb.t, y: p.y + back.y * hb.t)
             // How far each side wall runs out from the back wall: the cove's depth is the shorter.
-            func reach(_ w: Wall) -> Double { max(dot(Point(x: w.start.x - b.x, y: w.start.y - b.y), out),
-                                                  dot(Point(x: w.end.x - b.x, y: w.end.y - b.y), out)) }
+            // (over every section of it: a divider partway along a side doesn't end it)
+            func reach(_ w: Wall) -> Double {
+                sections(of: w.id).map { w in max(dot(Point(x: w.start.x - b.x, y: w.start.y - b.y), out),
+                                                  dot(Point(x: w.end.x - b.x, y: w.end.y - b.y), out)) }.max() ?? 0
+            }
             let depth = min(reach(h1.wall), reach(h2.wall))
             let width = h1.t + h2.t
             // The tap inside it, and nothing across the open side before the corners.
@@ -1663,12 +1840,16 @@ extension AreaTakeoff {
                 let wx = w.end.x - w.start.x, wy = w.end.y - w.start.y, wl = max(hypot(wx, wy), 1e-9)
                 return abs((dx * wx + dy * wy) / (l * wl)) > 0.95 && room.distanceToWall(mid, w) < 0.4
             }) else { continue }
-            let lo = min(room.along(a, on: w), room.along(b, on: w)), hi = max(room.along(a, on: w), room.along(b, on: w))
-            guard hi - lo > 0.1 else { continue }
-            let height = pieces.first { $0.wallID == w.id }?.heightIn ?? Self.startingHeight(for: .shower, wall: w)
-            let id = used.contains(w.id) ? UUID() : (pieces.first { $0.wallID == w.id }?.id ?? UUID())
-            used.insert(w.id)
-            kept.append(Piece(id: id, wallID: w.id, fromFt: lo, toFt: hi, heightIn: height))
+            // Each section of that wall the side runs along (a divider partway along it).
+            for w in room.sections(of: w.id) {
+                let lo = max(0, min(room.along(a, on: w), room.along(b, on: w)))
+                let hi = min(w.lengthFt, max(room.along(a, on: w), room.along(b, on: w)))
+                guard hi - lo > 0.1 else { continue }
+                let height = pieces.first { $0.wallID == w.id }?.heightIn ?? Self.startingHeight(for: .shower, wall: w)
+                let id = used.contains(w.id) ? UUID() : (pieces.first { $0.wallID == w.id }?.id ?? UUID())
+                used.insert(w.id)
+                kept.append(Piece(id: id, wallID: w.id, fromFt: lo, toFt: hi, heightIn: height))
+            }
         }
         pieces = kept
         items.removeAll { item in room.wall(item.wallID).map { !$0.planned } == true && !kept.contains { $0.wallID == item.wallID } }
@@ -1856,6 +2037,126 @@ extension ScannedRoom {
         }
         return second
     }
+
+    // MARK: Sections
+
+    /// Every scanned wall cut into sections where a divider meets it partway
+    /// — a full-height wall, scanned or drawn in, with an end on it — so each
+    /// section has its own letter and face-on view (owner, 2026-10-09); and
+    /// sections joined again where no divider meets them any more. Half
+    /// walls don't divide a wall (it carries on above them), and walls drawn
+    /// in are never divided. Sections are in line and joined, so they move as
+    /// one wall (`inLine`) and a divider's end moves their joint with it.
+    /// Ids are worked out from the wall and the divider, so a drag that
+    /// divides a wall at every step gives the section the same id each time.
+    /// Returns whether anything changed.
+    @discardableResult
+    mutating func sectionAtDividers() -> Bool {
+        var changed = false
+        func divides(_ d: Wall) -> Bool { !isKneeWall(d) && d.lengthFt > 0.25 }
+        // Joined again where the divider has gone.
+        var merging = true
+        while merging {
+            merging = false
+            for x in walls where x.startsAtDivider {
+                guard let p = sectionBefore(x), abs(p.heightFt - x.heightFt) < 0.01 else { continue }
+                let joint = x.start
+                let divided = walls.contains { d in
+                    d.id != x.id && d.id != p.id && divides(d)
+                        && (Self.dist(d.start, joint) < 0.35 || Self.dist(d.end, joint) < 0.35)
+                }
+                guard !divided, let i = walls.firstIndex(where: { $0.id == p.id }) else { continue }
+                let before = p.lengthFt
+                walls[i].end = x.end
+                walls[i].lengthFt = Self.dist(walls[i].start, x.end)
+                for j in openings.indices where openings[j].wallID == x.id {
+                    openings[j].wallID = p.id
+                    openings[j].alongFt = openings[j].alongFt.map { $0 + before }
+                }
+                walls.removeAll { $0.id == x.id }
+                changed = true
+                merging = true
+                break
+            }
+        }
+        // Divided where a divider's end meets a wall partway.
+        var splitting = true
+        while splitting {
+            splitting = false
+            outer: for w in walls where !w.planned {
+                for d in walls where d.id != w.id && divides(d) {
+                    for (isStart, p) in [(true, d.start), (false, d.end)] where onRun(p, w) {
+                        // Not a scan's corner a few inches out: 6″ or more each side.
+                        let at = along(p, on: w)
+                        guard at >= 0.5, at <= w.lengthFt - 0.5, let second = splitWall(w.id, atFt: at),
+                              let k = walls.firstIndex(where: { $0.id == second.id }) else { continue }
+                        let id = Self.sectionID(w.id, d.id, isStart)
+                        for j in openings.indices where openings[j].wallID == second.id { openings[j].wallID = id }
+                        walls[k].id = id
+                        walls[k].startsAtDivider = true
+                        changed = true
+                        splitting = true
+                        break outer
+                    }
+                }
+            }
+        }
+        return changed
+    }
+
+    /// A section's id: the same every time for a wall divided by a divider's end.
+    static func sectionID(_ wall: UUID, _ divider: UUID, _ start: Bool) -> UUID {
+        var a = wall.uuid
+        let b = divider.uuid
+        withUnsafeMutableBytes(of: &a) { ap in
+            withUnsafeBytes(of: b) { bp in
+                for i in 0..<16 { ap[i] ^= bp[(i + 5) % 16] }
+            }
+        }
+        a.15 ^= start ? 0x5D : 0xA7
+        a.6 = (a.6 & 0x0F) | 0x40
+        a.8 = (a.8 & 0x3F) | 0x80
+        return UUID(uuid: a)
+    }
+
+    /// The sections joined end to end and in line with a wall, itself
+    /// included, in order along it (one wall before it was divided).
+    func sections(of id: UUID) -> [Wall] {
+        guard let w = wall(id), !w.planned else { return wall(id).map { [$0] } ?? [] }
+        var run = [w]
+        while let first = run.first, first.startsAtDivider,
+              let p = sectionBefore(first), !run.contains(where: { $0.id == p.id }) { run.insert(p, at: 0) }
+        while let last = run.last, let n = sectionAfter(last), !run.contains(where: { $0.id == n.id }) { run.append(n) }
+        return run
+    }
+
+    /// The section a divider section follows on from: in line, its end at this one's start.
+    private func sectionBefore(_ x: Wall) -> Wall? {
+        walls.first { p in
+            p.id != x.id && !p.planned && Self.dist(p.end, x.start) < 0.05
+                && Self.unit(p).x * Self.unit(x).x + Self.unit(p).y * Self.unit(x).y > 0.999
+        }
+    }
+
+    /// The section that follows on from this one at a divider.
+    private func sectionAfter(_ p: Wall) -> Wall? {
+        walls.first { x in x.startsAtDivider && sectionBefore(x)?.id == p.id }
+    }
+
+    /// The room with each wall's sections joined back into one wall (the
+    /// first section's id): for dimensions, where a wall's overall length
+    /// and the stretches between its dividers are what's wanted.
+    func joiningSections() -> ScannedRoom {
+        var r = self
+        for x in walls where x.startsAtDivider {
+            guard let xi = r.walls.firstIndex(where: { $0.id == x.id }), let p = r.sectionBefore(r.walls[xi]),
+                  let i = r.walls.firstIndex(where: { $0.id == p.id }) else { continue }
+            r.walls[i].end = r.walls[xi].end
+            r.walls[i].lengthFt = Self.dist(r.walls[i].start, r.walls[i].end)
+            r.walls.remove(at: xi)
+        }
+        return r
+    }
 }
 
 extension AreaTakeoff {
@@ -1865,9 +2166,47 @@ extension AreaTakeoff {
     /// stay on walls that got shorter; a full-height piece stays full height.
     func following(old: ScannedRoom, new: ScannedRoom) -> AreaTakeoff {
         var t = self
-        // Splits first, in the old wall's measure.
-        for w in new.walls {
-            guard let from = w.splitFrom, old.wall(from) != nil, old.wall(w.id) == nil else { continue }
+        // Sections joined again (`sectionAtDividers`): tile and items on a
+        // wall that's gone move onto the wall now running over it, in that
+        // wall's measure as it was.
+        for o in old.walls where new.wall(o.id) == nil {
+            let ou = o.lengthFt > 0 ? ScannedRoom.Point(x: (o.end.x - o.start.x) / o.lengthFt, y: (o.end.y - o.start.y) / o.lengthFt) : .init()
+            guard let n = new.walls.first(where: { n in
+                guard !n.planned, let was = old.wall(n.id), was.lengthFt > 0 else { return false }
+                let u = ScannedRoom.Point(x: (was.end.x - was.start.x) / was.lengthFt, y: (was.end.y - was.start.y) / was.lengthFt)
+                let off = abs((o.start.x - was.start.x) * -u.y + (o.start.y - was.start.y) * u.x)
+                return u.x * ou.x + u.y * ou.y > 0.999 && off < 0.05 && hypot(was.end.x - o.start.x, was.end.y - o.start.y) < 0.05
+            }), let was = old.wall(n.id) else { continue }
+            let shift = was.lengthFt
+            for i in t.pieces.indices where t.pieces[i].wallID == o.id {
+                t.pieces[i].wallID = n.id
+                t.pieces[i].fromFt += shift
+                t.pieces[i].toFt += shift
+            }
+            for i in t.items.indices where t.items[i].wallID == o.id {
+                t.items[i].wallID = n.id
+                if !t.items[i].kind.isCorner {
+                    t.items[i].fromFt += shift
+                    t.items[i].toFt += shift
+                }
+            }
+            // A piece either side of the joint at the same height is one piece again.
+            let mine = t.pieces.filter { $0.wallID == n.id }
+            for a in mine {
+                guard let b = mine.first(where: { abs($0.fromFt - a.toFt) < 1e-6 && $0.heightIn == a.heightIn && $0.face == a.face }),
+                      let ai = t.pieces.firstIndex(where: { $0.id == a.id }), t.pieces.contains(where: { $0.id == b.id }) else { continue }
+                t.pieces[ai].toFt = b.toFt
+                t.pieces.removeAll { $0.id == b.id }
+            }
+        }
+        // Splits next, in the old wall's measure — a wall split more than
+        // once at a time (several dividers) part by part, in order.
+        var known = Set(old.walls.map(\.id))
+        var pending = new.walls.filter { w in w.splitFrom != nil && old.wall(w.id) == nil }
+        while let k = pending.firstIndex(where: { known.contains($0.splitFrom!) }) {
+            let w = pending.remove(at: k)
+            known.insert(w.id)
+            let from = w.splitFrom!
             let at = w.splitAtFt
             var moved: [Piece] = []
             for i in t.pieces.indices where t.pieces[i].wallID == from {
@@ -1887,10 +2226,15 @@ extension AreaTakeoff {
                 }
             }
             t.pieces += moved
-            for i in t.items.indices where t.items[i].wallID == from && t.items[i].fromFt >= at - 1e-9 {
-                t.items[i].wallID = w.id
-                t.items[i].fromFt -= at
-                t.items[i].toFt -= at
+            for i in t.items.indices where t.items[i].wallID == from {
+                if t.items[i].kind.isCorner {
+                    // A corner piece at the far end goes with the far part.
+                    if !t.items[i].atStart { t.items[i].wallID = w.id }
+                } else if t.items[i].fromFt >= at - 1e-9 {
+                    t.items[i].wallID = w.id
+                    t.items[i].fromFt -= at
+                    t.items[i].toFt -= at
+                }
             }
         }
         // Walls whose start moved or that changed length.

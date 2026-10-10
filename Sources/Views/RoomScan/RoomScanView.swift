@@ -21,7 +21,7 @@ extension ScannedRoom {
 
         func center(_ t: simd_float4x4) -> SIMD3<Float> { SIMD3(t.columns.3.x, t.columns.3.y, t.columns.3.z) }
 
-        // Walls, lettered clockwise round the middle of the room.
+        // Walls, lettered once merged (`letter`).
         let mid = room.walls.isEmpty ? SIMD3<Float>(0, 0, 0)
             : room.walls.map { center($0.transform) }.reduce(SIMD3<Float>(0, 0, 0), +) / Float(room.walls.count)
         let ordered = room.walls.sorted {
@@ -121,6 +121,14 @@ extension ScannedRoom {
                 Point(x: Double($0.x) * f, y: Double($0.y) * f)
             }
         }
+
+        // Walls a divider meets partway cut into sections (doors and windows
+        // with them), then lettered again so the sections take their places.
+        if sectionAtDividers() {
+            let order = wallsInMeetingOrder()
+            reletter()
+            walls = order.compactMap { id in walls.first { $0.id == id } }
+        }
     }
 
     /// Walls in line with each other and meeting end to end, merged into
@@ -170,9 +178,10 @@ extension ScannedRoom {
         return (walls, into)
     }
 
-    /// Letters the walls A, B, C… round the room, each running the same way
-    /// (the room on its right on the plan), so a wall's start is on your
-    /// left when you stand in the room facing it.
+    /// Turns each wall to run the same way (the room on its right on the
+    /// plan), so a wall's start is on your left when you stand in the room
+    /// facing it, then letters them A, B, C… in the order you meet them
+    /// (`reletter`), and puts them in that order.
     static func letter(_ walls: inout [Wall]) {
         guard !walls.isEmpty else { return }
         let cx = walls.map { ($0.start.x + $0.end.x) / 2 }.reduce(0, +) / Double(walls.count)
@@ -182,12 +191,11 @@ extension ScannedRoom {
             let cross = (w.end.x - w.start.x) * (cy - w.start.y) - (w.end.y - w.start.y) * (cx - w.start.x)
             if cross < 0 { (walls[i].start, walls[i].end) = (w.end, w.start) }
         }
-        walls.sort {
-            atan2(($0.start.y + $0.end.y) / 2 - cy, ($0.start.x + $0.end.x) / 2 - cx)
-                < atan2(($1.start.y + $1.end.y) / 2 - cy, ($1.start.x + $1.end.x) / 2 - cx)
-        }
-        let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-        for i in walls.indices { walls[i].label = i < letters.count ? String(letters[i]) : "\(i + 1)" }
+        var room = ScannedRoom()
+        room.walls = walls
+        let order = room.wallsInMeetingOrder()
+        room.reletter()
+        walls = order.compactMap { id in room.walls.first { $0.id == id } }
     }
 
     private func distance(_ q: SIMD2<Double>, _ w: Wall) -> Double {

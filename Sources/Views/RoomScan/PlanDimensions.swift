@@ -59,6 +59,10 @@ enum PlanDimensions {
                       curbEdges: [(ScannedRoom.Point, ScannedRoom.Point)],
                       items: [AreaTakeoff.Item],
                       inward: (ScannedRoom.Wall, Int) -> ScannedRoom.Point) -> [PlanDimension] {
+        // A wall divided into sections is dimensioned as one: its overall,
+        // and the stretches between its dividers.
+        let sectioned = room
+        let room = room.joiningSections()
         var out: [PlanDimension] = []
         let center = middle(of: room)
         let floorMid = floor.map { r -> ScannedRoom.Point in
@@ -133,12 +137,12 @@ enum PlanDimensions {
 
         // Framed benches: length along the front, depth at the end.
         for item in items where item.kind == .framedBench {
-            guard let w = room.wall(item.wallID) else { continue }
+            guard let w = sectioned.wall(item.wallID) else { continue }
             let n = inward(w, item.face)
             let skin = w.planned ? w.thicknessIn / 24 : 0
             let d = skin + item.depthIn / 12
             func pt(_ along: Double, _ off: Double) -> ScannedRoom.Point {
-                let p = room.point(on: w, along: along)
+                let p = sectioned.point(on: w, along: along)
                 return .init(x: p.x + n.x * off, y: p.y + n.y * off)
             }
             out.append(PlanDimension(id: "bench-\(item.id)", kind: .feature,
@@ -158,8 +162,12 @@ enum PlanDimensions {
     /// A wall with an end partway along another wall — a partition, with
     /// room on both sides — rather than one round the outside.
     static func isPartition(_ w: ScannedRoom.Wall, in room: ScannedRoom) -> Bool {
-        room.walls.contains { o in
-            guard o.id != w.id, o.lengthFt > 0.05 else { return false }
+        // A wall divided into sections where it meets it counts as one wall
+        // (and a section is never a partition of its own wall).
+        let mine = Set(room.sections(of: w.id).map(\.id))
+        let room = room.walls.contains(where: \.startsAtDivider) ? room.joiningSections() : room
+        return room.walls.contains { o in
+            guard !mine.contains(o.id), o.id != w.id, o.lengthFt > 0.05 else { return false }
             let u = unit(o.start, o.end), n = ScannedRoom.Point(x: -u.y, y: u.x)
             return [w.start, w.end].contains { p in
                 let t = dot(sub(p, o.start), u)
