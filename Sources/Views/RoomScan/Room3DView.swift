@@ -701,6 +701,10 @@ enum Room3DScene {
         m.diffuse.wrapS = .repeat
         m.diffuse.wrapT = .repeat
         m.diffuse.mipFilter = .linear
+        m.diffuse.minificationFilter = .linear
+        m.diffuse.magnificationFilter = .linear
+        // Grout lines stay sharp on walls seen at an angle.
+        m.diffuse.maxAnisotropy = 16
         let sx = widthFt * 12 / pattern.periodIn.width, sy = heightFt * 12 / pattern.periodIn.height
         let tx = x0 * 12 / pattern.periodIn.width, ty = y0 * 12 / pattern.periodIn.height
         m.diffuse.contentsTransform = SCNMatrix4Translate(SCNMatrix4MakeScale(Float(sx), Float(sy), 1), Float(tx), Float(ty), 0)
@@ -788,11 +792,38 @@ enum TilePattern {
             rects = [CGRect(x: 0, y: 0, width: long, height: short)]
         }
 
-        let ppi = min(10, 900 / max(period.width, period.height))
+        // One image holds several tiles each way (to about 8′), so each tile
+        // can have its own shade, as real tile does (owner: "there is no tile
+        // shown", 2026-10-09 — flat colour with hairline grout read as paint).
+        let one = period
+        let rx = rotated || layout == .herringbone ? 1 : max(1, min(4, Int((96 / one.width).rounded(.up))))
+        let ry = rotated || layout == .herringbone ? 1 : max(1, min(4, Int((96 / one.height).rounded(.up))))
+        period = CGSize(width: one.width * Double(rx), height: one.height * Double(ry))
+        var tiles: [CGRect] = []
+        for i in 0..<rx {
+            for j in 0..<ry {
+                tiles += rects.map { $0.offsetBy(dx: one.width * Double(i), dy: one.height * Double(j)) }
+            }
+        }
+
+        let ppi = min(10, 1024 / max(period.width, period.height))
         let px = CGSize(width: max(8, period.width * ppi), height: max(8, period.height * ppi))
-        let grout = max(1.2, 0.125 * ppi)
+        // Grout wide enough to see on a phone: 1/8″, but never under 2½ pixels.
+        let grout = max(2.5, 0.125 * ppi)
         let face = color(t?.tileType)
-        let joint = UIColor(white: (t?.tileType == .slate || t?.tileType == .granite) ? 0.3 : 0.62, alpha: 1)
+        // Grout that stands out from the tile: light on darker tile, grey on light.
+        var fr: CGFloat = 0, fg: CGFloat = 0, fb: CGFloat = 0, fa: CGFloat = 0
+        face.getRed(&fr, green: &fg, blue: &fb, alpha: &fa)
+        let lum = 0.299 * fr + 0.587 * fg + 0.114 * fb
+        let joint = UIColor(white: lum > 0.75 ? 0.55 : 0.88, alpha: 1)
+        // Each tile's own shade: a little lighter or darker, more for handmade tile.
+        let spread: CGFloat = t?.tileType == .zellige || t?.tileType == .terracotta ? 0.12 : 0.05
+        func shade(_ k: Int) -> UIColor {
+            var h = UInt32(truncatingIfNeeded: k &* 2_654_435_761)
+            h ^= h >> 15
+            let f = 1 + spread * (CGFloat(h % 1000) / 500 - 1)
+            return UIColor(red: min(1, fr * f), green: min(1, fg * f), blue: min(1, fb * f), alpha: 1)
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let image = UIGraphicsImageRenderer(size: px, format: format).image { ctx in
@@ -803,7 +834,8 @@ enum TilePattern {
             if rotated {
                 // Squares turned 45°: a diamond, with its neighbours' corners.
                 let s = px.width
-                for (cx, cy) in [(s / 2, s / 2), (0.0, 0.0), (s, 0.0), (0.0, s), (s, s)] {
+                for (k, (cx, cy)) in [(s / 2, s / 2), (0.0, 0.0), (s, 0.0), (0.0, s), (s, s)].enumerated() {
+                    shade(k == 0 ? 0 : 1).setFill()
                     let d = s / 2 - grout / 2
                     let path = UIBezierPath()
                     path.move(to: CGPoint(x: cx, y: cy - d))
@@ -814,7 +846,8 @@ enum TilePattern {
                     path.fill()
                 }
             } else {
-                for r in rects {
+                for (k, r) in tiles.enumerated() {
+                    shade(k).setFill()
                     // Each tile, and its copies one repeat over, so edges wrap.
                     for dx in [-period.width, 0, period.width] {
                         for dy in [-period.height, 0, period.height] {

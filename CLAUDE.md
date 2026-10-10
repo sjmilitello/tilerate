@@ -356,7 +356,12 @@ area's tile with grout lines at its real size and layout (`TilePattern`:
 stacked, running bond, diagonal, herringbone; long side across; sizes from
 the tile, else usual for its shape), benches, niches, corner pieces, the
 curb, stone in a stone colour, and the fixtures the scanner found
-(`ScannedRoom.fixtures`, kept from 2026-10-07 scans on; switchable). The
+(`ScannedRoom.fixtures`, kept from 2026-10-07 scans on; switchable).
+Tile has to read as tile at phone size (owner, 2026-10-09: a 24×48 wall
+looked painted): `TilePattern` draws several tiles to the image (to about
+8′ each way), each a slightly different shade (more for zellige and
+terracotta), grout at least 2½ pixels wide in a colour that stands out
+from the tile (light on darker tile), filtered anisotropically. The
 room's own walls are drawn from inside only, like a doll's house, so the
 near walls drop away whichever way it's turned. A partition (a scanned wall
 with an end partway along another, `isPartition`) is drawn solid, both faces
