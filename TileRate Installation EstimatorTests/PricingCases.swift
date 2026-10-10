@@ -113,6 +113,13 @@ enum PricingCases {
         return s
     }
 
+    /// The materials when this was recorded, by the names they had then
+    /// (Limestone/Travertine was split on 2026-10-09).
+    static let recordedMaterials: [(TileType, String)] = [
+        (.ceramic, "Ceramic"), (.porcelain, "Porcelain"), (.glass, "Glass"), (.marble, "Marble"),
+        (.limestone, "Limestone/Travertine"), (.slate, "Slate"), (.granite, "Granite"), (.quartzite, "Quartzite"),
+        (.cement, "Cement"), (.terracotta, "Terracotta"), (.zellige, "Zellige"),
+    ]
     static let recordedLayouts: [Layout] = [.straightStacked, .runningBond, .diagonal, .herringbone, .multiTile]
     static let recordedShapes: [TileSize] = [.square, .rectangle, .hexagon, .arabesque, .starCross, .mosaic]
     static let recordedStyles: [MosaicStyle] = [.square, .hexagon, .octagonDot, .diamond, .rectangular, .miniBrick,
@@ -156,8 +163,8 @@ enum PricingCases {
 
         // 3. Every material, layout, shape and mosaic style on a wall.
         for (rn, r) in rateSets.prefix(2) {
-            for m in TileType.allCases {
-                out.append(.init(name: "material/\(rn)/\(m.rawValue)", rates: r,
+            for (m, recordedName) in Self.recordedMaterials {
+                out.append(.init(name: "material/\(rn)/\(recordedName)", rates: r,
                                  section: section(.wall, tile: tile(m, .hexagon, .straightStacked), sqft: 80)))
             }
             // The layouts, shapes and styles there were when this was recorded

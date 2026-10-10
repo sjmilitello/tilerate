@@ -284,6 +284,7 @@ struct AreaFlowView: View {
                     .foregroundStyle(ND.muted)
             }
         }
+        .onAppear { sec.wrappedValue.startWithUsualTile() }
     }
 
     // MARK: Step 3: measure
@@ -548,10 +549,10 @@ struct AreaFlowView: View {
                 var s = section
                 if on, fromModel, let scan = activeScan, let t = s.scanTakeoff {
                     // A wall each, from the model.
-                    s.walls = [TiledWall(name: "", tile: s.ndMainTile ?? TileChoice())]
+                    s.walls = [TiledWall(name: "", tile: s.ndMainTile ?? .usual)]
                     t.apply(scan, to: &s, prices: StonePrices(rates: store.pricingRates))
                 } else if on {
-                    let tile = s.ndMainTile ?? TileChoice()
+                    let tile = s.ndMainTile ?? .usual
                     s.walls = ["Back wall", "Left wall", "Right wall"].map { TiledWall(name: $0, tile: tile) }
                 } else {
                     let total = s.walls.reduce(0) { $0 + $1.sqft }
@@ -587,7 +588,7 @@ struct AreaFlowView: View {
                 }
                 if !fromModel {
                     Button {
-                        let tile = section.walls.last?.tile ?? section.ndMainTile ?? TileChoice()
+                        let tile = section.walls.last?.tile ?? section.ndMainTile ?? .usual
                         sec.wrappedValue.walls.append(TiledWall(name: "Wall \(section.walls.count + 1)", tile: tile))
                     } label: {
                         Label("Add wall", systemImage: "plus").font(.system(size: 15, weight: .medium))
@@ -642,7 +643,7 @@ struct AreaFlowView: View {
             sqftField(sec.measurements.showerFloorSqft, label: "Square feet")
             if section.measurements.showerFloorSqft > 0 {
                 separateTileRow(tile: section.showerFloorTile, target: .floor,
-                                turnOn: { sec.wrappedValue.showerFloorTile = section.ndMainTile ?? TileChoice(); editing = .floor },
+                                turnOn: { sec.wrappedValue.showerFloorTile = section.ndMainTile ?? .usual; editing = .floor },
                                 turnOff: { sec.wrappedValue.showerFloorTile = nil })
                 radiantHeatBlock
             }
@@ -737,7 +738,7 @@ struct AreaFlowView: View {
             if section.measurements.ceilingSqft > 0 {
                 sqftField(sec.measurements.ceilingSqft, label: "Square feet")
                 separateTileRow(tile: section.ceilingTile, target: .ceiling,
-                                turnOn: { sec.wrappedValue.ceilingTile = section.ndMainTile ?? TileChoice(); editing = .ceiling },
+                                turnOn: { sec.wrappedValue.ceilingTile = section.ndMainTile ?? .usual; editing = .ceiling },
                                 turnOff: { sec.wrappedValue.ceilingTile = nil })
             } else {
                 Button("Tile the ceiling") {
@@ -823,7 +824,7 @@ struct AreaFlowView: View {
                         tile: wallBinding(id).tile, rates: store.pricingRates)
         case .floor:
             NDTileSheet(title: "Shower floor tile",
-                        tile: Binding(get: { section.showerFloorTile ?? TileChoice() },
+                        tile: Binding(get: { section.showerFloorTile ?? .usual },
                                       set: { sec.wrappedValue.showerFloorTile = $0 }),
                         rates: store.pricingRates)
         case .decorative(let id):
@@ -831,7 +832,7 @@ struct AreaFlowView: View {
             NDTileSheet(title: "\(item.wrappedValue.kind.rawValue) tile", tile: item.tile, rates: store.pricingRates)
         case .ceiling:
             NDTileSheet(title: "Ceiling tile",
-                        tile: Binding(get: { section.ceilingTile ?? TileChoice() },
+                        tile: Binding(get: { section.ceilingTile ?? .usual },
                                       set: { sec.wrappedValue.ceilingTile = $0 }),
                         rates: store.pricingRates)
         }
@@ -1189,7 +1190,7 @@ struct NDTileFields: View {
             VStack(alignment: .leading, spacing: 10) {
                 NDLabel("Material")
                 NDFlow {
-                    ForEach(TileType.allCases) { t in
+                    ForEach(TileType.choices) { t in
                         NDChip(title: t.rawValue, selected: type == t) { type = t }
                     }
                 }
@@ -1217,7 +1218,7 @@ struct NDTileFields: View {
                 VStack(alignment: .leading, spacing: 10) {
                     NDLabel("Shape")
                     NDFlow {
-                        ForEach(TileSize.allCases.filter { $0 != .mosaic }) { s in
+                        ForEach(TileSize.choices.filter { $0 != .mosaic }) { s in
                             NDChip(title: s.rawValue, selected: size == s) { size = s }
                         }
                     }
@@ -1314,7 +1315,7 @@ struct NDTileFields: View {
         VStack(alignment: .leading, spacing: 10) {
             NDLabel("Layout")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                ForEach(Layout.allCases) { l in
+                ForEach(Layout.choices) { l in
                     layoutButton(title: l.rawValue, selected: !isMosaic && layout == l,
                                  picture: AnyShape(NDLayoutPattern(layout: l))) { choose(l) }
                 }

@@ -912,6 +912,28 @@ inside the Admin sheet is unreliable there); check them on the phone after
 changing them. `RadiantHeatTests` covers the pricing, including the owner's
 example (60 sq ft floor, 50 heated: $1,043.82 kit, $500 installation).
 
+## Materials, shapes and wording (owner's calls, 2026-10-09)
+
+Limestone and travertine are separate materials (`TileType.limestone` is
+now "Limestone"; a saved "Limestone/Travertine" reads as Limestone, and
+rates saved before give Travertine limestone's adder once,
+`Rates.travertineSplit`). Terrazzo, Quarry and Pearl were added (adders
+start at $0). Square is not a separate shape: the shapes offered are
+`TileSize.choices`, and a saved square reads as a rectangle (they always
+priced the same — the doubling adder). Multi-Tile is no longer offered
+(`Layout.choices`); the case stays so estimates saved with it read and
+price as before. The estimate names a tile's shape after its size unless
+it's a square or rectangle ("6×6 Ceramic Hexagon Tile", `tileWord`).
+Porcelain, Rectangle and Running Bond come first in their lists
+(`TileType.choices`, `TileSize.choices`, `Layout.choices`), and an area
+with no tile yet opens on them at 12″ × 24″ (`startWithUsualTile`, both
+designs); a separate tile with nothing to copy starts on
+`TileChoice.usual`. `TileChoice()` itself still defaults to ceramic —
+recorded cases rely on it.
+`WordingGoldenTests.withOwnersChanges` applies exactly these two wording
+changes to the recording (never re-recorded); `PricingCases` keeps the
+materials by the names they were recorded with (`recordedMaterials`).
+
 ## Multi-tile layouts
 
 From 2026-09-28 a Multi-Tile layout lists its tiles, each with its own shape

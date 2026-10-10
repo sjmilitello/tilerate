@@ -129,4 +129,65 @@ struct NewTileChoicesTests {
         let read = try? JSONDecoder().decode(TileChoice.self, from: JSONEncoder().encode(f))
         #expect(read?.turnedOver == true)
     }
+
+    // MARK: Materials, shapes and wording (owner, 2026-10-09)
+
+    @Test func limestoneAndTravertineAreSeparateAndOldRatesKeepTravertinesPrice() throws {
+        let old = try JSONDecoder().decode(TileType.self, from: Data(#""Limestone/Travertine""#.utf8))
+        #expect(old == .limestone)
+        #expect(TileType.limestone.rawValue == "Limestone" && TileType.travertine.rawValue == "Travertine")
+        for t in [TileType.terrazzo, .quarry, .pearl] { #expect(TileType.allCases.contains(t)) }
+        // Rates saved before the split: travertine gets limestone's adder, once.
+        var r = Rates()
+        r.typeAdder[.limestone] = 8
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as! [String: Any]
+        json.removeValue(forKey: "travertineSplit")
+        var pairs = json["typeAdder"] as! [Any]
+        if let i = pairs.firstIndex(where: { ($0 as? String) == "Travertine" }) { pairs.removeSubrange(i...i + 1) }
+        for i in pairs.indices where (pairs[i] as? String) == "Limestone" { pairs[i] = "Limestone/Travertine" }
+        json["typeAdder"] = pairs
+        var read = try JSONDecoder().decode(Rates.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(read.typeAdder[.limestone] == 8 && read.typeAdder[.travertine] == 8)
+        // Once split, the owner's own travertine price stays.
+        read.typeAdder[.travertine] = 12
+        let again = try JSONDecoder().decode(Rates.self, from: JSONEncoder().encode(read))
+        #expect(again.typeAdder[.travertine] == 12 && again.typeAdder[.limestone] == 8)
+    }
+
+    @Test func squareIsARectangleAndMultiTileIsNotOffered() throws {
+        #expect(!TileSize.choices.contains(.square) && TileSize.choices.contains(.rectangle))
+        #expect(!Layout.choices.contains(.multiTile))
+        let t = try JSONDecoder().decode(TileChoice.self, from: Data(#"{"tileType":"Marble","tileSize":"Square","tileWidthIn":12,"tileLengthIn":12}"#.utf8))
+        #expect(t.tileSize == .rectangle)
+        // A 12 × 12 prices the same either way.
+        let r = rates()
+        var s = wall(TileChoice(tileType: .marble, tileSize: .rectangle, layout: .straightStacked, tileWidthIn: 12, tileLengthIn: 12))
+        let asRectangle = totals(s, r)
+        s.tileSize = .square
+        #expect(totals(s, r) == asRectangle)
+    }
+
+    @Test func shapesOtherThanRectanglesAreNamedAfterTheSize() {
+        let hex = TileChoice(tileType: .ceramic, tileSize: .hexagon, layout: .straightStacked, tileWidthIn: 6, tileLengthIn: 6)
+        #expect(tilePhrase(hex, .standard).hasPrefix("6×6 Ceramic Hexagon Tile"))
+        let rect = TileChoice(tileType: .ceramic, tileSize: .rectangle, layout: .straightStacked, tileWidthIn: 12, tileLengthIn: 24)
+        #expect(tilePhrase(rect, .standard).hasPrefix("12×24 Ceramic Tile"))
+        let pill = TileChoice(tileType: .travertine, tileSize: .pill, layout: .runningBond, tileWidthIn: 2, tileLengthIn: 6)
+        #expect(tilePhrase(pill, .standard).hasPrefix("2×6 Travertine Pill Tile"))
+    }
+
+    @Test func porcelainRectangleAndRunningBondComeFirstAndANewAreaStartsOnThem() {
+        #expect(TileType.choices.first == .porcelain && TileType.choices.count == TileType.allCases.count)
+        #expect(TileSize.choices.first == .rectangle)
+        #expect(Layout.choices.first == .runningBond)
+        var s = EstimateSection()
+        s.startWithUsualTile()
+        #expect(s.tileType == .porcelain && s.tileSize == .rectangle && s.layout == .runningBond)
+        #expect(s.tileWidthIn == 12 && s.tileLengthIn == 24)
+        // A tile already chosen is left alone.
+        var chosen = EstimateSection()
+        chosen.tileType = .glass; chosen.tileSize = .mosaic
+        chosen.startWithUsualTile()
+        #expect(chosen.tileType == .glass && chosen.tileSize == .mosaic && chosen.layout == nil && chosen.tileWidthIn == nil)
+    }
 }

@@ -733,6 +733,10 @@ enum TilePattern {
         case .cement: UIColor(red: 0.7, green: 0.7, blue: 0.68, alpha: 1)
         case .terracotta: UIColor(red: 0.78, green: 0.5, blue: 0.36, alpha: 1)
         case .zellige: UIColor(red: 0.42, green: 0.63, blue: 0.6, alpha: 1)
+        case .travertine: UIColor(red: 0.89, green: 0.83, blue: 0.72, alpha: 1)
+        case .terrazzo: UIColor(red: 0.86, green: 0.85, blue: 0.82, alpha: 1)
+        case .quarry: UIColor(red: 0.66, green: 0.36, blue: 0.27, alpha: 1)
+        case .pearl: UIColor(red: 0.93, green: 0.92, blue: 0.95, alpha: 1)
         }
     }
 

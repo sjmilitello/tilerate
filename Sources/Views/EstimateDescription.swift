@@ -288,9 +288,13 @@ func pieceLabel(_ p: TilePiece) -> String {
 }
 
 /// "Tile", or "Penny Round Mosaic" for a mosaic with a style chosen.
+/// "Tile", "Hexagon Tile" or "Penny Round Mosaic": a square or rectangle
+/// isn't named — its width and length say it — any other shape is
+/// (owner, 2026-10-09: "6×6 Ceramic Hexagon Tile").
 private func tileWord(size: TileSize?, style: MosaicStyle?) -> String {
-    guard size == .mosaic, let style else { return "Tile" }
-    return "\(style.rawValue) Mosaic"
+    if size == .mosaic { return style.map { "\($0.rawValue) Mosaic" } ?? "Tile" }
+    guard let size, size != .square, size != .rectangle else { return "Tile" }
+    return "\(size.rawValue) Tile"
 }
 private func describeInches(_ v: Double?) -> String? {
     guard let v, v > 0 else { return nil }

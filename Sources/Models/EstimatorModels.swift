@@ -129,17 +129,39 @@ enum TileType: String, CaseIterable, Codable, Identifiable {
     case porcelain = "Porcelain"
     case glass = "Glass"
     case marble = "Marble"
-    case limestone = "Limestone/Travertine"
+    // Limestone and travertine were one choice, "Limestone/Travertine",
+    // until 2026-10-09 (owner): saved ones read as Limestone.
+    case limestone = "Limestone"
+    case travertine = "Travertine"
     case slate = "Slate"
     case granite = "Granite"
     case quartzite = "Quartzite"
     case cement = "Cement"
     case terracotta = "Terracotta"
     case zellige = "Zellige"
+    case terrazzo = "Terrazzo"
+    case quarry = "Quarry"
+    case pearl = "Pearl"
     var id: String { rawValue }
+    /// The materials offered, Porcelain first (owner, 2026-10-09).
+    static var choices: [TileType] { [.porcelain] + allCases.filter { $0 != .porcelain } }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if raw == "Limestone/Travertine" { self = .limestone; return }
+        guard let t = TileType(rawValue: raw) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown material \(raw)"))
+        }
+        self = t
+    }
 }
 
 enum TileSize: String, CaseIterable, Hashable, Codable, Identifiable {
+    /// The shapes offered (owner, 2026-10-09): square is a rectangle, its
+    /// width and length say it's square; saved squares read as rectangles.
+    /// Rectangle first (owner, 2026-10-09).
+    static var choices: [TileSize] { [.rectangle] + allCases.filter { $0 != .square && $0 != .rectangle } }
+
     case square = "Square"
     case rectangle = "Rectangle"
     case hexagon = "Hexagon"
@@ -164,6 +186,10 @@ enum Layout: String, CaseIterable, Codable, Identifiable {
     case diagonal = "Diagonal"
     case herringbone = "Herringbone"
     case multiTile = "Multi-Tile"
+    /// The layouts offered: Multi-Tile was taken out (owner, 2026-10-09);
+    /// it stays only so estimates saved with it read and price as before.
+    /// Running Bond first (owner, 2026-10-09).
+    static var choices: [Layout] { [.runningBond] + allCases.filter { $0 != .multiTile && $0 != .runningBond } }
     // Added 2026-10-09 (owner: large-tile layouts).
     case oneThirdOffset = "1/3 Offset"
     case diagonalHerringbone = "Diagonal Herringbone"
@@ -237,9 +263,13 @@ struct Rates: Codable, Equatable {
     var showerFloorMinimum: Double = 600
 
     var typeAdder: [TileType: Double] = [
-        .ceramic: 0, .porcelain: 0, .glass: 0, .marble: 0, .limestone: 0, .slate: 0,
-        .granite: 0, .quartzite: 0, .cement: 0, .terracotta: 0, .zellige: 0
+        .ceramic: 0, .porcelain: 0, .glass: 0, .marble: 0, .limestone: 0, .travertine: 0, .slate: 0,
+        .granite: 0, .quartzite: 0, .cement: 0, .terracotta: 0, .zellige: 0,
+        .terrazzo: 0, .quarry: 0, .pearl: 0
     ]
+    /// Travertine was priced with limestone until 2026-10-09: rates saved
+    /// before then give it limestone's adder, once.
+    var travertineSplit: Bool = true
     var sizeAdder: [TileSize: Double] = [
         .mosaic: 0, .starCross: 0, .arabesque: 0, .hexagon: 0, .rectangle: 0, .square: 0,
         .diamond: 0, .triangle: 0, .fishscale: 0, .picket: 0, .pill: 0
@@ -521,6 +551,14 @@ extension Rates {
         c.read(.showerFloorBase, into: &showerFloorBase)
         c.read(.showerFloorMinimum, into: &showerFloorMinimum)
         c.merge(.typeAdder, into: &typeAdder)
+        // Saved before travertine was its own material: it keeps the price
+        // it had as part of Limestone/Travertine.
+        travertineSplit = false
+        c.read(.travertineSplit, into: &travertineSplit)
+        if !travertineSplit {
+            typeAdder[.travertine] = typeAdder[.limestone] ?? 0
+            travertineSplit = true
+        }
         c.merge(.sizeAdder, into: &sizeAdder)
         c.merge(.mosaicStyleAdder, into: &mosaicStyleAdder)
         c.merge(.layoutAdder, into: &layoutAdder)
@@ -748,7 +786,7 @@ struct TilePiece: Identifiable, Codable, Equatable, Hashable {
 /// a mosaic shower floor under large-format walls, say.
 struct TileChoice: Codable, Equatable, Hashable {
     var tileType: TileType = .ceramic
-    var tileSize: TileSize = .square
+    var tileSize: TileSize = .rectangle
     var layout: Layout = .straightStacked
     var tileWidthIn: Double? = nil
     var tileLengthIn: Double? = nil
@@ -763,6 +801,11 @@ struct TileChoice: Codable, Equatable, Hashable {
     var photoID: String? = nil
     /// Fishscale laid round side down (owner: either way is installed).
     var turnedOver: Bool = false
+
+    /// The tile a new choice starts on: 12″ × 24″ porcelain rectangle in
+    /// running bond (owner, 2026-10-09).
+    static let usual = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: .runningBond,
+                                  tileWidthIn: 12, tileLengthIn: 24)
 }
 
 /// One shower or tub-surround wall with its own tile, used when the walls are
@@ -1112,6 +1155,16 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     /// The main tile laid long side up, and a photo of it (see `TileChoice`).
     var tileVertical: Bool = false
     var tilePhotoID: String? = nil
+
+    /// An area with no tile chosen yet starts on the owner's usual tile:
+    /// 12″ × 24″ porcelain rectangle in running bond (2026-10-09).
+    mutating func startWithUsualTile() {
+        guard tileType == nil, tileSize == nil, layout == nil else { return }
+        tileType = .porcelain
+        tileSize = .rectangle
+        layout = .runningBond
+        if tileWidthIn == nil, tileLengthIn == nil { tileWidthIn = 12; tileLengthIn = 24 }
+    }
     var tileTurnedOver: Bool = false
     /// nil means the shower floor / ceiling uses the main tile.
     var showerFloorTile: TileChoice? = nil
@@ -1401,6 +1454,7 @@ extension EstimatorState {
         c.read(.decoratives, into: &decoratives)
         c.read(.radiantHeat, into: &radiantHeat)
         convertOldMosaicBand(features: &features, measurements: &measurements, into: &decoratives)
+        if tileSize == .square { tileSize = .rectangle }   // square is a rectangle (2026-10-09)
         c.read(.additionsLabor, into: &additionsLabor)
         c.read(.additionsMaterials, into: &additionsMaterials)
     }
@@ -1431,6 +1485,7 @@ extension EstimateSection {
         c.read(.tileVertical, into: &tileVertical)
         c.read(.tilePhotoID, into: &tilePhotoID)
         c.read(.tileTurnedOver, into: &tileTurnedOver)
+        if tileSize == .square { tileSize = .rectangle }   // square is a rectangle (2026-10-09)
         c.read(.showerFloorTile, into: &showerFloorTile)
         c.read(.ceilingTile, into: &ceilingTile)
         c.read(.walls, into: &walls)
@@ -1476,6 +1531,7 @@ extension TilePiece {
         c.read(.shape, into: &shape)
         c.read(.widthIn, into: &widthIn)
         c.read(.lengthIn, into: &lengthIn)
+        if shape == .square { shape = .rectangle }   // square is a rectangle (2026-10-09)
     }
 }
 
@@ -1504,6 +1560,7 @@ extension TileChoice {
         c.read(.vertical, into: &vertical)
         c.read(.photoID, into: &photoID)
         c.read(.turnedOver, into: &turnedOver)
+        if tileSize == .square { tileSize = .rectangle }   // square is a rectangle (2026-10-09)
     }
 }
 

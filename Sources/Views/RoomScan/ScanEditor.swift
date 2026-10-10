@@ -424,7 +424,7 @@ struct ScanEditor: View {
             .sheet(item: Binding(get: { nicheTileFor.map { NicheTileTarget(id: $0) } }, set: { nicheTileFor = $0?.id })) { target in
                 if let k = takeoff.items.firstIndex(where: { $0.id == target.id }) {
                     NDTileSheet(title: "Niche tile",
-                                tile: Binding(get: { takeoff.items[k].tile ?? TileChoice() }, set: { takeoff.items[k].tile = $0 }),
+                                tile: Binding(get: { takeoff.items[k].tile ?? .usual }, set: { takeoff.items[k].tile = $0 }),
                                 rates: rates)
                 }
             }
@@ -855,7 +855,7 @@ struct ScanEditor: View {
                                 .font(.caption)
                         }
                         Button(item.tile == nil ? "Choose" : "Change") {
-                            if takeoff.items[i].tile == nil { takeoff.items[i].tile = tile ?? TileChoice() }
+                            if takeoff.items[i].tile == nil { takeoff.items[i].tile = tile ?? .usual }
                             nicheTileFor = item.id
                         }
                         .buttonStyle(.bordered)

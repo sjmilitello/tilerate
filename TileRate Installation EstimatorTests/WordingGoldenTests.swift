@@ -11,12 +11,38 @@ struct WordingGoldenTests {
         return Dictionary(uniqueKeysWithValues: list.map { ($0.name, $0.text) })
     }()
 
+    /// The owner's deliberate wording changes since the recording, applied
+    /// to it here rather than re-recording it (2026-10-09): Limestone/
+    /// Travertine is now Limestone, and a tile shape other than square or
+    /// rectangle is named — "6×6 Ceramic Hexagon Tile". Anything else that
+    /// differs from the recording still fails.
+    static func withOwnersChanges(_ text: String, _ s: EstimateSection) -> String {
+        var out = text.replacingOccurrences(of: "Limestone/Travertine", with: "Limestone")
+        var tiles: [TileChoice] = s.mainTile.map { [$0] } ?? []
+        tiles += s.walls.map(\.tile) + [s.showerFloorTile, s.ceilingTile].compactMap { $0 } + s.decoratives.compactMap(\.tile)
+        // Each such tile's own phrase, as recorded (no shape) → as now.
+        for t in tiles where ![.square, .rectangle, .mosaic].contains(t.tileSize) {
+            let now = tilePhrase(t, .standard)
+            let then = now.replacingOccurrences(of: " \(t.tileSize.rawValue) Tile", with: " Tile")
+            for lead in ["of ", "; ", "with "] {
+                out = out.replacingOccurrences(of: lead + then, with: lead + now)
+            }
+        }
+        // Bands, borders and inlays name their tile without its pattern.
+        for t in s.decoratives.compactMap(\.tile) where ![.square, .rectangle, .mosaic].contains(t.tileSize) {
+            let material = t.tileType.rawValue
+            out = out.replacingOccurrences(of: "of \(material) Tile on", with: "of \(material) \(t.tileSize.rawValue) Tile on")
+        }
+        return out
+    }
+
     @Test func theStandardTemplatesGiveTheRecordedWording() {
         let cases = WordingCases.all
         #expect(Set(cases.map(\.name)) == Set(Self.expected.keys))
         let failures = cases.compactMap { c -> String? in
             let got = describeSection(c.section, wording: .standard)
-            return got == Self.expected[c.name] ? nil : "\(c.name):\n  got  \(got)\n  want \(Self.expected[c.name] ?? "-")"
+            let want = Self.expected[c.name].map { Self.withOwnersChanges($0, c.section) }
+            return got == want ? nil : "\(c.name):\n  got  \(got)\n  want \(want ?? "-")"
         }
         #expect(failures.isEmpty, "\(failures.count) differ, e.g.\n\(failures.prefix(5).joined(separator: "\n"))")
     }

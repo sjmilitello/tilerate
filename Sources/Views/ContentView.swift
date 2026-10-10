@@ -1066,13 +1066,14 @@ struct ContentView: View {
                 .font(StepTextStyle.font)
                 .foregroundColor(StepTextStyle.color)
             if let sec {
-                gridOptions(TileType.allCases, selection: Binding(
+                gridOptions(TileType.choices, selection: Binding(
                     get: { sec.wrappedValue.tileType },
                     set: { sec.wrappedValue.tileType = $0 }
                 ))
                 
             }
         }
+        .onAppear { sec?.wrappedValue.startWithUsualTile() }
     }
     private var sizeStep: some View {
         let sec = currentSectionBinding()
@@ -1082,7 +1083,7 @@ struct ContentView: View {
             
             if let sec {
                 // The grid of size choices
-                gridOptions(TileSize.allCases, selection: Binding(
+                gridOptions(TileSize.choices, selection: Binding(
                     get: { sec.wrappedValue.tileSize },
                     set: { sec.wrappedValue.tileSize = $0 }
                 ))
@@ -1197,13 +1198,13 @@ struct ContentView: View {
     private func tileChoiceFields(_ tile: Binding<TileChoice>) -> some View {
         LabeledContent("Tile Type") {
             Picker("Tile Type", selection: tile.tileType) {
-                ForEach(TileType.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(TileType.choices) { Text($0.rawValue).tag($0) }
             }
             .fixedSize()
         }
         LabeledContent("Tile Size") {
             Picker("Tile Size", selection: tile.tileSize) {
-                ForEach(TileSize.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(TileSize.choices) { Text($0.rawValue).tag($0) }
             }
             .fixedSize()
         }
@@ -1219,7 +1220,7 @@ struct ContentView: View {
         if tile.wrappedValue.tileSize != .mosaic {
             LabeledContent("Layout") {
                 Picker("Layout", selection: tile.layout) {
-                    ForEach(Layout.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(Layout.choices) { Text($0.rawValue).tag($0) }
                 }
                 .fixedSize()
             }
@@ -1434,7 +1435,7 @@ struct ContentView: View {
                     Text("Not needed for mosaics. They come on sheets, so no layout is chosen or charged.")
                         .foregroundStyle(.secondary)
                 } else {
-                    gridOptions(Layout.allCases, selection: Binding(
+                    gridOptions(Layout.choices, selection: Binding(
                         get: { sec.wrappedValue.layout },
                         set: { sec.wrappedValue.layout = $0 }
                     ))

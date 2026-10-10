@@ -168,13 +168,17 @@ struct AdminSheet: View {
                     typeRow(.porcelain, "Porcelain")
                     typeRow(.glass, "Glass")
                     typeRow(.marble, "Marble")
-                    typeRow(.limestone, "Limestone/Travertine")
+                    typeRow(.limestone, "Limestone")
+                    typeRow(.travertine, "Travertine")
                     typeRow(.slate, "Slate")
                     typeRow(.granite, "Granite")
                     typeRow(.quartzite, "Quartzite")
                     typeRow(.cement, "Cement")
                     typeRow(.terracotta, "Terracotta")
                     typeRow(.zellige, "Zellige")
+                    typeRow(.terrazzo, "Terrazzo")
+                    typeRow(.quarry, "Quarry")
+                    typeRow(.pearl, "Pearl")
                     Picker("Units", selection: $rates.typeAdderUnit) {
                         ForEach(AdderUnit.allCases) { u in Text(u.rawValue).tag(u) }
                     }
@@ -219,7 +223,6 @@ struct AdminSheet: View {
                     layoutRow(.runningBond, "Running Bond")
                     layoutRow(.diagonal, "Diagonal")
                     layoutRow(.herringbone, "Herringbone")
-                    layoutRow(.multiTile, "Multi-Tile")
                     layoutRow(.oneThirdOffset, "1/3 Offset")
                     layoutRow(.diagonalHerringbone, "Diagonal Herringbone")
                     layoutRow(.doubleHerringbone, "Double Herringbone")

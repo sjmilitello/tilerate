@@ -662,7 +662,7 @@ struct MultiTileTests {
     }
 
     private func multi(_ pieces: [TilePiece]) -> EstimateSection {
-        var s = section(.wall, sqft: 100, type: .marble, size: .square, layout: .multiTile)
+        var s = section(.wall, sqft: 100, type: .marble, size: .rectangle, layout: .multiTile)
         s.multiTilePieces = pieces
         return s
     }
@@ -715,7 +715,7 @@ struct MultiTileTests {
         let piece = try JSONDecoder().decode(TilePiece.self, from: Data(#"{"shape":"Hexagon","widthIn":6}"#.utf8))
         #expect(piece.shape == .hexagon && piece.widthIn == 6 && piece.lengthIn == nil)
 
-        let s = multi([TilePiece(shape: .square, widthIn: 12, lengthIn: 12)])
+        let s = multi([TilePiece(shape: .rectangle, widthIn: 12, lengthIn: 12)])
         let back = try JSONDecoder().decode(EstimateSection.self, from: JSONEncoder().encode(s))
         #expect(back == s)
         let state = try JSONDecoder().decode(EstimatorState.self, from: JSONEncoder().encode(EstimatorState(section: s)))
@@ -1251,7 +1251,7 @@ struct SavedDataTests {
         var s = section(.shower, size: .rectangle, widthIn: 12, lengthIn: 24)
         s.showerFloorTile = TileChoice(tileType: .glass, tileSize: .mosaic, layout: .straightStacked,
                                        tileWidthIn: 1, tileLengthIn: 1)
-        s.ceilingTile = TileChoice(tileType: .porcelain, tileSize: .square, layout: .diagonal,
+        s.ceilingTile = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: .diagonal,
                                    tileWidthIn: 12, tileLengthIn: 12)
         let back = try JSONDecoder().decode(EstimateSection.self, from: JSONEncoder().encode(s))
         #expect(back == s)
