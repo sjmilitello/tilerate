@@ -268,7 +268,7 @@ struct RoomScanTests {
         t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
                                             widthFt: 9, depthFt: 3)
         let trim = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
-        #expect(Set(trim.map(\.name)) == ["Curb", "Left jamb", "Right jamb"])
+        #expect(Set(trim.map(\.name)) == ["Curb", "Curb inside face", "Curb outside face", "Left jamb", "Right jamb"])
         #expect(abs(trim.first { $0.name == "Curb" }!.lengthFt - 9) < 1e-9)
         #expect(trim.filter { $0.kind == .jamb }.allSatisfy { abs($0.lengthFt - (8 - 4.0 / 12)) < 1e-9 })
         // Facing in (up the screen) from y = 3, x = 0 is on the left.
@@ -295,7 +295,7 @@ struct RoomScanTests {
         #expect(abs(byName["Left lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)   // curb to cap
         #expect(abs(byName["Left upper jamb"]! - 4.5) < 1e-9)                // cap to the top of the tile
         #expect(abs(byName["Wall cap (half wall E)"]! - 3) < 1e-9)
-        #expect(trim.count == 5)
+        #expect(trim.count == 7)   // with the curb's inside and outside faces
 
         // Tile stops at 84″: the jambs follow; a 6″ curb shortens them.
         t.pieces[0].heightIn = 84
@@ -338,7 +338,8 @@ struct RoomScanTests {
         let trim = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
         let byName = Dictionary(uniqueKeysWithValues: trim.map { ($0.name, $0.lengthFt) })
         // Every side of the floor is closed: the only curb is the door's. No caps on full walls.
-        #expect(Set(byName.keys) == ["Curb (door in new wall F)", "Left jamb (door in new wall F)",
+        #expect(Set(byName.keys) == ["Curb (door in new wall F)", "Curb inside face (door in new wall F)",
+                                     "Curb outside face (door in new wall F)", "Left jamb (door in new wall F)",
                                      "Right jamb (door in new wall F)", "Header (door in new wall F)"])
         #expect(abs(byName["Curb (door in new wall F)"]! - 2.5) < 1e-9)
         #expect(abs(byName["Left jamb (door in new wall F)"]! - (80.0 - 4) / 12) < 1e-9)
@@ -621,6 +622,46 @@ struct RoomScanTests {
         var d = EstimateDocument()
         d.pictures = [EstimatePicture(name: "Shower", eye: [1, 5, 2], target: [3, 3, 1])]
         #expect(try JSONDecoder().decode(EstimateDocument.self, from: JSONEncoder().encode(d)) == d)
+    }
+
+    @Test func theCurbStopsAtAFramedBenchWhoseOutsideEndCanBeStone() throws {
+        // The open shower across the top (9′ × 3′, open at y = 3) with a 15″
+        // framed bench along wall D, running out to the curb line.
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        t.pieces = [piece(D, 5, 8, 96), piece(A, 0, 9, 96), piece(B, 0, 3, 96)]
+        t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                            widthFt: 9, depthFt: 3)
+        let span = try #require(t.benchSpan(on: D, in: room, floating: false, curbWidthFt: 4.5 / 12))
+        let bench = AreaTakeoff.Item(kind: .framedBench, wallID: D.id, fromFt: span.lowerBound, toFt: span.upperBound,
+                                     heightIn: 20, depthIn: 15)
+        t.items = [bench]
+        // The curb (and its faces) run from the bench's front to wall B: 9′ less 15″.
+        let edges = t.curbEdges(in: room)
+        #expect(edges.count == 1)
+        #expect(abs(edges.reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) } - (9 - 15.0 / 12)) < 0.02)
+        let trim = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
+        let byName = Dictionary(uniqueKeysWithValues: trim.map { ($0.name, $0) })
+        for name in ["Curb", "Curb inside face", "Curb outside face"] {
+            #expect(abs(byName[name]!.lengthFt - (9 - 15.0 / 12)) < 0.02, "\(name)")
+        }
+        // Its top, front and outside end can each be stone: the end prices as the front does.
+        let end = try #require(byName["Framed bench outside end"])
+        #expect(end.kind == .benchFront && abs(end.lengthFt - 1.25) < 1e-9)
+        #expect(byName["Framed bench top"] != nil && byName["Framed bench front"] != nil)
+        // Stone on the curb's faces goes on the curb line; on the end, on the bench front line.
+        t.trim = [.init(key: "curb", stone: true), .init(key: "curb:inside", stone: true),
+                  .init(key: "benchFront:\(bench.id)", stone: true), .init(key: "benchSide:\(bench.id)", stone: true)]
+        #expect(abs(t.stoneFt(.curb, in: room, area: .shower, curbHeightIn: 4) - 2 * (9 - 15.0 / 12)) < 0.04)
+        #expect(abs(t.stoneFt(.benchFront, in: room, area: .shower, curbHeightIn: 4) - (bench.widthFt + 1.25)) < 1e-9)
+        // The jamb on the bench's side splits at the bench top: curb (4″) to
+        // bench top (20″), and bench top to the top of the tile (96″).
+        #expect(abs(byName["Left lower jamb"]!.lengthFt - 16.0 / 12) < 1e-9)
+        #expect(abs(byName["Left upper jamb"]!.lengthFt - 76.0 / 12) < 1e-9)
+        #expect(byName["Left jamb"] == nil && byName["Right jamb"] != nil)
+        // No bench: the curb runs the whole open side again.
+        t.items = []
+        #expect(abs(t.trimPieces(in: room, area: .shower, curbHeightIn: 4).first { $0.name == "Curb" }!.lengthFt - 9) < 1e-9)
     }
 
     @Test func aBenchReachingIntoTheDoorwayIsFlagged() {

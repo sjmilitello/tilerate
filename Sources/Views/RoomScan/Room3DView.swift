@@ -363,6 +363,9 @@ enum Room3DScene {
                                  stoneTop ? plain(stoneColor) : tileMaterial(c.tile, widthFt: item.widthFt, heightFt: depth, x0: item.fromFt, y0: 0),
                                  plain(.darkGray)]
                 if c.stoneParts.contains("benchFront:\(item.id)") { box.materials[0] = plain(stoneColor) }
+                // Its outside end, showing at the entry where the curb stops at it
+                // (the other end is against a wall, out of sight).
+                if c.stoneParts.contains("benchSide:\(item.id)") { box.materials[1] = plain(stoneColor); box.materials[3] = plain(stoneColor) }
                 let n = SCNNode(geometry: box)
                 n.position = SCNVector3((item.fromFt + item.toFt) / 2, top - slab / 2, side * (t / 2 + depth / 2))
                 if side < 0 { n.eulerAngles.y = .pi }
@@ -455,16 +458,31 @@ enum Room3DScene {
 
         // The curb.
         if c.area == .shower {
-            let curbStone = c.stoneParts.contains("curb") || c.stoneParts.contains { $0.hasPrefix("curb:") }
-            // Just outside the floor: its inside face on the floor's edge.
+            // Just outside the floor: its inside face on the floor's edge. Its
+            // top, inside face and outside face are each tile or stone.
             let mid = c.takeoff.floorRect?.center
-            for (a, b) in c.takeoff.curbEdges(in: room) {
+            var curbs: [(ScannedRoom.Point, ScannedRoom.Point, String)] = []
+            if !c.takeoff.curbless {
+                for d in c.takeoff.showerDoors(in: room) {
+                    guard let w = d.wallID.flatMap({ room.wall($0) }) else { continue }
+                    let s = room.span(of: d)
+                    curbs.append((room.point(on: w, along: s.lowerBound), room.point(on: w, along: s.upperBound), "curb:\(d.id)"))
+                }
+                curbs += c.takeoff.curbSides(in: room).stretches.map { ($0.0, $0.1, "curb") }
+            }
+            for (a, b, key) in curbs {
                 let len = hypot(b.x - a.x, b.y - a.y)
                 let h = c.curbHeightIn / 12, w = c.curbWidthFt
                 var nx = -(b.y - a.y) / max(len, 1e-9), ny = (b.x - a.x) / max(len, 1e-9)
-                if let m = mid, ((a.x + b.x) / 2 - m.x) * nx + ((a.y + b.y) / 2 - m.y) * ny < 0 { nx = -nx; ny = -ny }
+                var flipped = false
+                if let m = mid, ((a.x + b.x) / 2 - m.x) * nx + ((a.y + b.y) / 2 - m.y) * ny < 0 { nx = -nx; ny = -ny; flipped = true }
                 let box = SCNBox(width: len, height: h, length: w, chamferRadius: 0.01)
-                box.firstMaterial = curbStone ? plain(stoneColor) : tileMaterial(c.tile, widthFt: len, heightFt: h, x0: 0, y0: 0)
+                func face(_ k: String, _ width: Double) -> SCNMaterial {
+                    c.stoneParts.contains(k) ? plain(stoneColor) : tileMaterial(c.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
+                }
+                let top = face(key, len), inside = face(key + ":inside", len), outside = face(key + ":outside", len)
+                // The box's front (+z) is the side its left hand faces: outside unless turned.
+                box.materials = [flipped ? inside : outside, outside, flipped ? outside : inside, outside, top, top]
                 let n = SCNNode(geometry: box)
                 n.position = SCNVector3((a.x + b.x) / 2 + nx * w / 2, h / 2, (a.y + b.y) / 2 + ny * w / 2)
                 n.eulerAngles.y = Float(-atan2(b.y - a.y, b.x - a.x))

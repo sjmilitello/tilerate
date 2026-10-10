@@ -1096,8 +1096,19 @@ extension AreaTakeoff {
         if area == .shower, floor == .drawn, let r = floorRect {
             let c = r.corners
             let sides = openSides(in: room)
-            let width = sides.reduce(0.0) { $0 + $1.lengthFt }
-            if width > 0, !curbless { out.append(("curb", .curb, "Curb", width)) }
+            // The curb stops at a framed bench.
+            let curbRun = curbSides(in: room)
+            let width = curbRun.stretches.reduce(0.0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+            if width > 0, !curbless {
+                out.append(("curb", .curb, "Curb", width))
+                // Its faces below the top: wall faces, priced as curb (owner).
+                out.append(("curb:inside", .curb, "Curb inside face", width))
+                out.append(("curb:outside", .curb, "Curb outside face", width))
+            }
+            // A framed bench the curb stops at shows its outside end at the entry.
+            for b in curbRun.benches {
+                out.append(("benchSide:\(b.id)", .benchFront, "\(b.kind.name) outside end", b.depthIn / 12))
+            }
             // The entry's ends: a jamb wherever an open side meets a wall.
             let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
             var used = Set<String>()
@@ -1111,6 +1122,13 @@ extension AreaTakeoff {
                     if room.isKneeWall(wall) {
                         out.append(("\(key):lower", .jamb, "\(name.capitalized) lower jamb", max(0, wall.heightFt - curb)))
                         out.append(("\(key):upper", .jamb, "\(name.capitalized) upper jamb", max(0, top - wall.heightFt)))
+                    } else if let bench = curbRun.benches.first(where: { $0.wallID == wall.id }) {
+                        // A framed bench here is flush with the curb's outside:
+                        // the jamb splits at its top (owner, 2026-10-09) — curb to
+                        // bench top, and bench top to the top of the tile.
+                        let benchTop = bench.heightIn / 12
+                        out.append(("\(key):lower", .jamb, "\(name.capitalized) lower jamb", max(0, benchTop - curb)))
+                        out.append(("\(key):upper", .jamb, "\(name.capitalized) upper jamb", max(0, top - benchTop)))
                     } else {
                         out.append((key, .jamb, "\(name.capitalized) jamb", max(0, top - curb)))
                     }
@@ -1131,7 +1149,11 @@ extension AreaTakeoff {
                 let wallTop = pieces.filter { $0.wallID == w.id }.map { $0.heightIn / 12 }.max() ?? top
                 let header = room.hasHeader(d)
                 let jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
-                if !curbless { out.append(("curb:\(d.id)", .curb, "Curb (\(label))", width)) }
+                if !curbless {
+                    out.append(("curb:\(d.id)", .curb, "Curb (\(label))", width))
+                    out.append(("curb:\(d.id):inside", .curb, "Curb inside face (\(label))", width))
+                    out.append(("curb:\(d.id):outside", .curb, "Curb outside face (\(label))", width))
+                }
                 for side in ["left", "right"] {
                     out.append(("jamb:\(d.id):\(side)", .jamb, "\(side.capitalized) jamb (\(label))", max(0, jambTop - curb)))
                 }
@@ -1160,6 +1182,11 @@ extension AreaTakeoff {
     /// A stretch of the shower floor's edge with no wall along it: where
     /// the curb goes. Its ends' walls (nil for an open corner) get jambs.
     struct OpenSide {
+        /// The point `t` feet along it from `a`.
+        func point(_ t: Double) -> ScannedRoom.Point {
+            let l = max(lengthFt, 1e-9)
+            return .init(x: a.x + (b.x - a.x) * t / l, y: a.y + (b.y - a.y) * t / l)
+        }
         var a: ScannedRoom.Point
         var b: ScannedRoom.Point
         var startWall: ScannedRoom.Wall?
@@ -1256,7 +1283,49 @@ extension AreaTakeoff {
             let s = room.span(of: d)
             return (room.point(on: w, along: s.lowerBound), room.point(on: w, along: s.upperBound))
         }
-        return doors + openSides(in: room).map { ($0.a, $0.b) }
+        return doors + curbSides(in: room).stretches
+    }
+
+    /// Where the curb actually runs: the floor's open sides less any part a
+    /// framed bench stands on (owner, 2026-10-09: the curb stops at the
+    /// bench), and the framed benches it stops at — their outside ends show
+    /// at the entry.
+    func curbSides(in room: ScannedRoom) -> (stretches: [(ScannedRoom.Point, ScannedRoom.Point)], benches: [Item]) {
+        let sides = openSides(in: room)
+        let benches = items.filter { $0.kind == .framedBench }
+        var out: [(ScannedRoom.Point, ScannedRoom.Point)] = []
+        var stopped = Set<UUID>()
+        // A point on the floor's edge is under a bench when it's within the
+        // bench's run along its wall and its depth out from the wall.
+        func bench(at p: ScannedRoom.Point) -> Item? {
+            benches.first { b in
+                guard let w = room.wall(b.wallID), w.lengthFt > 0 else { return false }
+                let ux = (w.end.x - w.start.x) / w.lengthFt, uy = (w.end.y - w.start.y) / w.lengthFt
+                let n = inward(w, face: b.face, in: room)
+                let along = (p.x - w.start.x) * ux + (p.y - w.start.y) * uy
+                let out = (p.x - w.start.x) * n.x + (p.y - w.start.y) * n.y
+                let skin = w.planned ? w.thicknessIn / 24 : 0
+                return along > b.fromFt - 0.02 && along < b.toFt + 0.02 && out > -0.05 && out < skin + b.depthIn / 12 + 0.02
+            }
+        }
+        for side in sides {
+            let len = side.lengthFt
+            let steps = max(1, Int((len * 64).rounded(.up)))
+            var startT: Double? = nil
+            for k in 0...steps {
+                let t = len * Double(k) / Double(steps)
+                let p = ScannedRoom.Point(x: side.a.x + (side.b.x - side.a.x) * t / len, y: side.a.y + (side.b.y - side.a.y) * t / len)
+                if let b = bench(at: p) {
+                    stopped.insert(b.id)
+                    if let s0 = startT, t - s0 > 1.0 / 12 { out.append((side.point(s0), side.point(t))) }
+                    startT = nil
+                } else if startT == nil {
+                    startT = t
+                }
+            }
+            if let s0 = startT, len - s0 > 1.0 / 12 { out.append((side.point(s0), side.b)) }
+        }
+        return (out, benches.filter { stopped.contains($0.id) })
     }
 
     /// "left" or "right", as you stand outside the shower facing in.

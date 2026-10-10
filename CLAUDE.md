@@ -326,7 +326,18 @@ top of the tile against a full wall, or splits at a knee wall into a lower
 (curb to cap) and an upper jamb (cap to the top of the tile); each knee wall
 gets a cap. The top of the tile is the area's tallest piece on a scanned
 wall, else the ceiling. Left and right are as you stand outside facing in.
-Curb height: Admin (4″), per shower in the editor. A knee wall outside a
+Curb height: Admin (4″), per shower in the editor.
+The curb stops at a framed bench (owner, 2026-10-09): it runs only where
+no framed bench stands on the open side (`curbSides`, used for the curb's
+length, the plan and 3-D), and such a bench gets an "outside end" stone
+piece (`benchSide:<id>`, its depth long, priced and lined as the bench
+front), and the jamb on its side splits at the bench top: a lower jamb
+from the curb to the bench top and an upper from there to the top of the
+tile. The curb's inside and outside faces below its top are stone
+pieces too (`curb:inside`, `curb:outside`, and per door
+`curb:<id>:inside/outside`), priced and lined as the curb. In 3-D each of
+the curb's top and faces and the bench's top, front and end shows tile or
+stone on its own. A knee wall outside a
 shower: a cap and a jamb on each exposed end.
 
 A shower door (`OpeningKind.showerDoor`, saved with the scan) goes in any
