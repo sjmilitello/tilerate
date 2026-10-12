@@ -8,6 +8,8 @@ import SwiftUI
 
 /// Another area in the same room, shown faintly so walls aren't counted twice.
 struct OtherAreaPieces: Equatable {
+    /// The area it is, so tapping it on the model can switch to it.
+    var sectionID: UUID? = nil
     let name: String
     let pieces: [AreaTakeoff.Piece]
     var floor: AreaTakeoff.FloorRect? = nil
@@ -33,6 +35,34 @@ struct ScanEditor: View {
     /// walls drawn in, doors) or Extras (niches, windows, benches, corner
     /// pieces, stone).
     enum Mode: String, Identifiable { case measure, extras; var id: String { rawValue } }
+
+    /// The area screen's tabs (owner, 2026-10-12: one screen per area, the
+    /// model docked on top, every option in its tabs).
+    enum Tab: String, CaseIterable, Identifiable {
+        case tile = "Tile", measure = "Measure", extras = "Extras", price = "Price"
+        var id: String { rawValue }
+    }
+
+    /// The model embedded as an area's screen: the host's pages for the Tile
+    /// and Price tabs and its parts of Measure and Extras, the area's price,
+    /// more menu items, and Done. Changes are kept as they're made.
+    struct Embedding {
+        var tab: Binding<Tab>
+        var tileTab: AnyView
+        var measureExtra: AnyView
+        var extrasExtra: AnyView
+        var priceTab: AnyView
+        var price: Double
+        var menu: AnyView
+        var onDone: () -> Void
+        /// The room's areas as chips (switch, add), and switching to another
+        /// area tapped on the model (owner, 2026-10-12).
+        var areaBar: AnyView
+        var onSwitchArea: (UUID) -> Void
+        /// 2-D or 3-D, kept as the areas switch.
+        var show3D: Binding<Bool>
+    }
+    var embedding: Embedding? = nil
 
     let area: Area?
     /// Measure or Extras: opened from that step, switchable inside the model.
@@ -135,8 +165,10 @@ struct ScanEditor: View {
     @State private var showFixtures = true
     /// An open side of the shower floor tapped on the plan: offer to close it.
     /// As the editor opened: Cancel asks before throwing changes away.
-    private let openedRoom: ScannedRoom
-    private let openedTakeoff: AreaTakeoff
+    @State private var openedRoom: ScannedRoom
+    @State private var openedTakeoff: AreaTakeoff
+    /// Embedded: changes waiting to be kept.
+    @State private var keepToken: UUID? = nil
     @State private var askDiscard = false
     @State private var confirmDeleteWall = false
 
@@ -145,11 +177,13 @@ struct ScanEditor: View {
          kneeWallThicknessIn: Double = 4.5, stone: StonePrices = .init(),
          tile: TileChoice? = nil, floorTile: TileChoice? = nil, rates: Rates = Rates(),
          onAddPicture: (([Double], [Double], Bool) -> Void)? = nil,
+         embedding: Embedding? = nil,
          onUse: @escaping (AreaTakeoff, ScannedRoom) -> Void, onRescan: @escaping () -> Void) {
         self.rates = rates
+        self.embedding = embedding
         _room = State(initialValue: room)
-        openedRoom = room
-        openedTakeoff = takeoff
+        _openedRoom = State(initialValue: room)
+        _openedTakeoff = State(initialValue: takeoff)
         self.kneeWallThicknessIn = kneeWallThicknessIn
         self.stone = stone
         self.tile = tile
@@ -165,6 +199,7 @@ struct ScanEditor: View {
         _history = State(initialValue: EditHistory(EditSnapshot(room: room, takeoff: takeoff)))
         _selectedWall = State(initialValue: takeoff.pieces.first?.wallID)
         _selectedPiece = State(initialValue: takeoff.pieces.first?.id)
+        _show3D = State(initialValue: embedding?.show3D.wrappedValue ?? false)
     }
 
     private var usesWalls: Bool { area != .floor }
@@ -227,7 +262,7 @@ struct ScanEditor: View {
                 let c = r.corners
                 return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
             } ?? room.middle
-            return OtherAreaPieces(name: o.name, pieces: o.pieces.map { p in
+            return OtherAreaPieces(sectionID: o.sectionID, name: o.name, pieces: o.pieces.map { p in
                 guard let w = room.wall(p.wallID), room.isDivider(w) else { return p }
                 let theirSide = room.sideNormal(of: w, face: p.face, toward: theirs)
                 let mine = inward(w, face: 0)
@@ -247,7 +282,7 @@ struct ScanEditor: View {
     }
 
     var body: some View {
-        NavigationStack {
+        OwnNavigation(own: embedding == nil) {
             VStack(spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                 if show3D {
@@ -322,6 +357,7 @@ struct ScanEditor: View {
                                addingWall = false
                                closeSide(openSides[i], full: addingFullWall)
                            },
+                           onTapOtherArea: embedding.map { e in { id in e.onSwitchArea(id) } },
                            snapNewWall: { a, b in
                                area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
                            }) { wallID in
@@ -401,9 +437,28 @@ struct ScanEditor: View {
                     }
                 }
 
+                // The room's areas, always in view: switch or add without leaving.
+                if let e = embedding {
+                    e.areaBar.fixedSize(horizontal: false, vertical: true).padding(.horizontal, 16).padding(.top, 10)
+                }
                 ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
+                            if let e = embedding {
+                                Picker("Tab", selection: Binding(get: { e.tab.wrappedValue }, set: { new in
+                                    e.tab.wrappedValue = new
+                                    if new == .measure || new == .extras { switchMode(new == .measure ? .measure : .extras) }
+                                })) {
+                                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                            if let e = embedding, e.tab.wrappedValue == .tile {
+                                e.tileTab
+                            } else if let e = embedding, e.tab.wrappedValue == .price {
+                                e.priceTab
+                            } else {
+                            if embedding == nil {
                             Picker("Step", selection: Binding(get: { mode }, set: { new in
                                 mode = new
                                 editingWalls = false
@@ -418,6 +473,7 @@ struct ScanEditor: View {
                                 Text("Extras").tag(Mode.extras)
                             }
                             .pickerStyle(.segmented)
+                            }
                             Text(mode == .measure
                                  ? "Choose the walls, floor and ceiling being tiled. Add walls and doors that aren't built yet."
                                  : "Add niches, windows, benches and corner pieces on the walls, and choose tile or stone for each piece.")
@@ -445,6 +501,9 @@ struct ScanEditor: View {
                             }
                             if mode == .measure, !editingWalls || area == .shower, area == .floor || area == .shower || area == .tub { floorPanel }
                             if mode == .extras { trimPanel }
+                            // The rest of the area's choices, from its step pages.
+                            if let e = embedding { mode == .measure ? e.measureExtra : e.extrasExtra }
+                            }
                         }
                         .padding(16)
                     }
@@ -482,6 +541,7 @@ struct ScanEditor: View {
                     }
                     .fontWeight(.semibold)
                 }
+                if embedding == nil {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         if room != openedRoom || takeoff != openedTakeoff { askDiscard = true } else { dismiss() }
@@ -497,9 +557,16 @@ struct ScanEditor: View {
                         Text("Apply keeps what you changed here, everywhere it's used. Discard goes back to how it was.")
                     }
                 }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        if let e = embedding {
+                            e.menu
+                            Button { revert() } label: { Label("Revert this area", systemImage: "arrow.counterclockwise") }
+                                .disabled(room == openedRoom && takeoff == openedTakeoff)
+                        } else {
                         Button { onRescan() } label: { Label("Scan again", systemImage: "viewfinder") }
+                        }
                         if !takeoff.pieces.isEmpty {
                             Button(role: .destructive) {
                                 takeoff.pieces = []
@@ -520,6 +587,19 @@ struct ScanEditor: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 if settleToken == token { history.settle(now) }
             }
+            // Embedded: kept as it's made, once a drag pauses.
+            if embedding != nil {
+                let keep = UUID()
+                keepToken = keep
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if keepToken == keep { keepToken = nil; onUse(takeoff, room) }
+                }
+            }
+        }
+        .onChange(of: show3D) { _, now in embedding?.show3D.wrappedValue = now }
+        .onDisappear {
+            // Switched to another area mid-change: keep what was pending.
+            if embedding != nil, keepToken != nil { keepToken = nil; onUse(takeoff, room) }
         }
         .onChange(of: takeoff.floorRect) { old, new in
             // A framed bench out to the curb stays flush with it as the floor changes.
@@ -535,6 +615,24 @@ struct ScanEditor: View {
             room = r
             if let id = selectedWall, room.wall(id) == nil { selectedWall = nil }
         }
+    }
+
+    /// Back to how the area was when its screen opened, kept at once.
+    private func revert() {
+        history.settle(snapshot)
+        restore(EditSnapshot(room: openedRoom, takeoff: openedTakeoff))
+        onUse(openedTakeoff, openedRoom)
+    }
+
+    private func switchMode(_ new: Mode) {
+        mode = new
+        editingWalls = false
+        addingWall = false
+        placingBench = false
+        placingShower = false
+        placing3D = nil
+        selectedItem = nil
+        selectedOpening = nil
     }
 
     private func undo() {
@@ -694,6 +792,8 @@ struct ScanEditor: View {
     /// picked from Place there, or else chooses the wall (and its side).
     private func tap3D(_ hit: Room3DHit) {
         switch hit.target {
+        case .area(let id):
+            if placing3D == nil { embedding?.onSwitchArea(id) }
         case .item(let id):
             guard let item = takeoff.items.first(where: { $0.id == id }) else { return }
             placing3D = nil
@@ -1800,8 +1900,27 @@ struct ScanEditor: View {
         if area == .floor || area == .shower { parts.append("\(area == .shower ? "Shower floor" : "Floor") \(ND.number(floor))") }
         if (area == .shower || area == .tub) && takeoff.tileCeiling { parts.append("Ceiling \(ND.number(ceiling))") }
         let stoneFt = TrimKind.allCases.reduce(0) { $0 + takeoff.stoneFt($1, in: room, area: area, curbHeightIn: stone.curbHeightIn) }
-        return VStack(spacing: 10) {
-            Text(parts.joined(separator: " · ") + " sq ft" + (stoneFt > 0 ? " · Stone \(ND.number(stoneFt)) lin ft" : ""))
+        let measures = parts.joined(separator: " · ") + " sq ft" + (stoneFt > 0 ? " · Stone \(ND.number(stoneFt)) lin ft" : "")
+        if let e = embedding {
+            return AnyView(HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(measures).font(.system(size: 12).monospacedDigit()).foregroundStyle(ND.muted).lineLimit(2)
+                    Text(ND.money(e.price)).font(.system(size: 22, weight: .bold).monospacedDigit())
+                        .contentTransition(.numericText())
+                }
+                Spacer()
+                Button { onUse(takeoff, room); e.onDone() } label: { Text("Done").frame(minWidth: 90) }
+                    .buttonStyle(NDPrimaryButtonStyle())
+                    .fixedSize()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .background(ND.footer.ignoresSafeArea(edges: .bottom))
+            .overlay(alignment: .top) { Divider().overlay(ND.border) })
+        }
+        return AnyView(VStack(spacing: 10) {
+            Text(measures)
                 .font(.system(size: 15, weight: .semibold).monospacedDigit())
             Button {
                 onUse(takeoff, room)
@@ -1815,7 +1934,16 @@ struct ScanEditor: View {
         .padding(.top, 12)
         .padding(.bottom, 8)
         .background(ND.footer.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Divider().overlay(ND.border) }
+        .overlay(alignment: .top) { Divider().overlay(ND.border) })
+    }
+}
+
+/// A NavigationStack of its own, or none (embedded in the host's).
+private struct OwnNavigation<Content: View>: View {
+    let own: Bool
+    @ViewBuilder let content: Content
+    var body: some View {
+        if own { NavigationStack { content } } else { content }
     }
 }
 
@@ -1887,6 +2015,9 @@ struct PlanCanvas: View {
     /// The shower floor's open sides; tapping one offers to add a wall there.
     var openSides: [(ScannedRoom.Point, ScannedRoom.Point)] = []
     var onTapOpenSide: (Int) -> Void = { _ in }
+    /// Another area tapped on the plan (its floor, or the room's floor for
+    /// a Floor area): switch to it.
+    var onTapOtherArea: ((UUID) -> Void)? = nil
     /// Where a wall being drawn lands (e.g. on the shower's curb).
     var snapNewWall: (ScannedRoom.Point, ScannedRoom.Point) -> (ScannedRoom.Point, ScannedRoom.Point) = { ($0, $1) }
     var onTapWall: (UUID) -> Void = { _ in }
@@ -2222,6 +2353,13 @@ struct PlanCanvas: View {
             hold = .floor
             return
         }
+        // Well inside another area's floor (clear of its edges, where walls
+        // and the curb are): work on that area instead.
+        if let onTapOtherArea, !addingWall,
+           let o = others.first(where: { o in o.floor.map { inside(location, $0, f) && floorEdge(at: location, $0, f, reach: 8) == nil } == true }),
+           let id = o.sectionID {
+            onTapOtherArea(id); return
+        }
         if let side = openSide(at: location, f) {
             if addingWall { hold = nil; onTapOpenSide(side); return }
             // The curb: hold the floor's edge it's on (the curb's inside face);
@@ -2245,6 +2383,17 @@ struct PlanCanvas: View {
         }
         if let r = floorRect?.wrappedValue, inside(location, r, f) { hold = .floor; return }
         hold = nil
+        // Another area's floor: work on that area instead.
+        if let onTapOtherArea {
+            let p = f.point(at: location)
+            if let o = others.first(where: { $0.floor.map { AreaTakeoff.inside($0.corners, p) } == true }), let id = o.sectionID {
+                onTapOtherArea(id); return
+            }
+            if let o = others.first(where: { $0.roomFloor && AreaTakeoff.inside($0.floorOutline ?? room.floorOutline, p) }),
+               let id = o.sectionID {
+                onTapOtherArea(id); return
+            }
+        }
     }
 
     /// Entering a catch: a light tick and a green flash where it caught

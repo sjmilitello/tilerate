@@ -458,6 +458,42 @@ only runs on a real LiDAR iPhone; in DEBUG builds without LiDAR a "Use a
 sample room" button loads `ScannedRoom.sample` to try the editor.
 `RoomScanTests` covers the arithmetic.
 
+## One screen per area (owner's direction, 2026-10-12)
+
+A scanned area, once its kind is chosen, is one screen (`AreaFlowView`,
+`useWorkspace`): the model (`ScanEditor`, embedded via
+`ScanEditor.Embedding`, no NavigationStack of its own) docked on top, tabs
+below — Tile (the Tile step page), Measure (the model's walls/floor panels,
+then the Measure page's fields: separate wall tiles, shower floor tile,
+radiant heat, ceiling), Extras (the model's built-ins and stone, then
+bands, borders, inlays and other charges) and Price (the area's review).
+Changes are kept as they're made (each settles 0.3 s, then `onUse`); no
+"Use these measurements" or discard prompt. Undo/Redo stay; ⋯ has Revert
+this area (back to how it opened), Change the kind of area, calibration,
+scanning again and Enter by hand instead. The bottom bar shows the
+measures, the live area price and Done. When the area's model choices
+change outside the screen (calibrating, scanning again, the ceiling
+switch, a different kind of area) `workspaceVersion` reopens it afresh.
+Areas typed by hand still use the step pages (to come: a sketched model,
+then the same screen). The classic design is untouched.
+
+The screen is the room's (owner asked 2026-10-12: change the shower's wall
+tile and the bathroom floor's tile without leaving the model). A row of
+area chips with prices and **+ Add area** sits between the model and the
+tabs (`ScanEditor.Embedding.areaBar`); tapping another area on the model
+switches to it too (`onSwitchArea`): on the plan, well inside another
+area's drawn floor (8 pt clear of its edges, so walls and the curb still
+take their taps) or the room floor of a Floor area
+(`PlanCanvas.onTapOtherArea`, `OtherAreaPieces.sectionID`); in 3-D, another
+area's floor (nodes named "area|id", `Room3DHit.Target.area`). Switching
+keeps the tab and 2-D/3-D (`Embedding.show3D`) and reopens the model on
+the new area (`AreaFlowView.activeID`, `switchTo`). The model's edits are
+kept on the area it opened on (`sectionBinding(areaID)` in `onUse`), and a
+change still settling when the area switches is kept first (`onDisappear`).
+⋯ → **Delete this area** asks, then removes it (and its 3-D pictures),
+re-cuts the Floor area and moves to the room's next area, or leaves when
+none is left.
+
 ## Two ways to measure a room (owner's design, 2026-10-08)
 
 Adding a room asks **Scan the room** or **Enter measurements by hand**

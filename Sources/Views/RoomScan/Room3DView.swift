@@ -41,7 +41,7 @@ extension Room3DContent {
                                    return (r.corners, st.curbless, s.showerFloorTile ?? s.mainTile)
                                })
                 } : nil
-            return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces,
+            return OtherAreaPieces(sectionID: other.id, name: other.area?.rawValue ?? "Area", pieces: t.pieces,
                                    floor: t.floor == .drawn ? t.floorRect : nil,
                                    curbless: t.curbless,
                                    tile: other.mainTile, floorTile: other.showerFloorTile,
@@ -78,7 +78,7 @@ extension Room3DContent {
 
 /// A tap in the 3-D view: a wall (where on it, in the scene) or an item.
 struct Room3DHit {
-    enum Target { case wall(UUID), item(UUID) }
+    enum Target { case wall(UUID), item(UUID), area(UUID) }
     let target: Target
     /// Where it was tapped: x and z on the plan (feet), y up.
     let point: SCNVector3
@@ -162,7 +162,7 @@ struct Room3DSceneView: UIViewRepresentable {
                     if let name = n.name {
                         let parts = name.split(separator: "|")
                         if parts.count == 2, let id = UUID(uuidString: String(parts[1])) {
-                            let target: Room3DHit.Target = parts[0] == "item" ? .item(id) : .wall(id)
+                            let target: Room3DHit.Target = parts[0] == "item" ? .item(id) : parts[0] == "area" ? .area(id) : .wall(id)
                             onTap(Room3DHit(target: target, point: h.worldCoordinates, normal: h.worldNormal))
                             return
                         }
@@ -262,15 +262,15 @@ enum Room3DScene {
 
         // Areas' tile: this one and the room's others.
         typealias Shape = (outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]], continuous: [[ScannedRoom.Point]])
-        var areas: [(pieces: [AreaTakeoff.Piece], tile: TileChoice?, floor: AreaTakeoff.FloorRect?, floorTile: TileChoice?, shape: Shape?)] = []
+        var areas: [(pieces: [AreaTakeoff.Piece], tile: TileChoice?, floor: AreaTakeoff.FloorRect?, floorTile: TileChoice?, shape: Shape?, id: UUID?)] = []
         let mineShape: Shape? = c.area == .floor && c.takeoff.floor == .room
             ? Room3DContent.floorShape(c.takeoff, tile: c.tile, scan: room,
                          showers: c.others.compactMap { o in o.floor.map { ($0.corners, o.curbless, o.floorTile ?? o.tile) } })
             : nil
-        areas.append((c.takeoff.pieces, c.tile, c.takeoff.floor == .drawn ? c.takeoff.floorRect : nil, c.floorTile ?? c.tile, mineShape))
+        areas.append((c.takeoff.pieces, c.tile, c.takeoff.floor == .drawn ? c.takeoff.floorRect : nil, c.floorTile ?? c.tile, mineShape, nil))
         for o in c.others {
             let shape: Shape? = o.roomFloor ? (o.floorOutline ?? room.floorOutline, o.floorHoles, o.continuousFloors) : nil
-            areas.append((o.pieces, o.tile, o.floor, o.floorTile ?? o.tile, shape))
+            areas.append((o.pieces, o.tile, o.floor, o.floorTile ?? o.tile, shape, o.sectionID))
         }
         // A Floor area's tile, round its holes (owner, 2026-10-12).
         var covered: [[ScannedRoom.Point]] = []
@@ -279,12 +279,18 @@ enum Room3DScene {
             let node = flatShape(s.outline, holes: s.holes, color: .white, lift: -0.004)
             node.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(s.outline).w,
                                                        heightFt: bounds(s.outline).h, x0: 0, y0: 0)
+            // Another area's floor: a tap on it switches to that area.
+            if let id = a.id { node.name = "area|\(id.uuidString)" }
             root.addChildNode(node)
             covered += s.continuous
         }
         for a in areas {
             // A curbless shower floor the room's floor tile runs on into is drawn by the floor.
-            if let r = a.floor, !covered.contains(r.corners) { root.addChildNode(floorRect(r, tile: a.floorTile)) }
+            if let r = a.floor, !covered.contains(r.corners) {
+                let n = floorRect(r, tile: a.floorTile)
+                if let id = a.id { n.name = "area|\(id.uuidString)" }
+                root.addChildNode(n)
+            }
         }
 
         // Walls, with their doors and windows cut out, and tile on them.

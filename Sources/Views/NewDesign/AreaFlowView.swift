@@ -11,6 +11,16 @@ struct AreaFlowView: View {
     let onFinish: () -> Void
 
     @State private var step = 0
+    /// A scanned area's one screen (owner, 2026-10-12): its tab, and a count
+    /// bumped when the area's model choices change outside it (calibrating,
+    /// scanning again), so it opens afresh on them.
+    @State private var workspaceTab: ScanEditor.Tab = .measure
+    @State private var workspaceVersion = 0
+    /// The area being worked on, once another of the room's areas has been
+    /// tapped on the model or chosen from the chips (owner, 2026-10-12).
+    @State private var activeID: UUID? = nil
+    @State private var confirmDelete = false
+    @State private var workspace3D = false
     @State private var scanning: ScanTarget? = nil
     /// The model open from the Measure or Extras step.
     @State private var editorMode: ScanEditor.Mode? = nil
@@ -51,15 +61,19 @@ struct AreaFlowView: View {
 
     private var roomIndex: Int? { store.doc.rooms.firstIndex { $0.id == roomID } }
 
-    private var sec: Binding<EstimateSection> {
+    private var sec: Binding<EstimateSection> { sectionBinding(currentID) }
+
+    /// One of the room's areas; the model keeps its edits to the area it
+    /// opened on, even when they arrive just after switching to another.
+    private func sectionBinding(_ id: UUID) -> Binding<EstimateSection> {
         Binding(
             get: {
                 guard let r = roomIndex else { return EstimateSection() }
-                return store.doc.rooms[r].sections.first { $0.id == sectionID } ?? EstimateSection()
+                return store.doc.rooms[r].sections.first { $0.id == id } ?? EstimateSection()
             },
             set: { newValue in
                 guard let r = roomIndex,
-                      let s = store.doc.rooms[r].sections.firstIndex(where: { $0.id == sectionID }) else { return }
+                      let s = store.doc.rooms[r].sections.firstIndex(where: { $0.id == id }) else { return }
                 var updated = newValue
                 updated.syncAreaQuantities()
                 store.doc.rooms[r].sections[s] = updated
@@ -67,6 +81,7 @@ struct AreaFlowView: View {
         )
     }
 
+    private var currentID: UUID { activeID ?? sectionID }
     private var section: EstimateSection { sec.wrappedValue }
     private var roomName: String { roomIndex.map { store.doc.rooms[$0].name } ?? "" }
 
@@ -108,7 +123,174 @@ struct AreaFlowView: View {
 
     // MARK: Body
 
+    /// A scanned area, once its kind is chosen, is one screen: the model on
+    /// top, Tile · Measure · Extras · Price below.
+    private var useWorkspace: Bool { fromModel && section.area != nil && step > 0 }
+
     var body: some View {
+        Group {
+            if useWorkspace, let scan = activeScan {
+                workspace(scan)
+            } else {
+                steps
+            }
+        }
+        .background(ND.ground.ignoresSafeArea())
+        .foregroundStyle(ND.text)
+        .navigationTitle("\(roomName) · \(section.area?.rawValue ?? "New area")")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(ND.ground, for: .navigationBar)
+        .onAppear {
+            guard !didStart else { return }
+            didStart = true
+            step = startStep
+            workspaceTab = Self.tab(for: startStep)
+            if startStep >= 3 { visitedExtras = true }
+            openModelIfNew()
+        }
+        .sheet(item: $editing) { target in
+            tileSheet(target)
+        }
+        .sheet(isPresented: $calibrating) {
+            if let scan = activeScan {
+                CalibrateScanSheet(room: scan, onApply: { applyCalibration($0) },
+                                   onUndo: scan.calibrations.isEmpty ? nil : { undoCalibration() })
+            }
+        }
+        .modifier(ScanCoversModifier(apply: { scanCovers($0) }))
+        .confirmationDialog("Delete \(section.area?.rawValue ?? "this area")?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete this area", role: .destructive) { deleteArea() }
+        } message: {
+            Text("Its tile, measurements and lines come off the estimate.")
+        }
+        .sheet(item: $editingLine) { target in
+            NDLineItemSheet(item: lineBinding(target), materials: target.materials) {
+                if target.materials { sec.wrappedValue.additionsMaterials.removeAll { $0.id == target.id } }
+                else { sec.wrappedValue.additionsLabor.removeAll { $0.id == target.id } }
+                editingLine = nil
+            }
+        }
+    }
+
+    static func tab(for step: Int) -> ScanEditor.Tab {
+        switch step { case 1: .tile; case 2: .measure; case 3: .extras; default: step >= 4 ? .price : .measure }
+    }
+
+    /// The model, embedded as this area's screen.
+    private func workspace(_ scan: ScannedRoom) -> some View {
+        modelEditor(scan, mode: workspaceTab == .extras ? .extras : .measure, embedding: ScanEditor.Embedding(
+            tab: $workspaceTab,
+            tileTab: AnyView(tileStep),
+            measureExtra: AnyView(measureFields),
+            extrasExtra: AnyView(extrasRest),
+            priceTab: AnyView(reviewStep),
+            price: areaPrice,
+            menu: AnyView(workspaceMenu(scan)),
+            onDone: onFinish,
+            areaBar: AnyView(areaBar),
+            onSwitchArea: { switchTo($0) },
+            show3D: $workspace3D))
+            .id(workspaceVersion)
+    }
+
+    @ViewBuilder
+    private func workspaceMenu(_ scan: ScannedRoom) -> some View {
+        Button { step = 0 } label: { Label("Change the kind of area", systemImage: "square.grid.2x2") }
+        Button { calibrating = true } label: {
+            Label(scan.calibrations.isEmpty ? "Calibrate with a tape measure" : "Check the calibration", systemImage: "ruler")
+        }
+        if RoomScanner.isAvailable {
+            Button { scanning = .room } label: { Label("Scan the room again", systemImage: "viewfinder") }
+            Button { scanning = .area } label: { Label("Scan just this area", systemImage: "square.dashed") }
+        }
+        Button { sec.wrappedValue.measuredByHand = true } label: { Label("Enter by hand instead", systemImage: "keyboard") }
+        Button(role: .destructive) { confirmDelete = true } label: { Label("Delete this area", systemImage: "trash") }
+    }
+
+    /// The room's areas as chips: tap one to work on it here, or add one.
+    private var areaBar: some View {
+        let areas = roomIndex.map { store.doc.rooms[$0].sections } ?? []
+        let room = roomIndex.map { store.doc.rooms[$0] }
+        return ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(areas) { a in
+                        let on = a.id == currentID
+                        Button { switchTo(a.id) } label: {
+                            VStack(spacing: 0) {
+                                Text(a.area?.rawValue ?? "New area").font(.system(size: 13, weight: .semibold))
+                                if let room, a.area != nil {
+                                    Text(ND.money(sectionPrice(room: EstimateRoom(name: room.name), section: a, rates: store.pricingRates).subtotal))
+                                        .font(.system(size: 11).monospacedDigit()).opacity(0.75)
+                                }
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .foregroundStyle(on ? Color.black : Color.white)
+                            .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Button { addArea() } label: {
+                        Label("Add area", systemImage: "plus").font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 10).padding(.vertical, 9)
+                            .foregroundStyle(.white)
+                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 2)
+            }
+    }
+
+    /// Work on another of the room's areas without leaving the screen; the
+    /// tab stays where it was.
+    private func switchTo(_ id: UUID) {
+        guard id != currentID else { return }
+        activeID = id
+        editing = nil
+        editingLine = nil
+        autoOpened = true
+        if section.area == nil { step = 0 } else if step == 0 { step = 2 }
+        else { step = Self.step(for: workspaceTab) }
+        workspaceVersion += 1
+    }
+
+    private func addArea() {
+        guard let r = roomIndex else { return }
+        let new = EstimateSection()
+        store.doc.rooms[r].sections.append(new)
+        activeID = new.id
+        editing = nil
+        editingLine = nil
+        autoOpened = false
+        step = 0
+        workspaceTab = .measure
+        workspaceVersion += 1
+    }
+
+    /// Deletes the area on screen and moves to another of the room's areas,
+    /// or leaves when it was the last.
+    private func deleteArea() {
+        guard let r = roomIndex else { return }
+        let id = currentID
+        let rest = store.doc.rooms[r].sections.filter { $0.id != id }
+        store.doc.rooms[r].sections.removeAll { $0.id == id }
+        store.doc.pictures.removeAll { $0.sectionID == id }
+        store.doc.rooms[r].refreshFloorCutouts(prices: StonePrices(rates: store.pricingRates))
+        if let next = rest.first {
+            activeID = next.id
+            step = next.area == nil ? 0 : Self.step(for: workspaceTab)
+            workspaceVersion += 1
+        } else {
+            onFinish()
+        }
+    }
+
+    static func step(for tab: ScanEditor.Tab) -> Int {
+        switch tab { case .tile: 1; case .measure: 2; case .extras: 3; case .price: 4 }
+    }
+
+    /// The step pages: areas typed by hand, and choosing the kind of area.
+    private var steps: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -128,41 +310,20 @@ struct AreaFlowView: View {
             .scrollDismissesKeyboard(.interactively)
             footer.modifier(NDHiddenWhileTyping())
         }
-        .background(ND.ground.ignoresSafeArea())
-        .foregroundStyle(ND.text)
-        .navigationTitle("\(roomName) · \(section.area?.rawValue ?? "New area")")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(ND.ground, for: .navigationBar)
-        .onAppear {
-            guard !didStart else { return }
-            didStart = true
-            step = startStep
-            if startStep >= 3 { visitedExtras = true }
-            openModelIfNew()
-        }
-        .sheet(item: $editing) { target in
-            tileSheet(target)
-        }
-        .modifier(ScanCoversModifier(apply: { scanCovers($0) }))
-        .sheet(item: $editingLine) { target in
-            NDLineItemSheet(item: lineBinding(target), materials: target.materials) {
-                if target.materials { sec.wrappedValue.additionsMaterials.removeAll { $0.id == target.id } }
-                else { sec.wrappedValue.additionsLabor.removeAll { $0.id == target.id } }
-                editingLine = nil
-            }
-        }
     }
 
     private func go(_ newStep: Int) {
         if step == 3 || newStep > 3 { visitedExtras = true }
         withAnimation(.easeInOut(duration: 0.2)) { step = newStep }
+        workspaceTab = Self.tab(for: newStep)
         openModelIfNew()
     }
 
     /// A scanned room's area opens its model the first time it reaches
-    /// Measure with nothing measured yet (owner's call).
+    /// Measure with nothing measured yet (owner's call) — now its own screen
+    /// for a scanned area, so only for one that isn't.
     private func openModelIfNew() {
-        guard step == 2, !autoOpened, fromModel, section.area != nil, measuredSqft == 0 else { return }
+        guard !useWorkspace, step == 2, !autoOpened, fromModel, section.area != nil, measuredSqft == 0 else { return }
         autoOpened = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { editorMode = .measure }
     }
@@ -235,6 +396,7 @@ struct AreaFlowView: View {
     }
 
     private func choose(_ area: Area) {
+        workspaceVersion += 1   // a different area: its screen opens afresh
         var s = section
         let firstTime = s.area == nil
         // A suggested area starts with what the scan found.
@@ -295,6 +457,14 @@ struct AreaFlowView: View {
             if section.area != nil {
                 scanBlock
             }
+            measureFields
+        }
+    }
+
+    /// The Measure page's fields (without the scan's own card).
+    @ViewBuilder
+    private var measureFields: some View {
+        VStack(alignment: .leading, spacing: 20) {
             switch section.area {
             case .shower:
                 wallsBlock(title: "Walls", allSame: \.showerWallsSqft)
@@ -364,6 +534,7 @@ struct AreaFlowView: View {
 
     private func recalibrate(before: ScannedRoom, after: ScannedRoom, by c: ScanCalibration) {
         let prices = StonePrices(rates: store.pricingRates)
+        defer { workspaceVersion += 1 }
         if section.roomScan != nil {
             var s = section
             s.roomScan = after
@@ -392,8 +563,14 @@ struct AreaFlowView: View {
             RoomScanCover { room in finishScan(room, target: target) }
         }
         .fullScreenCover(item: $editorMode) { mode in
-            if let scan = activeScan {
-                ScanEditor(room: scan, area: section.area,
+            if let scan = activeScan { modelEditor(scan, mode: mode, embedding: nil) }
+        }
+    }
+
+    /// The model for this area: full screen from a step page, or embedded as
+    /// the area's own screen.
+    private func modelEditor(_ scan: ScannedRoom, mode: ScanEditor.Mode, embedding: ScanEditor.Embedding?) -> ScanEditor {
+        ScanEditor(room: scan, area: section.area,
                            title: "\(roomName.isEmpty ? "" : roomName + " · ")\(section.area?.rawValue ?? "Area")",
                            takeoff: takeoffForEditor(scan), others: otherScanAreas, mode: mode,
                            kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
@@ -405,7 +582,11 @@ struct AreaFlowView: View {
                                store.doc.pictures.append(EstimatePicture(sectionID: section.id, name: "View \(n)",
                                                                          eye: eye, target: target, fixtures: fixtures))
                            },
-                           onUse: { t, room in
+                           embedding: embedding,
+                           onUse: { [areaID = currentID] t, room in
+                               let sec = sectionBinding(areaID)
+                               let section = sec.wrappedValue
+                               guard store.doc.rooms.first(where: { $0.id == roomID })?.sections.contains(where: { $0.id == areaID }) == true else { return }
                                // Walls drawn in belong to the scan, for every area using it.
                                if room != scan {
                                    if section.roomScan != nil {
@@ -440,8 +621,6 @@ struct AreaFlowView: View {
                                    scanning = section.roomScan != nil ? .area : .room
                                }
                            })
-            }
-        }
     }
 
     @ViewBuilder
@@ -542,7 +721,9 @@ struct AreaFlowView: View {
         case .area:
             sec.wrappedValue.roomScan = room
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { editorMode = .measure }
+        workspaceVersion += 1
+        // A step page opens the model full screen; the area's own screen already shows it.
+        if !useWorkspace { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { editorMode = .measure } }
     }
 
     private func scanSummary(_ t: AreaTakeoff, _ scan: ScannedRoom) -> String {
@@ -820,6 +1001,7 @@ struct AreaFlowView: View {
         var s = section
         t.apply(scan, to: &s, prices: StonePrices(rates: store.pricingRates))
         sec.wrappedValue = s
+        workspaceVersion += 1
     }
 
     private func wallBinding(_ id: UUID) -> Binding<TiledWall> {
@@ -901,8 +1083,16 @@ struct AreaFlowView: View {
     }
 
     private var extrasStep: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            extrasBuiltIns
+            extrasRest
+        }
+    }
+
+    @ViewBuilder
+    private var extrasBuiltIns: some View {
         let onFloor = section.area == .floor
-        return VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
             if fromModel && !onFloor {
                 modelExtras
             } else {
@@ -923,7 +1113,12 @@ struct AreaFlowView: View {
                 }
             }
             }
+        }
+    }
 
+    /// Bands, borders, inlays and other charges.
+    private var extrasRest: some View {
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Bands, borders & inlays").font(.ndTitle(22))
                 if !section.decoratives.isEmpty {
