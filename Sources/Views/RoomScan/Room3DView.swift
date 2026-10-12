@@ -253,7 +253,10 @@ enum Room3DScene {
 
         // The floor.
         if room.floorOutline.count > 2 {
-            let floor = flatShape(room.floorOutline, color: UIColor(white: 0.32, alpha: 1))
+            // Slabs are 0.02′ thick about their lift: the bare floor's top at 0,
+            // a Floor area's tile at 0.006, a shower floor's tile at 0.012 —
+            // each above the one under it.
+            let floor = flatShape(room.floorOutline, color: UIColor(white: 0.32, alpha: 1), lift: -0.01)
             root.addChildNode(floor)
         }
 
@@ -273,7 +276,7 @@ enum Room3DScene {
         var covered: [[ScannedRoom.Point]] = []
         for a in areas {
             guard let s = a.shape, s.outline.count > 2 else { continue }
-            let node = flatShape(s.outline, holes: s.holes, color: .white, lift: 0.004)
+            let node = flatShape(s.outline, holes: s.holes, color: .white, lift: -0.004)
             node.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(s.outline).w,
                                                        heightFt: bounds(s.outline).h, x0: 0, y0: 0)
             root.addChildNode(node)
@@ -710,9 +713,17 @@ enum Room3DScene {
     private static func flatShape(_ outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]] = [],
                                   color: UIColor, lift: Double = 0) -> SCNNode {
         let path = UIBezierPath()
-        for ring in [outline] + holes.filter({ $0.count > 2 }) {
-            path.move(to: CGPoint(x: ring[0].x, y: -ring[0].y))
-            for p in ring.dropFirst() { path.addLine(to: CGPoint(x: p.x, y: -p.y)) }
+        // Holes wound the other way from the outline, so they're cut out
+        // whichever fill rule the shape is built with.
+        func signedArea(_ r: [ScannedRoom.Point]) -> Double {
+            r.indices.reduce(0.0) { s, i in let a = r[i], b = r[(i + 1) % r.count]; return s + a.x * b.y - b.x * a.y }
+        }
+        let outer = signedArea(outline) >= 0
+        for (k, ring) in ([outline] + holes.filter({ $0.count > 2 })).enumerated() {
+            let ccw = signedArea(ring) >= 0
+            let pts = (k == 0 || ccw != outer) ? ring : Array(ring.reversed())
+            path.move(to: CGPoint(x: pts[0].x, y: -pts[0].y))
+            for p in pts.dropFirst() { path.addLine(to: CGPoint(x: p.x, y: -p.y)) }
             path.close()
         }
         path.usesEvenOddFillRule = true
