@@ -17,6 +17,8 @@ struct Room3DContent: Equatable {
     var area: Area?
     var tile: TileChoice?
     var floorTile: TileChoice?
+    /// Walls with a tile of their own, by scanned wall.
+    var wallTiles: [UUID: TileChoice] = [:]
     var others: [OtherAreaPieces]
     var curbHeightIn: Double
     var stoneParts: Set<String>
@@ -45,6 +47,7 @@ extension Room3DContent {
                                    floor: t.floor == .drawn ? t.floorRect : nil,
                                    curbless: t.curbless,
                                    tile: other.mainTile, floorTile: other.showerFloorTile,
+                                   wallTiles: room.scan.map { other.wallTiles(in: $0) } ?? [:],
                                    roomFloor: other.area == .floor && t.floor == .room,
                                    floorOutline: shape?.outline, floorHoles: shape?.holes ?? [],
                                    continuousFloors: shape?.continuous ?? [])
@@ -69,7 +72,7 @@ extension Room3DContent {
         guard let scan = s.roomScan ?? room.scan, let t = s.scanTakeoff else { return nil }
         let curb = t.curbHeightIn ?? rates.curbHeightIn
         let stone = Set(t.trimPieces(in: scan, area: s.area, curbHeightIn: curb).filter(\.stone).map(\.key))
-        return Room3DContent(room: scan, takeoff: t, area: s.area, tile: s.mainTile, floorTile: s.showerFloorTile,
+        return Room3DContent(room: scan, takeoff: t, area: s.area, tile: s.mainTile, floorTile: s.showerFloorTile, wallTiles: s.wallTiles(in: scan),
                              others: s.roomScan == nil ? otherAreas(in: room, except: s.id) : [],
                              curbHeightIn: curb, stoneParts: stone, showFixtures: fixtures,
                              curbWidthFt: StonePrices(rates: rates).curbWidthFt)
@@ -78,12 +81,20 @@ extension Room3DContent {
 
 /// A tap in the 3-D view: a wall (where on it, in the scene) or an item.
 struct Room3DHit {
-    enum Target { case wall(UUID), item(UUID), area(UUID) }
+    enum Target { case wall(UUID), item(UUID), area(UUID), ownFloor }
     let target: Target
     /// Where it was tapped: x and z on the plan (feet), y up.
     let point: SCNVector3
     /// The surface's outward direction there.
     let normal: SCNVector3
+}
+
+/// Where the 3-D camera was, kept while the room's areas switch (owner,
+/// 2026-10-12): the view picked and the camera as it was last turned.
+final class Room3DCameraMemory {
+    var preset: Room3DScene.Preset = .area
+    var transform: SCNMatrix4?
+    var target: SCNVector3?
 }
 
 struct Room3DView: View {
@@ -92,12 +103,13 @@ struct Room3DView: View {
     var onTap: (Room3DHit) -> Void = { _ in }
     /// "Add to estimate": the camera as it is now (eye, target).
     var onCapture: (([Double], [Double]) -> Void)? = nil
+    var memory: Room3DCameraMemory? = nil
     @State private var view: Room3DScene.Preset = .area
     @State private var capture = 0
     @State private var captured = false
 
     var body: some View {
-        Room3DSceneView(content: content, preset: view, onTap: onTap, captureToken: capture,
+        Room3DSceneView(content: content, preset: view, memory: memory, onTap: onTap, captureToken: capture,
                         onCapture: { eye, target in
                             onCapture?(eye, target)
                             withAnimation { captured = true }
@@ -131,6 +143,8 @@ struct Room3DView: View {
                 }
                 .padding(8)
             }
+            .onAppear { if let memory, memory.transform != nil { view = memory.preset } }
+            .onChange(of: view) { _, now in memory?.preset = now }
     }
 }
 
@@ -139,14 +153,28 @@ struct Room3DView: View {
 struct Room3DSceneView: UIViewRepresentable {
     let content: Room3DContent
     let preset: Room3DScene.Preset
+    var memory: Room3DCameraMemory? = nil
     var onTap: (Room3DHit) -> Void = { _ in }
     var captureToken = 0
     var onCapture: ([Double], [Double]) -> Void = { _, _ in }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, SCNSceneRendererDelegate {
+        /// Keeps the camera in `memory` as it's turned (the next area's view
+        /// opens before this one closes, so it can't wait till then).
+        func renderer(_ renderer: any SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            guard memory != nil, preset != nil, let v = renderer as? SCNView, let cam = v.pointOfView else { return }
+            let transform = cam.transform, target = v.defaultCameraController.target
+            DispatchQueue.main.async { [weak self] in
+                guard let m = self?.memory else { return }
+                m.transform = transform
+                m.target = target
+            }
+        }
+
         var captureToken = 0
         var shown: Room3DContent?
         var preset: Room3DScene.Preset?
+        var memory: Room3DCameraMemory?
         var onTap: (Room3DHit) -> Void = { _ in }
 
         /// The nearest wall or item under the finger (walls seen from
@@ -159,6 +187,10 @@ struct Room3DSceneView: UIViewRepresentable {
             for h in hits {
                 var node: SCNNode? = h.node
                 while let n = node {
+                    if n.name == "floor|mine" {
+                        onTap(Room3DHit(target: .ownFloor, point: h.worldCoordinates, normal: h.worldNormal))
+                        return
+                    }
                     if let name = n.name {
                         let parts = name.split(separator: "|")
                         if parts.count == 2, let id = UUID(uuidString: String(parts[1])) {
@@ -175,6 +207,13 @@ struct Room3DSceneView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    static func dismantleUIView(_ v: SCNView, coordinator: Coordinator) {
+        guard let m = coordinator.memory, let cam = v.pointOfView else { return }
+        m.transform = cam.transform
+        m.target = v.defaultCameraController.target
+        if let p = coordinator.preset { m.preset = p }
+    }
+
     func makeUIView(context: Context) -> SCNView {
         let v = SCNView()
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
@@ -184,12 +223,14 @@ struct Room3DSceneView: UIViewRepresentable {
         v.autoenablesDefaultLighting = false
         v.antialiasingMode = .multisampling4X
         v.scene = SCNScene()
+        v.delegate = context.coordinator
         return v
     }
 
     func updateUIView(_ v: SCNView, context: Context) {
         let c = context.coordinator
         c.onTap = onTap
+        c.memory = memory
         if captureToken != c.captureToken {
             c.captureToken = captureToken
             if let cam = v.pointOfView {
@@ -217,6 +258,16 @@ struct Room3DSceneView: UIViewRepresentable {
             } else {
                 c.preset = nil
             }
+        }
+        // Opened again after switching areas: the camera as it was left.
+        if c.preset == nil, let m = memory, let transform = m.transform {
+            let (camera, target) = Room3DScene.camera(for: m.preset, content: content)
+            camera.transform = transform
+            v.scene?.rootNode.addChildNode(camera)
+            v.pointOfView = camera
+            v.defaultCameraController.target = m.target ?? target
+            c.preset = m.preset
+            return
         }
         if c.preset != preset {
             c.preset = preset
@@ -262,15 +313,15 @@ enum Room3DScene {
 
         // Areas' tile: this one and the room's others.
         typealias Shape = (outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]], continuous: [[ScannedRoom.Point]])
-        var areas: [(pieces: [AreaTakeoff.Piece], tile: TileChoice?, floor: AreaTakeoff.FloorRect?, floorTile: TileChoice?, shape: Shape?, id: UUID?)] = []
+        var areas: [(pieces: [AreaTakeoff.Piece], tile: TileChoice?, floor: AreaTakeoff.FloorRect?, floorTile: TileChoice?, shape: Shape?, id: UUID?, wallTiles: [UUID: TileChoice])] = []
         let mineShape: Shape? = c.area == .floor && c.takeoff.floor == .room
             ? Room3DContent.floorShape(c.takeoff, tile: c.tile, scan: room,
                          showers: c.others.compactMap { o in o.floor.map { ($0.corners, o.curbless, o.floorTile ?? o.tile) } })
             : nil
-        areas.append((c.takeoff.pieces, c.tile, c.takeoff.floor == .drawn ? c.takeoff.floorRect : nil, c.floorTile ?? c.tile, mineShape, nil))
+        areas.append((c.takeoff.pieces, c.tile, c.takeoff.floor == .drawn ? c.takeoff.floorRect : nil, c.floorTile ?? c.tile, mineShape, nil, c.wallTiles))
         for o in c.others {
             let shape: Shape? = o.roomFloor ? (o.floorOutline ?? room.floorOutline, o.floorHoles, o.continuousFloors) : nil
-            areas.append((o.pieces, o.tile, o.floor, o.floorTile ?? o.tile, shape, o.sectionID))
+            areas.append((o.pieces, o.tile, o.floor, o.floorTile ?? o.tile, shape, o.sectionID, o.wallTiles))
         }
         // A Floor area's tile, round its holes (owner, 2026-10-12).
         var covered: [[ScannedRoom.Point]] = []
@@ -280,7 +331,7 @@ enum Room3DScene {
             node.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(s.outline).w,
                                                        heightFt: bounds(s.outline).h, x0: 0, y0: 0)
             // Another area's floor: a tap on it switches to that area.
-            if let id = a.id { node.name = "area|\(id.uuidString)" }
+            node.name = a.id.map { "area|\($0.uuidString)" } ?? "floor|mine"
             root.addChildNode(node)
             covered += s.continuous
         }
@@ -288,7 +339,7 @@ enum Room3DScene {
             // A curbless shower floor the room's floor tile runs on into is drawn by the floor.
             if let r = a.floor, !covered.contains(r.corners) {
                 let n = floorRect(r, tile: a.floorTile)
-                if let id = a.id { n.name = "area|\(id.uuidString)" }
+                n.name = a.id.map { "area|\($0.uuidString)" } ?? "floor|mine"
                 root.addChildNode(n)
             }
         }
@@ -366,7 +417,7 @@ enum Room3DScene {
                     let cut = holes + niches.filter { $0.side == side }.map(\.rect)
                     for cell in cells(Rect(x0: p.fromFt, x1: p.toFt, y0: 0, y1: p.heightIn / 12), minus: cut) {
                         let plane = SCNPlane(width: cell.w, height: cell.h)
-                        plane.firstMaterial = tileMaterial(a.tile, widthFt: cell.w, heightFt: cell.h, x0: cell.x0, y0: cell.y0)
+                        plane.firstMaterial = tileMaterial(a.wallTiles[w.id] ?? a.tile, widthFt: cell.w, heightFt: cell.h, x0: cell.x0, y0: cell.y0)
                         let n = SCNNode(geometry: plane)
                         n.position = SCNVector3(cell.midX, cell.midY, Double(side) * (t / 2 + 0.006))
                         if side < 0 { n.eulerAngles.y = .pi }
@@ -1411,4 +1462,18 @@ enum TilePattern {
 
     private static func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? abs(a) : gcd(b, a % b) }
     private static func lcm(_ a: Int, _ b: Int) -> Int { a / max(gcd(a, b), 1) * b }
+}
+
+
+extension EstimateSection {
+    /// Walls given a tile of their own, by the scanned wall they're named for.
+    func wallTiles(in room: ScannedRoom) -> [UUID: TileChoice] {
+        guard !walls.isEmpty else { return [:] }
+        var out: [UUID: TileChoice] = [:]
+        for w in room.walls {
+            let name = room.name(of: w)
+            if let tw = walls.first(where: { $0.name == name }) { out[w.id] = tw.tile }
+        }
+        return out
+    }
 }

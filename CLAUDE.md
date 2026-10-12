@@ -494,6 +494,30 @@ change still settling when the area switches is kept first (`onDisappear`).
 re-cuts the Floor area and moves to the room's next area, or leaves when
 none is left.
 
+**Tile on the model** (owner's pick A from mockups, 2026-10-12): on the Tile
+tab a tap on the model chooses a surface's tile instead of holding
+anything (`ScanEditor.pickingTile`, `PlanCanvas.onPickTile`,
+`Embedding.onPickTile`; 3-D: walls, other areas' floors and this area's
+own floor, named "floor|mine", `Room3DHit.Target.ownFloor`). On the plan,
+well inside a floor (8 pt clear of its edges) is the floor, else a wall
+there wins. A wall goes to the area that tiles it (this one first),
+switching to it; a wall nobody tiles is chosen as before. What opens
+(`AreaFlowView.openTile`): a shower's floor → its floor tile (nil while
+the same as the main tile); a Floor area's floor or a backsplash etc. →
+the main tile (`fullMainTile`/`setMainTile`, with orientation, photo and
+side); a shower or tub wall with its own tile → that `TiledWall` (named
+by the scan's letter); walls sharing a tile → "All walls", with **Give
+Wall B its own tile** (`separateWallsOnModel`, then that wall's sheet).
+Every tile sheet (`NDTileSheet`) starts with **Use a tile from this room**:
+each tile already used in the room once (`roomTiles`: main, each wall,
+shower floor, ceiling), with a true-scale swatch (`NDTileSwatch`), the one
+in use ticked; one tap copies the whole tile. 3-D draws a wall with its own
+tile in that tile (`Room3DContent.wallTiles`, `OtherAreaPieces.wallTiles`,
+`EstimateSection.wallTiles(in:)`; the PDF pictures too) — before, every
+wall showed the area's main tile. The 3-D view and camera are kept as
+areas switch (`Room3DCameraMemory`, saved each frame by the scene view's
+renderer delegate since the next area's view opens before the last closes).
+
 ## Two ways to measure a room (owner's design, 2026-10-08)
 
 Adding a room asks **Scan the room** or **Enter measurements by hand**

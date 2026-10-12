@@ -18,6 +18,8 @@ struct OtherAreaPieces: Equatable {
     /// For the 3-D view: its tile, its floor's tile, and whether it tiles the room's floor.
     var tile: TileChoice? = nil
     var floorTile: TileChoice? = nil
+    /// Walls with a tile of their own, by scanned wall.
+    var wallTiles: [UUID: TileChoice] = [:]
     var roomFloor: Bool = false
     /// A Floor area on the scanned floor: the outline it tiles, the holes in
     /// it (other areas' floors, "no tile" boxes, the tub) and the shower
@@ -61,6 +63,25 @@ struct ScanEditor: View {
         var onSwitchArea: (UUID) -> Void
         /// 2-D or 3-D, kept as the areas switch.
         var show3D: Binding<Bool>
+        /// On the Tile tab, a surface tapped on the model: its area (nil for
+        /// this one) and which surface, to choose its tile (owner, 2026-10-12).
+        var onPickTile: (UUID?, Surface) -> Void
+        /// The 3-D camera, kept as the areas switch.
+        var camera3D: Room3DCameraMemory
+    }
+
+    /// A surface tapped on the Tile tab.
+    enum Surface: Equatable { case wall(UUID), floor }
+
+    /// On the Tile tab, a tap on the model chooses a surface's tile.
+    private var pickingTile: Bool { embedding?.tab.wrappedValue == .tile }
+
+    /// The area whose tile is on a wall: this one (nil) when it tiles it,
+    /// else the first other area that does; false when none does.
+    private func tileOwner(ofWall id: UUID) -> (owner: UUID?, found: Bool) {
+        if takeoff.pieces.contains(where: { $0.wallID == id }) { return (nil, true) }
+        if let o = others.first(where: { $0.pieces.contains { $0.wallID == id } }), let s = o.sectionID { return (s, true) }
+        return (nil, false)
     }
     var embedding: Embedding? = nil
 
@@ -76,6 +97,7 @@ struct ScanEditor: View {
     /// This area's tile and floor tile, for the 3-D view.
     let tile: TileChoice?
     let floorTile: TileChoice?
+    let wallTiles: [UUID: TileChoice]
     /// The rates, for choosing a niche's own tile (its sizes and wording).
     var rates: Rates = Rates()
     /// "Add to estimate" in 3-D: the camera (eye, target) and whether fixtures show.
@@ -175,7 +197,8 @@ struct ScanEditor: View {
     init(room: ScannedRoom, area: Area?, title: String, takeoff: AreaTakeoff, others: [OtherAreaPieces],
          mode: Mode = .measure,
          kneeWallThicknessIn: Double = 4.5, stone: StonePrices = .init(),
-         tile: TileChoice? = nil, floorTile: TileChoice? = nil, rates: Rates = Rates(),
+         tile: TileChoice? = nil, floorTile: TileChoice? = nil, wallTiles: [UUID: TileChoice] = [:],
+         rates: Rates = Rates(),
          onAddPicture: (([Double], [Double], Bool) -> Void)? = nil,
          embedding: Embedding? = nil,
          onUse: @escaping (AreaTakeoff, ScannedRoom) -> Void, onRescan: @escaping () -> Void) {
@@ -188,6 +211,7 @@ struct ScanEditor: View {
         self.stone = stone
         self.tile = tile
         self.floorTile = floorTile
+        self.wallTiles = wallTiles
         self.onAddPicture = onAddPicture
         self.area = area
         _mode = State(initialValue: mode)
@@ -209,7 +233,8 @@ struct ScanEditor: View {
 
     private var content3D: Room3DContent {
         let stoneParts = Set(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn).filter(\.stone).map(\.key))
-        return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile, others: others,
+        return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile,
+                             wallTiles: wallTiles, others: others,
                              curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
                              showFixtures: showFixtures, selectedItem: selectedItem, curbWidthFt: stone.curbWidthFt)
     }
@@ -269,7 +294,9 @@ struct ScanEditor: View {
                 var q = p
                 q.face = theirSide.x * mine.x + theirSide.y * mine.y > 0 ? 0 : 1
                 return q
-            }, floor: o.floor, curbless: o.curbless, tile: o.tile, floorTile: o.floorTile, roomFloor: o.roomFloor)
+            }, floor: o.floor, curbless: o.curbless, tile: o.tile, floorTile: o.floorTile, wallTiles: o.wallTiles,
+               roomFloor: o.roomFloor, floorOutline: o.floorOutline, floorHoles: o.floorHoles,
+               continuousFloors: o.continuousFloors)
         }
     }
 
@@ -287,7 +314,8 @@ struct ScanEditor: View {
                 ZStack(alignment: .bottomTrailing) {
                 if show3D {
                     Room3DView(content: content3D, showFixtures: $showFixtures, onTap: { tap3D($0) },
-                               onCapture: onAddPicture.map { add in { eye, target in add(eye, target, showFixtures) } })
+                               onCapture: onAddPicture.map { add in { eye, target in add(eye, target, showFixtures) } },
+                               memory: embedding?.camera3D)
                         .frame(height: 250)
                         .overlay(alignment: .topTrailing) {
                             if area == .shower || (mode == .extras && usesWalls) {
@@ -330,7 +358,8 @@ struct ScanEditor: View {
                            drainShown: showerDrawn ? takeoff.drainShown() : nil,
                            items: takeoff.items,
                            showDimensions: showDimensions,
-                           hint: addingWall ? nil : (editingWalls && mode == .measure ? "Tap a wall to change it · pinch to zoom"
+                           hint: addingWall ? nil : pickingTile ? "Tap a wall or floor to choose its tile"
+                                : (editingWalls && mode == .measure ? "Tap a wall to change it · pinch to zoom"
                                 : !usesWalls ? "Pinch to zoom"
                                 : mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"),
                            addingWall: addingWall,
@@ -358,6 +387,16 @@ struct ScanEditor: View {
                                closeSide(openSides[i], full: addingFullWall)
                            },
                            onTapOtherArea: embedding.map { e in { id in e.onSwitchArea(id) } },
+                           onPickTile: pickingTile ? { pick in
+                               guard let e = embedding else { return }
+                               switch pick {
+                               case .other(let id): e.onPickTile(id, .floor)
+                               case .ownFloor: e.onPickTile(nil, .floor)
+                               case .wall(let id):
+                                   let o = tileOwner(ofWall: id)
+                                   if o.found { e.onPickTile(o.owner, .wall(id)) } else { tapWall(id) }
+                               }
+                           } : nil,
                            snapNewWall: { a, b in
                                area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
                            }) { wallID in
@@ -791,7 +830,18 @@ struct ScanEditor: View {
     /// A tap in the 3-D view: an item chooses it; a wall places what was
     /// picked from Place there, or else chooses the wall (and its side).
     private func tap3D(_ hit: Room3DHit) {
+        if pickingTile, placing3D == nil, let e = embedding {
+            switch hit.target {
+            case .area(let id): e.onPickTile(id, .floor); return
+            case .ownFloor: e.onPickTile(nil, .floor); return
+            case .wall(let id):
+                let o = tileOwner(ofWall: id)
+                if o.found { e.onPickTile(o.owner, .wall(id)); return }
+            case .item: break
+            }
+        }
         switch hit.target {
+        case .ownFloor: break
         case .area(let id):
             if placing3D == nil { embedding?.onSwitchArea(id) }
         case .item(let id):
@@ -2018,6 +2068,9 @@ struct PlanCanvas: View {
     /// Another area tapped on the plan (its floor, or the room's floor for
     /// a Floor area): switch to it.
     var onTapOtherArea: ((UUID) -> Void)? = nil
+    /// On the Tile tab: a tap picks a surface instead of holding anything.
+    enum Pick { case other(UUID), ownFloor, wall(UUID) }
+    var onPickTile: ((Pick) -> Void)? = nil
     /// Where a wall being drawn lands (e.g. on the shower's curb).
     var snapNewWall: (ScannedRoom.Point, ScannedRoom.Point) -> (ScannedRoom.Point, ScannedRoom.Point) = { ($0, $1) }
     var onTapWall: (UUID) -> Void = { _ in }
@@ -2309,6 +2362,24 @@ struct PlanCanvas: View {
     /// floor; empty space lets go.
     private func tap(at location: CGPoint, _ f: Frame) {
         if let onTapPoint { onTapPoint(f.point(at: location)); return }
+        if let onPickTile {
+            hold = nil
+            let p = f.point(at: location)
+            // Well inside a floor is the floor; near its edges, the wall there.
+            let clear: (AreaTakeoff.FloorRect) -> Bool = { inside(location, $0, f) && floorEdge(at: location, $0, f, reach: 8) == nil }
+            if let r = floorRect?.wrappedValue, clear(r) { onPickTile(.ownFloor); return }
+            if let o = others.first(where: { o in o.floor.map(clear) == true }), let id = o.sectionID {
+                onPickTile(.other(id)); return
+            }
+            if let id = wall(at: location, f) { onPickTile(.wall(id)); return }
+            if let r = floorRect?.wrappedValue, inside(location, r, f) { onPickTile(.ownFloor); return }
+            if let t = tiledFloor, AreaTakeoff.inside(t, p) { onPickTile(.ownFloor); return }
+            if let o = others.first(where: { $0.roomFloor && AreaTakeoff.inside($0.floorOutline ?? room.floorOutline, p) }),
+               let id = o.sectionID {
+                onPickTile(.other(id)); return
+            }
+            return
+        }
         // The drain: a linear drain's end once it's held, else the drain.
         if drain != nil, let r = floorRect?.wrappedValue, let d = drainShown {
             if d.kind == .linear, hold == .drain || { if case .drainEnd = hold { true } else { false } }() {

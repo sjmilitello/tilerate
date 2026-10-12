@@ -21,6 +21,7 @@ struct AreaFlowView: View {
     @State private var activeID: UUID? = nil
     @State private var confirmDelete = false
     @State private var workspace3D = false
+    @State private var camera3D = Room3DCameraMemory()
     @State private var scanning: ScanTarget? = nil
     /// The model open from the Measure or Extras step.
     @State private var editorMode: ScanEditor.Mode? = nil
@@ -42,8 +43,13 @@ struct AreaFlowView: View {
     /// Which separate tile the tile sheet is editing.
     private enum TileTarget: Identifiable {
         case wall(UUID), floor, ceiling, decorative(UUID)
+        /// The area's own tile; and, for walls sharing it, the scanned wall
+        /// that was tapped (so it can be given its own).
+        case main, allWalls(UUID)
         var id: String {
             switch self {
+            case .main: "main"
+            case .allWalls(let id): "allWalls-\(id)"
             case .wall(let id): "wall-\(id)"
             case .decorative(let id): "decorative-\(id)"
             case .floor: "floor"
@@ -189,7 +195,9 @@ struct AreaFlowView: View {
             onDone: onFinish,
             areaBar: AnyView(areaBar),
             onSwitchArea: { switchTo($0) },
-            show3D: $workspace3D))
+            show3D: $workspace3D,
+            onPickTile: { pickTile($0, $1) },
+            camera3D: camera3D))
             .id(workspaceVersion)
     }
 
@@ -239,6 +247,64 @@ struct AreaFlowView: View {
                 }
                 .padding(.horizontal, 2)
             }
+    }
+
+    /// A surface tapped on the model on the Tile tab: its area comes up (if
+    /// it's another) and its tile opens.
+    private func pickTile(_ owner: UUID?, _ surface: ScanEditor.Surface) {
+        let switching = owner.map { $0 != currentID } ?? false
+        if let owner, switching { switchTo(owner) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (switching ? 0.3 : 0)) { openTile(surface) }
+    }
+
+    private func openTile(_ surface: ScanEditor.Surface) {
+        switch surface {
+        case .floor:
+            editing = section.area == .shower ? .floor : .main
+        case .wall(let id):
+            guard let scan = activeScan, let w = scan.wall(id) else { editing = .main; return }
+            let name = scan.name(of: w)
+            if let tw = section.walls.first(where: { $0.name == name }) {
+                editing = .wall(tw.id)
+            } else if section.walls.isEmpty, section.area == .shower || section.area == .tub {
+                editing = .allWalls(id)
+            } else {
+                editing = .main
+            }
+        }
+    }
+
+    /// Gives each wall its own tile, from the model (walls named by letter).
+    private func separateWallsOnModel() {
+        guard let scan = activeScan else { return }
+        var s = section
+        guard let t = s.scanTakeoff else { return }
+        s.walls = [TiledWall(name: "", tile: s.fullMainTile ?? .usual)]
+        t.apply(scan, to: &s, prices: StonePrices(rates: store.pricingRates))
+        sec.wrappedValue = s
+    }
+
+    /// Every tile already used in this room, once each, for one-tap use.
+    private var roomTiles: [NDTileSheet.Suggestion] {
+        guard let r = roomIndex else { return [] }
+        var out: [NDTileSheet.Suggestion] = []
+        func add(_ label: String, _ tile: TileChoice?) {
+            guard let tile, !out.contains(where: { $0.tile == tile }) else { return }
+            out.append(.init(label: "Same as " + label, tile: tile))
+        }
+        for a in store.doc.rooms[r].sections {
+            let name = a.area?.rawValue ?? "Area"
+            let hasWalls = a.area == .shower || a.area == .tub
+            if a.walls.isEmpty { add(hasWalls ? "\(name.lowercased()) walls" : name.lowercased(), a.fullMainTile) }
+            for w in a.walls { add("\(name.lowercased()) · \(w.name)", w.tile) }
+            add("\(name.lowercased()) floor", a.showerFloorTile)
+            add("\(name.lowercased()) ceiling", a.ceilingTile)
+        }
+        return out
+    }
+
+    private var mainTileBinding: Binding<TileChoice> {
+        Binding(get: { section.fullMainTile ?? .usual }, set: { sec.wrappedValue.setMainTile($0) })
     }
 
     /// Work on another of the room's areas without leaving the screen; the
@@ -576,6 +642,7 @@ struct AreaFlowView: View {
                            kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
                            stone: StonePrices(rates: store.pricingRates),
                            tile: section.mainTile, floorTile: section.showerFloorTile,
+                           wallTiles: section.wallTiles(in: scan),
                            rates: store.pricingRates,
                            onAddPicture: { eye, target, fixtures in
                                let n = store.doc.pictures.filter { $0.sectionID == section.id }.count + 1
@@ -1017,14 +1084,29 @@ struct AreaFlowView: View {
     @ViewBuilder
     private func tileSheet(_ target: TileTarget) -> some View {
         switch target {
+        case .main:
+            NDTileSheet(title: section.area == .floor ? "Floor tile"
+                            : section.area == .shower || section.area == .tub ? "Wall tile" : "\(section.area?.rawValue ?? "Area") tile",
+                        tile: mainTileBinding, rates: store.pricingRates, suggestions: roomTiles)
+        case .allWalls(let wallID):
+            let name = activeScan.flatMap { s in s.wall(wallID).map { s.name(of: $0) } } ?? "This wall"
+            NDTileSheet(title: "All walls", tile: mainTileBinding, rates: store.pricingRates, suggestions: roomTiles,
+                        note: "\(name) shares one tile with every wall of this \(section.area?.rawValue.lowercased() ?? "area").",
+                        noteAction: ("Give \(name) its own tile", {
+                            separateWallsOnModel()
+                            editing = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                                if let tw = section.walls.first(where: { $0.name == name }) { editing = .wall(tw.id) }
+                            }
+                        }))
         case .wall(let id):
             NDTileSheet(title: section.walls.first { $0.id == id }?.name ?? "Wall",
-                        tile: wallBinding(id).tile, rates: store.pricingRates)
+                        tile: wallBinding(id).tile, rates: store.pricingRates, suggestions: roomTiles)
         case .floor:
             NDTileSheet(title: "Shower floor tile",
-                        tile: Binding(get: { section.showerFloorTile ?? .usual },
-                                      set: { sec.wrappedValue.showerFloorTile = $0 }),
-                        rates: store.pricingRates)
+                        tile: Binding(get: { section.showerFloorTile ?? section.fullMainTile ?? .usual },
+                                      set: { sec.wrappedValue.showerFloorTile = $0 == section.fullMainTile ? nil : $0 }),
+                        rates: store.pricingRates, suggestions: roomTiles)
         case .decorative(let id):
             let item = decorativeBinding(id)
             NDTileSheet(title: "\(item.wrappedValue.kind.rawValue) tile", tile: item.tile, rates: store.pricingRates)
@@ -1032,7 +1114,7 @@ struct AreaFlowView: View {
             NDTileSheet(title: "Ceiling tile",
                         tile: Binding(get: { section.ceilingTile ?? .usual },
                                       set: { sec.wrappedValue.ceilingTile = $0 }),
-                        rates: store.pricingRates)
+                        rates: store.pricingRates, suggestions: roomTiles)
         }
     }
 
@@ -1814,11 +1896,56 @@ struct NDTileSheet: View {
     let title: String
     @Binding var tile: TileChoice
     let rates: Rates
+    /// Tiles already used in the room, one tap each (owner's pick, 2026-10-12).
+    var suggestions: [Suggestion] = []
+    var note: String? = nil
+    var noteAction: (String, () -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+
+    struct Suggestion: Identifiable {
+        let label: String
+        let tile: TileChoice
+        var id: String { label }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
+              VStack(alignment: .leading, spacing: 18) {
+                if let note {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(note).font(.system(size: 14)).foregroundStyle(ND.secondary)
+                        if let noteAction {
+                            Button(noteAction.0, action: noteAction.1)
+                                .font(.system(size: 15, weight: .semibold)).foregroundStyle(ND.link)
+                        }
+                    }
+                }
+                if !suggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        NDLabel("Use a tile from this room")
+                        ForEach(suggestions) { s in
+                            let on = s.tile == tile
+                            Button { tile = s.tile } label: {
+                                HStack(spacing: 12) {
+                                    NDTileSwatch(tile: s.tile).frame(width: 44, height: 44)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(s.label).font(.system(size: 15, weight: .semibold))
+                                        Text(s.tile.ndSummary).font(.system(size: 13)).foregroundStyle(ND.secondary)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                    Spacer(minLength: 4)
+                                    if on { Image(systemName: "checkmark").foregroundStyle(ND.link) }
+                                }
+                                .padding(10)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(on ? ND.link : ND.border, lineWidth: on ? 2 : 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        NDLabel("Or choose").padding(.top, 6)
+                    }
+                }
                 NDTileFields(
                     type: Binding(get: { tile.tileType }, set: { if let v = $0 { tile.tileType = v } }),
                     size: Binding(get: { tile.tileSize }, set: { tile.tileSize = $0 ?? .rectangle }),
@@ -1832,7 +1959,8 @@ struct NDTileSheet: View {
                     photoID: $tile.photoID,
                     turnedOver: $tile.turnedOver
                 )
-                .padding(20)
+              }
+              .padding(20)
             }
             .background(ND.ground.ignoresSafeArea())
             .foregroundStyle(ND.text)
@@ -1921,5 +2049,54 @@ struct CameraPicker: UIViewControllerRepresentable {
             done(info[.originalImage] as? UIImage)
         }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
+    }
+}
+
+
+/// A patch of tile as the 3-D view draws it, `spanIn` inches across.
+struct NDTileSwatch: View {
+    let tile: TileChoice
+    var spanIn: Double? = nil
+
+    var body: some View {
+        let made = TilePattern.make(tile)
+        let span = spanIn ?? max(12, min(48, 4 * TilePattern.drawnSize(tile).0))
+        Canvas { ctx, size in
+            let ptPerIn = size.width / span
+            let tw = made.periodIn.width * ptPerIn, th = made.periodIn.height * ptPerIn
+            let image = ctx.resolve(Image(uiImage: made.image))
+            var y = 0.0
+            while y < size.height {
+                var x = 0.0
+                while x < size.width { ctx.draw(image, in: CGRect(x: x, y: y, width: tw, height: th)); x += tw }
+                y += th
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(ND.border))
+    }
+}
+
+extension EstimateSection {
+    /// The main tile with its orientation, photo and side, as one choice.
+    var fullMainTile: TileChoice? {
+        guard var t = ndMainTile else { return nil }
+        t.vertical = tileVertical
+        t.photoID = tilePhotoID
+        t.turnedOver = tileTurnedOver
+        return t
+    }
+
+    mutating func setMainTile(_ t: TileChoice) {
+        tileType = t.tileType
+        tileSize = t.tileSize
+        layout = t.layout
+        tileWidthIn = t.tileWidthIn
+        tileLengthIn = t.tileLengthIn
+        mosaicStyle = t.mosaicStyle
+        multiTilePieces = t.pieces
+        tileVertical = t.vertical
+        tilePhotoID = t.photoID
+        tileTurnedOver = t.turnedOver
     }
 }
