@@ -1110,6 +1110,16 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
     var coveDepthFt: Double? = nil
     /// The shower's drain; nil is a 4″ square drain in the middle of the floor.
     var drain: Drain? = nil
+    /// A Floor area on the scanned floor (owner, 2026-10-12): parts left
+    /// untiled ("no tile" boxes, e.g. a vanity), its own outline when the
+    /// edges were dragged in (nil = the scan's), and the floors of the room's
+    /// other areas (shower floors with their curbs), which it never tiles —
+    /// kept up to date by `EstimateRoom.refreshFloorCutouts`.
+    var skipBoxes: [FloorRect] = []
+    var floorOutline: [ScannedRoom.Point]? = nil
+    var cutouts: [[ScannedRoom.Point]] = []
+    /// Cabinets the scanner found were turned into "no tile" boxes, once.
+    var scannedSkipsAdded: Bool = false
 
     /// A shower drain: a 4″ square one, or a linear one. Kept in the floor's
     /// own terms, so it moves and turns with the floor.
@@ -1880,6 +1890,10 @@ extension AreaTakeoff {
         c.read(.curbless, into: &curbless)
         c.read(.coveDepthFt, into: &coveDepthFt)
         c.read(.drain, into: &drain)
+        c.read(.skipBoxes, into: &skipBoxes)
+        c.read(.floorOutline, into: &floorOutline)
+        c.read(.cutouts, into: &cutouts)
+        c.read(.scannedSkipsAdded, into: &scannedSkipsAdded)
     }
 }
 

@@ -215,8 +215,8 @@ Each area keeps its own choices (`EstimateSection.scanTakeoff`,
 from the wall's start, and a tile height in inches — so a shower wall that
 continues into the room is two pieces, one per area), the openings ticked to
 come off (owner's call: nothing comes off unless ticked; only the part of an
-opening inside a piece), and the floor (scanned floor less the tub and other
-areas' floors, or width × depth for a shower floor) and ceiling.
+opening inside a piece), and the floor (scanned floor, see "A Floor area on a
+scanned room" below, or width × depth for a shower floor) and ceiling.
 A shower floor is drawn on the plan (`FloorSource.drawn`, `FloorRect`:
 a corner, two side directions, width and depth), placed in the corner its
 walls make (`suggestedFloorRect`) and dragged to size: green handles on the
@@ -564,6 +564,25 @@ scanned room answers the physical ones on its model instead of in fields.
   (owner's rule, 2026-10-08; tub surrounds were 84″).
 - Calibrating or deleting a wall re-measures only areas measured on the
   model; typed numbers are never overwritten.
+
+## A Floor area on a scanned room (owner's calls, 2026-10-12)
+
+A Floor area on the scanned floor tiles the floor's outline (the scan's,
+or its own once its edges are dragged: Edit floor outline, `floorOutline`,
+catching on walls alongside) less, each only where it's on the floor
+(`FloorGeometry.clip`/`area`): every other area's drawn shower floor and its
+curb's 4½″ strip (`floorFootprints`; kept in `AreaTakeoff.cutouts`,
+refreshed by `EstimateRoom.refreshFloorCutouts` whenever an area is saved
+from the model or the scan is calibrated, and set fresh when the editor
+opens), "no tile" boxes (`skipBoxes`: Leave out an area, or the cabinets the
+scanner found, once, `addScannedSkips`; chosen with a tap, moved and resized
+like the shower floor), the tub when left out, and "Also leave out" square
+feet. The plan fills it in blue with those as holes; 3-D tiles it the same
+way (`Room3DContent.floorShape`, an even-odd `SCNShape`). A curbless shower
+whose floor tile is the floor's tile has no hole: the floor's tile runs on
+into it in 2-D and 3-D (its own floor isn't drawn over it), but it's still
+priced apart — drawing only. Before this the floor was the whole scanned
+floor less only the tub. `RoomFloorTests`.
 
 ## Wall letters and sections (owner's calls, 2026-10-09)
 

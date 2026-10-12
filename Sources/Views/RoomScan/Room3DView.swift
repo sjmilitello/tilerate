@@ -33,11 +33,35 @@ extension Room3DContent {
         room.sections.compactMap { other in
             guard other.id != id, other.roomScan == nil, let t = other.scanTakeoff,
                   !t.pieces.isEmpty || t.floor == .drawn || (other.area == .floor && t.floor == .room) else { return nil }
+            let shape: (outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]], continuous: [[ScannedRoom.Point]])? =
+                other.area == .floor && t.floor == .room ? room.scan.map { scan in
+                    floorShape(t, tile: other.mainTile, scan: scan,
+                               showers: room.sections.filter { $0.id != other.id && $0.roomScan == nil }.compactMap { s in
+                                   guard let st = s.scanTakeoff, st.floor == .drawn, let r = st.floorRect else { return nil }
+                                   return (r.corners, st.curbless, s.showerFloorTile ?? s.mainTile)
+                               })
+                } : nil
             return OtherAreaPieces(name: other.area?.rawValue ?? "Area", pieces: t.pieces,
                                    floor: t.floor == .drawn ? t.floorRect : nil,
+                                   curbless: t.curbless,
                                    tile: other.mainTile, floorTile: other.showerFloorTile,
-                                   roomFloor: other.area == .floor && t.floor == .room)
+                                   roomFloor: other.area == .floor && t.floor == .room,
+                                   floorOutline: shape?.outline, floorHoles: shape?.holes ?? [],
+                                   continuousFloors: shape?.continuous ?? [])
         }
+    }
+
+    /// A Floor area's tiled shape: its outline; the holes in it (other areas'
+    /// floors and curbs, "no tile" boxes, the tub when left out); and the
+    /// curbless shower floors in the same tile, which its tile runs on into
+    /// (owner, 2026-10-12: drawing only — they're priced apart).
+    static func floorShape(_ t: AreaTakeoff, tile: TileChoice?, scan: ScannedRoom,
+                           showers: [(corners: [ScannedRoom.Point], curbless: Bool, tile: TileChoice?)])
+        -> (outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]], continuous: [[ScannedRoom.Point]]) {
+        let continuous = showers.filter { $0.curbless && $0.tile == tile }.map(\.corners)
+        var holes = t.cutouts.filter { !continuous.contains($0) } + t.skipBoxes.map(\.corners)
+        if t.excludeTub, scan.tubOutline.count > 2 { holes.append(scan.tubOutline) }
+        return (t.tiledOutline(in: scan), holes, continuous)
     }
 
     /// An area of the estimate in 3-D, if it was measured from a scan.
@@ -234,21 +258,30 @@ enum Room3DScene {
         }
 
         // Areas' tile: this one and the room's others.
-        var areas: [(pieces: [AreaTakeoff.Piece], tile: TileChoice?, floor: AreaTakeoff.FloorRect?, floorTile: TileChoice?, roomFloor: Bool)] = [
-            (c.takeoff.pieces, c.tile, c.takeoff.floor == .drawn ? c.takeoff.floorRect : nil, c.floorTile ?? c.tile,
-             c.area == .floor && c.takeoff.floor == .room),
-        ]
+        typealias Shape = (outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]], continuous: [[ScannedRoom.Point]])
+        var areas: [(pieces: [AreaTakeoff.Piece], tile: TileChoice?, floor: AreaTakeoff.FloorRect?, floorTile: TileChoice?, shape: Shape?)] = []
+        let mineShape: Shape? = c.area == .floor && c.takeoff.floor == .room
+            ? Room3DContent.floorShape(c.takeoff, tile: c.tile, scan: room,
+                         showers: c.others.compactMap { o in o.floor.map { ($0.corners, o.curbless, o.floorTile ?? o.tile) } })
+            : nil
+        areas.append((c.takeoff.pieces, c.tile, c.takeoff.floor == .drawn ? c.takeoff.floorRect : nil, c.floorTile ?? c.tile, mineShape))
         for o in c.others {
-            areas.append((o.pieces, o.tile, o.floor, o.floorTile ?? o.tile, o.roomFloor))
+            let shape: Shape? = o.roomFloor ? (o.floorOutline ?? room.floorOutline, o.floorHoles, o.continuousFloors) : nil
+            areas.append((o.pieces, o.tile, o.floor, o.floorTile ?? o.tile, shape))
         }
-        for a in areas where a.roomFloor && room.floorOutline.count > 2 {
-            let node = flatShape(room.floorOutline, color: .white, lift: 0.004)
-            node.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(room.floorOutline).w,
-                                                       heightFt: bounds(room.floorOutline).h, x0: 0, y0: 0)
+        // A Floor area's tile, round its holes (owner, 2026-10-12).
+        var covered: [[ScannedRoom.Point]] = []
+        for a in areas {
+            guard let s = a.shape, s.outline.count > 2 else { continue }
+            let node = flatShape(s.outline, holes: s.holes, color: .white, lift: 0.004)
+            node.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(s.outline).w,
+                                                       heightFt: bounds(s.outline).h, x0: 0, y0: 0)
             root.addChildNode(node)
+            covered += s.continuous
         }
         for a in areas {
-            if let r = a.floor { root.addChildNode(floorRect(r, tile: a.floorTile)) }
+            // A curbless shower floor the room's floor tile runs on into is drawn by the floor.
+            if let r = a.floor, !covered.contains(r.corners) { root.addChildNode(floorRect(r, tile: a.floorTile)) }
         }
 
         // Walls, with their doors and windows cut out, and tile on them.
@@ -674,11 +707,15 @@ enum Room3DScene {
     }
 
     /// A flat outline lying on the floor.
-    private static func flatShape(_ outline: [ScannedRoom.Point], color: UIColor, lift: Double = 0) -> SCNNode {
+    private static func flatShape(_ outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]] = [],
+                                  color: UIColor, lift: Double = 0) -> SCNNode {
         let path = UIBezierPath()
-        path.move(to: CGPoint(x: outline[0].x, y: -outline[0].y))
-        for p in outline.dropFirst() { path.addLine(to: CGPoint(x: p.x, y: -p.y)) }
-        path.close()
+        for ring in [outline] + holes.filter({ $0.count > 2 }) {
+            path.move(to: CGPoint(x: ring[0].x, y: -ring[0].y))
+            for p in ring.dropFirst() { path.addLine(to: CGPoint(x: p.x, y: -p.y)) }
+            path.close()
+        }
+        path.usesEvenOddFillRule = true
         let shape = SCNShape(path: path, extrusionDepth: 0.02)
         shape.firstMaterial = plain(color)
         let n = SCNNode(geometry: shape)

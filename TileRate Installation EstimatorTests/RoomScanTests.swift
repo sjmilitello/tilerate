@@ -708,6 +708,18 @@ struct RoomScanTests {
         let trim = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
         #expect(abs(trim.first { $0.name == "Curb" }!.lengthFt - 2) < 0.02)
         #expect(trim.filter { $0.kind == .jamb }.count == 2)
+
+        // A second wall on that 2′ of curb fills it; its end dragged over 1′
+        // leaves a 1′ opening in the middle, curb across it, a jamb each side.
+        #expect(r.plannedWall(along: edges[0].0, edges[0].1) == nil)   // a new wall, not the first one
+        let second = r.addPlannedWall(from: .init(x: 7, y: 3), to: .init(x: 9, y: 3), heightIn: 96, thicknessIn: 4.5)
+        #expect(t.curbEdges(in: r).isEmpty)
+        r.movePlannedEnd(second.id, start: true, to: .init(x: 8, y: 3))
+        let middle = t.curbEdges(in: r)
+        #expect(middle.count == 1)
+        #expect(abs(hypot(middle[0].1.x - middle[0].0.x, middle[0].1.y - middle[0].0.y) - 1) < 0.02)
+        let trim2 = t.trimPieces(in: r, area: .shower, curbHeightIn: 4)
+        #expect(trim2.filter { $0.kind == .jamb }.count == 2)
     }
 
     @Test func aBenchReachingIntoTheDoorwayIsFlagged() {

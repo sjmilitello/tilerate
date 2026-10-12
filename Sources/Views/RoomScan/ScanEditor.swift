@@ -11,10 +11,18 @@ struct OtherAreaPieces: Equatable {
     let name: String
     let pieces: [AreaTakeoff.Piece]
     var floor: AreaTakeoff.FloorRect? = nil
+    /// Its shower has no curb (so a floor in the same tile runs on into it).
+    var curbless: Bool = false
     /// For the 3-D view: its tile, its floor's tile, and whether it tiles the room's floor.
     var tile: TileChoice? = nil
     var floorTile: TileChoice? = nil
     var roomFloor: Bool = false
+    /// A Floor area on the scanned floor: the outline it tiles, the holes in
+    /// it (other areas' floors, "no tile" boxes, the tub) and the shower
+    /// floors its tile runs on into (curbless, the same tile).
+    var floorOutline: [ScannedRoom.Point]? = nil
+    var floorHoles: [[ScannedRoom.Point]] = []
+    var continuousFloors: [[ScannedRoom.Point]] = []
 }
 
 /// A niche whose tile is being chosen, for the sheet.
@@ -53,6 +61,9 @@ struct ScanEditor: View {
     @State private var selectedPiece: UUID? = nil
     @State private var face = 0
     @State private var addingWall = false
+    /// A Floor area: the "no tile" box being moved, and editing the outline.
+    @State private var selectedSkip: Int? = nil
+    @State private var editingOutline = false
     /// The wall being placed is a full wall (else a half wall).
     @State private var addingFullWall = false
     /// Waiting for a tap on the corner the shower goes in.
@@ -169,6 +180,29 @@ struct ScanEditor: View {
     }
     private var otherPieces: [AreaTakeoff.Piece] { othersHere.flatMap(\.pieces) }
 
+    /// A Floor area on the scanned floor: the outline it tiles (nil otherwise).
+    private var tiledFloor: [ScannedRoom.Point]? {
+        area == .floor && takeoff.floor == .room ? takeoff.tiledOutline(in: room) : nil
+    }
+
+    /// The other areas' floors the tile goes round on the plan and in 3-D: all
+    /// of them, less a curbless shower floor in this floor's own tile, which
+    /// the tile runs on into (owner, 2026-10-12; priced apart all the same).
+    private var floorHoles: [[ScannedRoom.Point]] {
+        let continuous = others.filter { $0.curbless && ($0.floorTile ?? $0.tile) == tile }.compactMap { $0.floor?.corners }
+        return takeoff.cutouts.filter { !continuous.contains($0) }
+    }
+
+    /// The rectangle the plan moves and resizes: a "no tile" box when one is
+    /// chosen, else a drawn shower floor.
+    private var floorRectBinding: Binding<AreaTakeoff.FloorRect?>? {
+        if let i = selectedSkip, takeoff.skipBoxes.indices.contains(i) {
+            return Binding(get: { takeoff.skipBoxes.indices.contains(i) ? takeoff.skipBoxes[i] : nil },
+                           set: { if let r = $0, takeoff.skipBoxes.indices.contains(i) { takeoff.skipBoxes[i] = r } })
+        }
+        return takeoff.floor == .drawn ? $takeoff.floorRect : nil
+    }
+
     private func isDivider(_ w: ScannedRoom.Wall) -> Bool { room.isDivider(w) }
 
     /// Where this area's own side of a wall is: toward its drawn floor, else the room's middle.
@@ -200,7 +234,7 @@ struct ScanEditor: View {
                 var q = p
                 q.face = theirSide.x * mine.x + theirSide.y * mine.y > 0 ? 0 : 1
                 return q
-            }, floor: o.floor, tile: o.tile, floorTile: o.floorTile, roomFloor: o.roomFloor)
+            }, floor: o.floor, curbless: o.curbless, tile: o.tile, floorTile: o.floorTile, roomFloor: o.roomFloor)
         }
     }
 
@@ -237,7 +271,15 @@ struct ScanEditor: View {
                         }
                 } else {
                 PlanCanvas(room: room, mine: takeoff.pieces, others: othersHere, selectedWall: selectedWall,
-                           floorRect: takeoff.floor == .drawn ? $takeoff.floorRect : nil,
+                           floorRect: floorRectBinding,
+                           floorRectName: selectedSkip != nil ? "No tile" : "Shower floor",
+                           tiledFloor: tiledFloor,
+                           floorHoles: floorHoles,
+                           skipBoxes: tiledFloor != nil ? takeoff.skipBoxes : [],
+                           selectedSkip: selectedSkip,
+                           onSelectSkip: { selectedSkip = $0 },
+                           outline: tiledFloor != nil ? $takeoff.floorOutline : nil,
+                           editingOutline: editingOutline,
                            onTapPoint: placingShower ? { p in
                                placingShower = false
                                if !takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
@@ -1532,6 +1574,72 @@ struct ScanEditor: View {
 
     // MARK: Floor and ceiling
 
+    /// A Floor area on the scanned floor: what's tiled, what's left out, and
+    /// the tools to change it (owner, 2026-10-12).
+    @ViewBuilder
+    private var roomFloorControls: some View {
+        let outline = takeoff.tiledOutline(in: room)
+        let showers = takeoff.cutouts.reduce(0.0) { $0 + FloorGeometry.area(FloorGeometry.clip(outline, to: $1)) }
+        VStack(alignment: .leading, spacing: 10) {
+            LabeledContent("Tiled floor", value: "\(ND.number(takeoff.floorSqft(in: room))) sq ft")
+                .font(.headline)
+            LabeledContent("Floor outline", value: "\(ND.number(FloorGeometry.area(outline))) sq ft")
+            if showers > 0.01 {
+                LabeledContent("Shower floors and curbs left out", value: "\(ND.number(showers)) sq ft")
+            }
+            if room.tubSqft > 0 {
+                Toggle("Leave out the bathtub (\(ND.number(room.tubSqft)) sq ft)", isOn: $takeoff.excludeTub)
+            }
+            ForEach(Array(takeoff.skipBoxes.enumerated()), id: \.offset) { i, b in
+                HStack {
+                    Button {
+                        selectedSkip = i
+                    } label: {
+                        Label("No tile \(inchText(b.widthFt)) × \(inchText(b.depthFt))", systemImage: selectedSkip == i ? "square.dashed.inset.filled" : "square.dashed")
+                    }
+                    Spacer()
+                    Button(role: .destructive) {
+                        if selectedSkip == i { selectedSkip = nil }
+                        takeoff.skipBoxes.remove(at: i)
+                    } label: { Image(systemName: "trash") }
+                }
+                .font(.subheadline)
+            }
+            HStack(spacing: 10) {
+                Button {
+                    // A 2′ × 2′ box in the middle of the floor, chosen to move and resize.
+                    let pts = outline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : outline
+                    let cx = pts.map(\.x).reduce(0, +) / Double(max(pts.count, 1))
+                    let cy = pts.map(\.y).reduce(0, +) / Double(max(pts.count, 1))
+                    let a = room.squaringAngle
+                    let u = ScannedRoom.Point(x: cos(a), y: sin(a)), v = ScannedRoom.Point(x: -sin(a), y: cos(a))
+                    takeoff.skipBoxes.append(AreaTakeoff.FloorRect(origin: .init(x: cx - u.x - v.x, y: cy - u.y - v.y),
+                                                                   u: u, v: v, widthFt: 2, depthFt: 2))
+                    selectedSkip = takeoff.skipBoxes.count - 1
+                    editingOutline = false
+                } label: { Label("Leave out an area", systemImage: "square.dashed") }
+                Button {
+                    editingOutline.toggle()
+                    if editingOutline { selectedSkip = nil }
+                } label: { Label(editingOutline ? "Done with outline" : "Edit floor outline", systemImage: "skew") }
+            }
+            .buttonStyle(.bordered)
+            .font(.subheadline)
+            if takeoff.floorOutline != nil {
+                Button("Reset the outline to the scan") { takeoff.floorOutline = nil }.font(.caption)
+            }
+            HStack {
+                Text("Also leave out")
+                Spacer()
+                SqftField(value: $takeoff.excludeSqft)
+                Text("sq ft").foregroundStyle(.secondary)
+            }
+            Text(editingOutline ? "Tap an edge of the floor outline, then drag anywhere to move it in or out."
+                 : "Shower floors and their curbs are left out by themselves. Tap a \"no tile\" box on the plan, then drag to move it; tap its edge to resize.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     @ViewBuilder
     private var floorPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1544,18 +1652,7 @@ struct ScanEditor: View {
                 }
                 .pickerStyle(.segmented)
                 if takeoff.floor == .room {
-                    LabeledContent("Scanned floor", value: "\(ND.number(room.floorSqft)) sq ft")
-                    if room.tubSqft > 0 {
-                        Toggle("Leave out the bathtub (\(ND.number(room.tubSqft)) sq ft)", isOn: $takeoff.excludeTub)
-                    }
-                    HStack {
-                        Text("Also leave out")
-                        Spacer()
-                        SqftField(value: $takeoff.excludeSqft)
-                        Text("sq ft").foregroundStyle(.secondary)
-                    }
-                    Text("For a shower floor or anything else on the floor that isn't tiled with it.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    roomFloorControls
                 } else {
                     sizeFields
                 }
@@ -1734,6 +1831,20 @@ struct PlanCanvas: View {
     var interactive = true
     /// A floor rectangle shown on the plan, and dragged when editable.
     var floorRect: Binding<AreaTakeoff.FloorRect?>? = nil
+    /// What that rectangle is, for the strip above the plan ("Shower floor", "No tile").
+    var floorRectName = "Shower floor"
+    /// A Floor area on the scanned floor (owner, 2026-10-12): its tiled
+    /// outline, filled in this area's colour less the holes (other areas'
+    /// floors, unless continuous) and the "no tile" boxes; a tap on a box
+    /// chooses it (it becomes `floorRect`); in outline editing, a tap on an
+    /// edge of the outline holds it.
+    var tiledFloor: [ScannedRoom.Point]? = nil
+    var floorHoles: [[ScannedRoom.Point]] = []
+    var skipBoxes: [AreaTakeoff.FloorRect] = []
+    var selectedSkip: Int? = nil
+    var onSelectSkip: (Int?) -> Void = { _ in }
+    var outline: Binding<[ScannedRoom.Point]?>? = nil
+    var editingOutline = false
     var floorRectShown: AreaTakeoff.FloorRect? = nil
     /// Waiting for a tap on the plan (e.g. the corner the shower goes in).
     var onTapPoint: ((ScannedRoom.Point) -> Void)? = nil
@@ -1790,10 +1901,14 @@ struct PlanCanvas: View {
         /// The drain, or one end of a linear drain.
         case drain
         case drainEnd(start: Bool)
+        /// One edge of a Floor area's outline (from point i to i + 1).
+        case outlineEdge(Int)
     }
     enum Axis: Equatable { case u, v }
 
     @State private var hold: Hold? = nil
+    /// An outline edge's points as the drag began.
+    @State private var steerOutline: [ScannedRoom.Point]? = nil
     /// The held floor edge was taken by the curb: it's lit, and catches flush with walls' ends.
     @State private var curbHeld = false
     @State private var viewport = PlanViewport()
@@ -1908,6 +2023,7 @@ struct PlanCanvas: View {
             caught = false
             if h == nil { catchOff = false }
             if case .floorEdge = h {} else { curbHeld = false }
+            if h == nil, selectedSkip != nil { onSelectSkip(nil) }
         }
         .onChange(of: selectedWall) { _, id in
             // Chosen elsewhere (3-D, the panels): let go of a different wall.
@@ -1979,7 +2095,11 @@ struct PlanCanvas: View {
                 return (["\(room.name(of: w)) \(inchText(w.lengthFt))"] + near).joined(separator: " · ")
             case .floor, .floorEdge:
                 guard let r = floorRect?.wrappedValue else { return nil }
-                return "Shower floor \(inchText(r.widthFt)) × \(inchText(r.depthFt))"
+                return "\(floorRectName) \(inchText(r.widthFt)) × \(inchText(r.depthFt))"
+            case .outlineEdge(let i):
+                guard let o = currentOutline, o.count > 2 else { return nil }
+                let a = o[i % o.count], b = o[(i + 1) % o.count]
+                return "Floor edge \(inchText(hypot(b.x - a.x, b.y - a.y)))"
             case .drain, .drainEnd:
                 guard let d = drainShown, let r = floorRect?.wrappedValue else { return nil }
                 // How far its middle is from the floor's sides.
@@ -2081,6 +2201,17 @@ struct PlanCanvas: View {
                 return
             }
         }
+        // Editing a Floor area's outline: an edge of it.
+        if let i = outlineEdge(at: location, f) { hold = .outlineEdge(i); return }
+        // A "no tile" box: tapping one that isn't chosen chooses it and holds it.
+        if !skipBoxes.isEmpty {
+            let p = f.point(at: location)
+            if let i = skipBoxes.indices.last(where: { AreaTakeoff.inside(skipBoxes[$0].corners, p) }), i != selectedSkip {
+                onSelectSkip(i)
+                hold = .floor
+                return
+            }
+        }
         // The floor's edges and body, once the floor is held.
         if floorHeld, let r = floorRect?.wrappedValue {
             if let e = floorEdge(at: location, r, f) { hold = .floorEdge(e.axis, near: e.near); curbHeld = false; return }
@@ -2175,7 +2306,46 @@ struct PlanCanvas: View {
         case .drainEnd:
             guard let r = floorRect?.wrappedValue, let d = drainShown else { return [] }
             return [d.runsAlongWidth ? r.u : r.v]
+        case .outlineEdge(let i):
+            return outlineNormal(i).map { [$0] } ?? []
         }
+    }
+
+    /// The outline being tiled: the area's own, else the scan's.
+    private var currentOutline: [ScannedRoom.Point]? {
+        if let o = outline?.wrappedValue, o.count > 2 { return o }
+        return tiledFloor
+    }
+
+    /// The unit vector square to outline edge i.
+    private func outlineNormal(_ i: Int) -> ScannedRoom.Point? {
+        guard let o = currentOutline, o.count > 2 else { return nil }
+        let a = o[i % o.count], b = o[(i + 1) % o.count]
+        let l = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
+        return .init(x: -(b.y - a.y) / l, y: (b.x - a.x) / l)
+    }
+
+    /// Outline edge i moved square to itself by `by` feet, from `base`.
+    private func moveOutlineEdge(_ i: Int, by: Double, from base: [ScannedRoom.Point]) {
+        guard base.count > 2, let binding = outline else { return }
+        let a = base[i % base.count], b = base[(i + 1) % base.count]
+        let l = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
+        let n = ScannedRoom.Point(x: -(b.y - a.y) / l, y: (b.x - a.x) / l)
+        var o = base
+        o[i % o.count] = .init(x: a.x + n.x * by, y: a.y + n.y * by)
+        o[(i + 1) % o.count] = .init(x: b.x + n.x * by, y: b.y + n.y * by)
+        binding.wrappedValue = o
+    }
+
+    /// The outline edge under a tap, while editing the outline.
+    private func outlineEdge(at p: CGPoint, _ f: Frame) -> Int? {
+        guard editingOutline, let o = currentOutline, o.count > 2 else { return nil }
+        var best: (Int, CGFloat)? = nil
+        for i in o.indices {
+            let d = distance(p, f.at(o[i]), f.at(o[(i + 1) % o.count]))
+            if d < 22, d < (best?.1 ?? .infinity) { best = (i, d) }
+        }
+        return best?.0
     }
 
     /// Two arrows for one direction, pointing the way it goes on screen.
@@ -2199,6 +2369,11 @@ struct PlanCanvas: View {
     /// The held thing moved a sixteenth along `d` (plan feet), catching nothing.
     private func nudge(by d: ScannedRoom.Point) {
         guard let hold else { return }
+        if case .outlineEdge(let i) = hold {
+            guard let base = currentOutline, let n = outlineNormal(i) else { return }
+            moveOutlineEdge(i, by: d.x * n.x + d.y * n.y, from: base)
+            return
+        }
         switch hold {
         case .wall(let id):
             guard let w = room.wall(id) else { return }
@@ -2242,6 +2417,7 @@ struct PlanCanvas: View {
             dr.lengthFt = hi - lo
             if dr.runsAlongWidth { dr.alongWidthFt = (lo + hi) / 2 } else { dr.alongDepthFt = (lo + hi) / 2 }
             drain?.wrappedValue = dr
+        case .outlineEdge: break   // handled above
         }
     }
 
@@ -2304,6 +2480,7 @@ struct PlanCanvas: View {
                     steering = false
                     steerWall = nil
                     steerFloor = nil
+                    steerOutline = nil
                     steerDrain = nil
                     steered = .init()
                     onWallDragEnded()
@@ -2323,6 +2500,7 @@ struct PlanCanvas: View {
             case .wall(let id), .wallEnd(let id, _): steerWall = room.wall(id)
             case .floor, .floorEdge: steerFloor = floorRect?.wrappedValue
             case .drain, .drainEnd: steerDrain = drain?.wrappedValue ?? drainShown
+            case .outlineEdge: steerOutline = currentOutline
             }
         }
         let (fx, fy) = f.feet(Steering.steered(delta))
@@ -2406,6 +2584,25 @@ struct PlanCanvas: View {
             d.lengthFt = hi - lo
             if d.runsAlongWidth { d.alongWidthFt = (lo + hi) / 2 } else { d.alongDepthFt = (lo + hi) / 2 }
             binding.wrappedValue = d
+        case .outlineEdge(let i):
+            // Square to itself, to the sixteenth, catching on a wall running alongside.
+            guard let base = steerOutline, base.count > 2 else { return }
+            let a = base[i % base.count], b = base[(i + 1) % base.count]
+            let l = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
+            let u = ScannedRoom.Point(x: (b.x - a.x) / l, y: (b.y - a.y) / l), n = ScannedRoom.Point(x: -u.y, y: u.x)
+            let raw = steered.x * n.x + steered.y * n.y
+            var by = Steering.sixteenth(raw)
+            let mid = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            var best = reach
+            for w in room.walls {
+                let wl = max(w.lengthFt, 1e-9)
+                guard abs(((w.end.x - w.start.x) * u.x + (w.end.y - w.start.y) * u.y) / wl) > 0.98 else { continue }
+                let t = (w.start.x - mid.x) * n.x + (w.start.y - mid.y) * n.y
+                if abs(t - raw) < best { best = abs(t - raw); by = t }
+            }
+            cue(abs(by - Steering.sixteenth(raw)) > 1e-9, at: .init(x: mid.x + n.x * by, y: mid.y + n.y * by))
+            moveOutlineEdge(i, by: by, from: base)
+            shown = .init(x: mid.x + n.x * by, y: mid.y + n.y * by)
         }
         // Keep it on screen.
         if let shown { viewport = viewport.keeping(f.at(shown), in: size) }
@@ -2558,6 +2755,35 @@ struct PlanCanvas: View {
             floor.closeSubpath()
             ctx.fill(floor, with: .color(Color(white: 0.17)))
         }
+        // A Floor area's tile: its outline, less other areas' floors and the "no tile" boxes.
+        if let o = currentOutline, o.count > 2 {
+            var tiled = Path()
+            tiled.addLines(o.map(f.at)); tiled.closeSubpath()
+            for h in floorHoles + skipBoxes.map(\.corners) where h.count > 2 {
+                tiled.addLines(h.map(f.at)); tiled.closeSubpath()
+            }
+            ctx.fill(tiled, with: .color(Color.blue.opacity(0.32)), style: FillStyle(eoFill: true))
+            // "No tile" boxes not chosen: dashed, labelled.
+            for (i, b) in skipBoxes.enumerated() where i != selectedSkip {
+                var box = Path()
+                box.addLines(b.corners.map(f.at)); box.closeSubpath()
+                ctx.stroke(box, with: .color(Color(white: 0.7)), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
+                if interactive {
+                    ctx.draw(Text("No tile").font(.system(size: 9, weight: .semibold)).foregroundColor(Color(white: 0.75)),
+                             at: f.at(b.center))
+                }
+            }
+            // Editing the outline: its edges, the held one lit.
+            if editingOutline, interactive {
+                for i in o.indices {
+                    var e = Path()
+                    e.move(to: f.at(o[i])); e.addLine(to: f.at(o[(i + 1) % o.count]))
+                    let held = hold == .outlineEdge(i)
+                    if held { ctx.stroke(e, with: .color(.white), style: StrokeStyle(lineWidth: 7, lineCap: .round)) }
+                    ctx.stroke(e, with: .color(held ? .green : .cyan), style: StrokeStyle(lineWidth: held ? 4 : 2, lineCap: .round, dash: held ? [] : [6, 4]))
+                }
+            }
+        }
         if room.tubOutline.count > 2 {
             var tub = Path()
             tub.addLines(room.tubOutline.map(f.at))
@@ -2647,7 +2873,9 @@ struct PlanCanvas: View {
                 ctx.stroke(e, with: .color(.white), style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 ctx.stroke(e, with: .color(.green), style: StrokeStyle(lineWidth: 3, lineCap: .round))
             }
-            if interactive, !held, !showDimensions {
+            if interactive, floorRectName != "Shower floor" {
+                ctx.draw(Text(floorRectName).font(.system(size: 9, weight: .semibold)).foregroundColor(.green), at: f.at(r.center))
+            } else if interactive, !held, !showDimensions {
                 let c = r.corners
                 let center = f.at(ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2))
                 ctx.draw(Text(Image(systemName: "hand.tap")).font(.system(size: 15)).foregroundColor(.green), at: center)

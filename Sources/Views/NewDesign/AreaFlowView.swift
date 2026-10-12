@@ -330,13 +330,24 @@ struct AreaFlowView: View {
 
     /// This area's choices on the scan, or where it starts the first time.
     private func takeoffForEditor(_ scan: ScannedRoom) -> AreaTakeoff {
-        if var t = section.scanTakeoff {
-            let walls = Set(scan.walls.map(\.id))
-            t.pieces.removeAll { !walls.contains($0.wallID) }      // from an earlier scan
-            if !t.pieces.isEmpty || t.floor != .none { return t }
-        }
         let others = roomIndex.map { store.doc.rooms[$0].sections.filter { $0.id != section.id } } ?? []
-        return AreaTakeoff.starting(for: section.area, room: scan, otherAreas: others)
+        var t: AreaTakeoff
+        if var saved = section.scanTakeoff {
+            let walls = Set(scan.walls.map(\.id))
+            saved.pieces.removeAll { !walls.contains($0.wallID) }      // from an earlier scan
+            t = !saved.pieces.isEmpty || saved.floor != .none ? saved
+                : AreaTakeoff.starting(for: section.area, room: scan, otherAreas: others)
+        } else {
+            t = AreaTakeoff.starting(for: section.area, room: scan, otherAreas: others)
+        }
+        // A Floor area on the scanned floor: the other areas' floors as they
+        // are now, and the cabinets the scanner found left untiled (once).
+        if section.area == .floor, t.floor == .room, section.roomScan == nil {
+            let curb = StonePrices(rates: store.pricingRates).curbWidthFt
+            t.cutouts = others.filter { $0.roomScan == nil }.flatMap { $0.scanTakeoff?.floorFootprints(in: scan, curbWidthFt: curb) ?? [] }
+            t.addScannedSkips(from: scan)
+        }
+        return t
     }
 
     /// The scan corrected to tape measurements, and every area measured from
@@ -368,6 +379,7 @@ struct AreaFlowView: View {
                 t.calibrated(c, before: before).apply(after, to: &s, prices: prices)
                 store.doc.rooms[r].sections[i] = s
             }
+            store.doc.rooms[r].refreshFloorCutouts(prices: prices)
         }
     }
 
@@ -417,6 +429,10 @@ struct AreaFlowView: View {
                                t.itemsPlaced = true
                                t.apply(room, to: &s, prices: StonePrices(rates: store.pricingRates))
                                sec.wrappedValue = s
+                               // A Floor area in the room leaves out every shower floor (and its curb).
+                               if section.roomScan == nil, let r = roomIndex {
+                                   store.doc.rooms[r].refreshFloorCutouts(prices: StonePrices(rates: store.pricingRates))
+                               }
                            },
                            onRescan: {
                                editorMode = nil

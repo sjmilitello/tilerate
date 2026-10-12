@@ -510,13 +510,55 @@ extension AreaTakeoff {
     func floorSqft(in room: ScannedRoom) -> Double {
         switch floor {
         case .room:
-            return max(0, room.floorSqft - (excludeTub ? room.tubSqft : 0) - excludeSqft)
+            // The floor's outline less the other areas' floors (with their
+            // curbs), the "no tile" boxes and the tub, each only where it's
+            // inside the outline (owner, 2026-10-12).
+            let outline = tiledOutline(in: room)
+            var sq = FloorGeometry.area(outline)
+            for c in cutouts + skipBoxes.map(\.corners) { sq -= FloorGeometry.area(FloorGeometry.clip(outline, to: c)) }
+            if excludeTub, room.tubOutline.count > 2 { sq -= FloorGeometry.area(FloorGeometry.clip(outline, to: room.tubOutline)) }
+            return max(0, sq - excludeSqft)
         case .size:
             return floorWidthFt * floorDepthFt
         case .drawn:
             return floorRect.map { $0.widthFt * $0.depthFt } ?? 0
         case .none:
             return 0
+        }
+    }
+
+    /// The outline a Floor area tiles: its own when its edges were dragged, else the scan's.
+    func tiledOutline(in room: ScannedRoom) -> [ScannedRoom.Point] {
+        if let o = floorOutline, o.count > 2 { return o }
+        return room.floorOutline
+    }
+
+    /// What this area puts on the floor that a Floor area mustn't tile: a
+    /// drawn shower floor, and its curb's strip just outside it.
+    func floorFootprints(in room: ScannedRoom, curbWidthFt: Double = 4.5 / 12) -> [[ScannedRoom.Point]] {
+        guard floor == .drawn, let r = floorRect else { return [] }
+        var out = [r.corners]
+        let mid = r.center
+        for (a, b) in curbEdges(in: room) {
+            let len = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
+            var n = ScannedRoom.Point(x: -(b.y - a.y) / len, y: (b.x - a.x) / len)
+            if ((a.x + b.x) / 2 - mid.x) * n.x + ((a.y + b.y) / 2 - mid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+            out.append([a, b, .init(x: b.x + n.x * curbWidthFt, y: b.y + n.y * curbWidthFt),
+                        .init(x: a.x + n.x * curbWidthFt, y: a.y + n.y * curbWidthFt)])
+        }
+        return out
+    }
+
+    /// Cabinets the scanner found become "no tile" boxes, the first time.
+    mutating func addScannedSkips(from room: ScannedRoom) {
+        guard !scannedSkipsAdded else { return }
+        scannedSkipsAdded = true
+        for f in room.fixtures where f.kind == "Cabinet" && f.outline.count == 4 {
+            let p = f.outline
+            let w = hypot(p[1].x - p[0].x, p[1].y - p[0].y), d = hypot(p[3].x - p[0].x, p[3].y - p[0].y)
+            guard w > 0.1, d > 0.1 else { continue }
+            skipBoxes.append(FloorRect(origin: p[0], u: .init(x: (p[1].x - p[0].x) / w, y: (p[1].y - p[0].y) / w),
+                                       v: .init(x: (p[3].x - p[0].x) / d, y: (p[3].y - p[0].y) / d), widthFt: w, depthFt: d))
         }
     }
 
@@ -1504,13 +1546,18 @@ extension AreaTakeoff {
                 t.items[i].toFt = mid + half
             }
         }
-        if let r = t.floorRect {
+        func mapped(_ r: FloorRect) -> FloorRect {
             let u = c.mapVector(.init(x: r.u.x * r.widthFt, y: r.u.y * r.widthFt))
             let v = c.mapVector(.init(x: r.v.x * r.depthFt, y: r.v.y * r.depthFt))
             let lu = hypot(u.x, u.y), lv = hypot(v.x, v.y)
-            t.floorRect = FloorRect(origin: c.map(r.origin), u: .init(x: u.x / max(lu, 1e-9), y: u.y / max(lu, 1e-9)),
-                                    v: .init(x: v.x / max(lv, 1e-9), y: v.y / max(lv, 1e-9)), widthFt: lu, depthFt: lv)
+            return FloorRect(origin: c.map(r.origin), u: .init(x: u.x / max(lu, 1e-9), y: u.y / max(lu, 1e-9)),
+                             v: .init(x: v.x / max(lv, 1e-9), y: v.y / max(lv, 1e-9)), widthFt: lu, depthFt: lv)
         }
+        if let r = t.floorRect { t.floorRect = mapped(r) }
+        // A Floor area's "no tile" boxes, its own outline and the other areas' floors move with the scan.
+        t.skipBoxes = t.skipBoxes.map(mapped)
+        t.floorOutline = t.floorOutline?.map { c.map($0) }
+        t.cutouts = t.cutouts.map { $0.map { c.map($0) } }
         return t
     }
 }
@@ -2388,5 +2435,80 @@ extension ScannedRoom {
         let n = Point(x: -u.y, y: u.x)
         let delta = off - (off > 0 ? 1 : -1) * max(feet, 1.0 / 12)
         moveWall(id, by: .init(x: n.x * delta, y: n.y * delta))
+    }
+}
+
+
+// MARK: - Floor shapes
+
+/// Areas and overlaps of floor shapes on the plan, in feet.
+enum FloorGeometry {
+    /// A polygon's area (either winding).
+    static func area(_ p: [ScannedRoom.Point]) -> Double {
+        guard p.count > 2 else { return 0 }
+        var s = 0.0
+        for i in p.indices {
+            let a = p[i], b = p[(i + 1) % p.count]
+            s += a.x * b.y - b.x * a.y
+        }
+        return abs(s) / 2
+    }
+
+    /// The part of `subject` inside `clip`, a convex shape (a box, a tub's
+    /// outline): Sutherland–Hodgman.
+    static func clip(_ subject: [ScannedRoom.Point], to clip: [ScannedRoom.Point]) -> [ScannedRoom.Point] {
+        guard subject.count > 2, clip.count > 2 else { return [] }
+        // Clip edges counter-clockwise, so "inside" is on the left.
+        let c = signedArea(clip) < 0 ? Array(clip.reversed()) : clip
+        var out = subject
+        for i in c.indices {
+            let a = c[i], b = c[(i + 1) % c.count]
+            func inside(_ p: ScannedRoom.Point) -> Bool { (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= 0 }
+            func cross(_ p: ScannedRoom.Point, _ q: ScannedRoom.Point) -> ScannedRoom.Point {
+                let ex = b.x - a.x, ey = b.y - a.y
+                let d1 = ex * (p.y - a.y) - ey * (p.x - a.x), d2 = ex * (q.y - a.y) - ey * (q.x - a.x)
+                let t = d1 / (d1 - d2)
+                return .init(x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t)
+            }
+            let input = out
+            out = []
+            guard !input.isEmpty else { break }
+            for j in input.indices {
+                let p = input[j], q = input[(j + 1) % input.count]
+                if inside(q) {
+                    if !inside(p) { out.append(cross(p, q)) }
+                    out.append(q)
+                } else if inside(p) {
+                    out.append(cross(p, q))
+                }
+            }
+        }
+        return out
+    }
+
+    private static func signedArea(_ p: [ScannedRoom.Point]) -> Double {
+        var s = 0.0
+        for i in p.indices { let a = p[i], b = p[(i + 1) % p.count]; s += a.x * b.y - b.x * a.y }
+        return s / 2
+    }
+}
+
+
+extension EstimateRoom {
+    /// Every Floor area measured on the room's scan learns the other areas'
+    /// floors (shower floors and their curbs), which it never tiles, and is
+    /// measured again (owner, 2026-10-12). Run whenever an area is saved
+    /// from the model or the scan changes.
+    mutating func refreshFloorCutouts(prices: StonePrices) {
+        guard let scan else { return }
+        for i in sections.indices {
+            guard sections[i].roomScan == nil, !sections[i].measuredByHand,
+                  var t = sections[i].scanTakeoff, t.floor == .room else { continue }
+            let cuts = sections.indices.filter { $0 != i && sections[$0].roomScan == nil }
+                .flatMap { sections[$0].scanTakeoff?.floorFootprints(in: scan, curbWidthFt: prices.curbWidthFt) ?? [] }
+            guard cuts != t.cutouts else { continue }
+            t.cutouts = cuts
+            t.apply(scan, to: &sections[i], prices: prices)
+        }
     }
 }
