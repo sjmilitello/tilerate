@@ -62,6 +62,21 @@ enum RoomSketch {
 }
 
 extension EstimateRoom {
+    /// New areas added to this room, each on the usual tile, placed on the
+    /// room's model when it has one. Returns their ids, in order.
+    mutating func addAreas(_ areas: [Area], prices: StonePrices) -> [UUID] {
+        let new = areas.map { a -> EstimateSection in
+            var s = EstimateSection()
+            s.area = a
+            s.startWithUsualTile()
+            return s
+        }
+        sections += new
+        let ids = new.map(\.id)
+        if scan != nil { placeAreas(ids, prices: prices) }
+        return ids
+    }
+
     /// Each new area started on the room's model where the model suggests
     /// it (owner's call, 2026-10-12: "place what it can"): the floor on the
     /// room's floor, a shower filling a cove of three walls, a tub surround
@@ -100,6 +115,9 @@ extension EstimateRoom {
 struct NDNewRoomSheet: View {
     enum Method { case scan, sketch, type }
     let defaultName: String
+    /// Adding areas to a room that's already there: no name or measuring,
+    /// just the areas (owner, 2026-10-12: every Add area picks several).
+    var addingTo: String? = nil
     let onCreate: (String, [Area], Method) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
@@ -113,18 +131,22 @@ struct NDNewRoomSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
+                    if addingTo == nil { VStack(alignment: .leading, spacing: 6) {
                         NDLabel("Room name")
                         TextField(defaultName, text: $name)
                             .font(.system(size: 17, weight: .semibold))
                             .padding(12)
                             .background(ND.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
+                    } }
                     VStack(alignment: .leading, spacing: 8) {
                         NDLabel("What are we tiling? Tick all that apply")
                         ForEach(Area.allCases) { a in row(a) }
                     }
-                    VStack(spacing: 10) {
+                    if addingTo != nil {
+                        method(chosen.count > 1 ? "Add \(chosen.count) areas" : "Add area", "plus", .type, primary: true)
+                            .disabled(chosen.isEmpty)
+                            .opacity(chosen.isEmpty ? 0.45 : 1)
+                    } else { VStack(spacing: 10) {
                         NDLabel("How to measure").frame(maxWidth: .infinity, alignment: .leading)
                         if RoomScanner.isAvailable {
                             method("Scan the room", "viewfinder", .scan, primary: true)
@@ -143,6 +165,7 @@ struct NDNewRoomSheet: View {
                     }
                     .disabled(chosen.isEmpty)
                     .opacity(chosen.isEmpty ? 0.45 : 1)
+                    }
                     if chosen.isEmpty {
                         Text("Tick at least one area.").font(.system(size: 13)).foregroundStyle(ND.muted)
                     }
@@ -151,7 +174,7 @@ struct NDNewRoomSheet: View {
             }
             .background(ND.ground.ignoresSafeArea())
             .foregroundStyle(ND.text)
-            .navigationTitle("Add room")
+            .navigationTitle(addingTo.map { "Add to \($0)" } ?? "Add room")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }

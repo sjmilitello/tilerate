@@ -531,7 +531,13 @@ suggests (`EstimateRoom.placeAreas`, from `ScannedRoom.suggestions`: the
 floor, a shower filling a cove, a tub surround round a found tub, a
 backsplash behind a cabinet; each suggestion used once); anything that
 can't be placed starts empty. The first area opens on its Measure tab, the
-rest one chip away. Renaming a room is still the alert.
+rest one chip away. Renaming a room is still the alert. Every other Add
+area — "Add area to <room>" on the estimate and + Add area on the area
+screen — opens the same sheet without name or measuring (`addingTo`) and
+adds every ticked area at once (`EstimateRoom.addAreas`, placed on the model
+when the room has one). A room with no model can get one from its menu:
+**Sketch this room** (its areas with nothing typed yet are placed on it;
+typed ones stay typed).
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width

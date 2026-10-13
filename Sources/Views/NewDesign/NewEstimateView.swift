@@ -26,6 +26,8 @@ struct NewEstimateView: View {
     @State private var pendingFirstArea: UUID? = nil
     /// Adding a room: its name, areas and how it's measured (owner, 2026-10-12).
     @State private var addingRoom = false
+    /// A room getting more areas, chosen several at a time.
+    @State private var addingAreasTo: RoomRef? = nil
     @State private var sketchingRoom: RoomRef? = nil
     /// A new room's areas, placed on its model once it's scanned or sketched.
     @State private var pendingAreas: (room: UUID, ids: [UUID])? = nil
@@ -116,10 +118,27 @@ struct NewEstimateView: View {
                 createRoom(name, areas, method)
             }
         }
+        .sheet(item: $addingAreasTo) { ref in
+            NDNewRoomSheet(defaultName: roomName(ref.id), addingTo: roomName(ref.id)) { _, areas, _ in
+                guard let r = store.doc.rooms.firstIndex(where: { $0.id == ref.id }) else { return }
+                let ids = store.doc.rooms[r].addAreas(areas, prices: StonePrices(rates: store.pricingRates))
+                let step = store.doc.rooms[r].scan != nil ? 2 : 1
+                if let first = ids.first {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { path.append(.area(room: ref.id, section: first, step: step)) }
+                }
+            }
+        }
         .sheet(item: $sketchingRoom) { ref in
             NDSketchRoomSheet(roomName: roomName(ref.id)) { sketch in
                 guard let r = store.doc.rooms.firstIndex(where: { $0.id == ref.id }) else { return }
                 store.doc.rooms[r].scan = sketch
+                if !ref.newRoom {
+                    // A room that had none: its areas with nothing typed yet go on
+                    // the model; typed ones stay typed until moved to it.
+                    pendingAreas = (ref.id, store.doc.rooms[r].sections.filter {
+                        $0.area != nil && $0.measurements == Measurements() && $0.walls.isEmpty
+                    }.map(\.id))
+                }
                 pendingFirstArea = ref.id
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { startFirstArea() }
             }
@@ -295,6 +314,11 @@ struct NewEstimateView: View {
                             Label(room.scan == nil || room.scan?.sketched == true ? "Scan this room" : "Scan the room again", systemImage: "viewfinder")
                         }
                     }
+                    if room.scan == nil {
+                        Button { sketchingRoom = RoomRef(id: room.id) } label: {
+                            Label("Sketch this room", systemImage: "pencil.and.ruler")
+                        }
+                    }
                     Button(role: .destructive) { roomToDelete = room } label: { Label("Delete room", systemImage: "trash") }
                 } label: {
                     HStack(spacing: 6) {
@@ -322,11 +346,7 @@ struct NewEstimateView: View {
             }
 
             Button {
-                let sec = EstimateSection()
-                if let r = store.doc.rooms.firstIndex(where: { $0.id == room.id }) {
-                    store.doc.rooms[r].sections.append(sec)
-                    path.append(.area(room: room.id, section: sec.id, step: 0))
-                }
+                addingAreasTo = RoomRef(id: room.id)
             } label: {
                 Label("Add area to \(room.name)", systemImage: "plus")
                     .font(.system(size: 15, weight: .medium))
@@ -475,7 +495,9 @@ struct NewEstimateView: View {
         if let p = pendingAreas, p.room == id {
             pendingAreas = nil
             store.doc.rooms[r].placeAreas(p.ids, prices: StonePrices(rates: store.pricingRates))
-            if let first = p.ids.first { path.append(.area(room: id, section: first, step: 2)) }
+            if let first = p.ids.first ?? store.doc.rooms[r].sections.first?.id {
+                path.append(.area(room: id, section: first, step: 2))
+            }
             return
         }
         let sec = EstimateSection()

@@ -21,6 +21,7 @@ struct AreaFlowView: View {
     @State private var activeID: UUID? = nil
     @State private var confirmDelete = false
     @State private var workspace3D = false
+    @State private var addingAreas = false
     @State private var camera3D = Room3DCameraMemory()
     @State private var scanning: ScanTarget? = nil
     /// The model open from the Measure or Extras step.
@@ -164,6 +165,9 @@ struct AreaFlowView: View {
             }
         }
         .modifier(ScanCoversModifier(apply: { scanCovers($0) }))
+        .sheet(isPresented: $addingAreas) {
+            NDNewRoomSheet(defaultName: roomName, addingTo: roomName) { _, areas, _ in addAreas(areas) }
+        }
         .confirmationDialog("Delete \(section.area?.rawValue ?? "this area")?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete this area", role: .destructive) { deleteArea() }
         } message: {
@@ -239,7 +243,7 @@ struct AreaFlowView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    Button { addArea() } label: {
+                    Button { addingAreas = true } label: {
                         Label("Add area", systemImage: "plus").font(.system(size: 13, weight: .semibold))
                             .padding(.horizontal, 10).padding(.vertical, 9)
                             .foregroundStyle(.white)
@@ -330,16 +334,16 @@ struct AreaFlowView: View {
         workspaceVersion += 1
     }
 
-    private func addArea() {
+    /// Several areas added at once, placed on the model; the first comes up.
+    private func addAreas(_ areas: [Area]) {
         guard let r = roomIndex else { return }
-        let new = EstimateSection()
-        store.doc.rooms[r].sections.append(new)
-        activeID = new.id
+        let ids = store.doc.rooms[r].addAreas(areas, prices: StonePrices(rates: store.pricingRates))
+        guard let first = ids.first else { return }
+        activeID = first
         editing = nil
         editingLine = nil
-        autoOpened = false
-        step = 0
-        workspaceTab = .measure
+        autoOpened = true
+        step = Self.step(for: workspaceTab)
         workspaceVersion += 1
     }
 
