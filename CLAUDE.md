@@ -567,7 +567,13 @@ scanned room answers the physical ones on its model instead of in fields.
   (`setDistance`, via `moveWall`, so the room follows). Fields that move
   walls (distance, length, height) apply only when typing ends — a Set
   button by the field (`InchField.applyWhenDone`) — since "9" on the way to
-  "96" would collapse the room. The room stays joined: a wall sharing a corner stretches to
+  "96" would collapse the room. Under a wall's height, **Make every wall
+  99 1/2″ high** (shown when any wall to the ceiling differs;
+  `ScannedRoom.setEveryWallHeight`, `wallsDiffer`; owner asked 2026-10-12
+  after a scan gave one wall 99 1/2″ and the rest 86 13/16″) sets every
+  scanned wall and full wall drawn in to that height; half walls keep
+  theirs, openings stay inside their walls, and full-height tile follows.
+  `WallHeightTests`. The room stays joined: a wall sharing a corner stretches to
   follow (dragging a shower/closet divider stretches the closet's door wall),
   an end meeting the middle of another wall slides along it (the back wall
   keeps its length), a wall running into the moved one follows; doors and

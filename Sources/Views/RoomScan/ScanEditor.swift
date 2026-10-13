@@ -1310,6 +1310,16 @@ struct ScanEditor: View {
                         }
                     }), applyWhenDone: true)
                 }
+                if room.wallsDiffer(from: wall.heightFt) {
+                    Button {
+                        editRoomOnce { $0.setEveryWallHeight(wall.heightFt) }
+                    } label: {
+                        Label("Make every wall \(inchText(wall.heightFt)) high", systemImage: "arrow.up.and.down.square")
+                    }
+                    .buttonStyle(.bordered)
+                    Text("Every scanned wall and full wall drawn in; half walls keep their height.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 HStack(spacing: 10) {
                     InchField(title: "Split at (from the \(cornerName(wall, atStart: true)) end)", inches: $splitAtIn)
                         .frame(maxWidth: 200)

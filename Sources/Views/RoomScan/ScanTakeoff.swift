@@ -56,6 +56,25 @@ extension ScannedRoom {
     /// (Within 3″ of the ceiling counts as full: a scan's ceiling is rarely a whole inch.)
     func isKneeWall(_ w: Wall) -> Bool { w.planned && w.heightFt < ceilingFt - 3.0 / 12 }
 
+    /// Every wall to the ceiling at one height (owner asked 2026-10-12: a
+    /// scan gave one wall 99 1/2″ and the rest 86 13/16″): the scanned walls
+    /// and the full walls drawn in; half walls keep theirs. Doors, windows
+    /// and openings are kept inside their walls.
+    mutating func setEveryWallHeight(_ ft: Double) {
+        let half = Set(walls.filter { isKneeWall($0) }.map(\.id))
+        for i in walls.indices where !half.contains(walls[i].id) { walls[i].heightFt = ft }
+        for i in openings.indices {
+            guard let id = openings[i].wallID, let w = wall(id) else { continue }
+            openings[i].bottomFt = min(openings[i].bottomFt, max(0, w.heightFt - 1.0 / 6))
+            openings[i].heightFt = min(openings[i].heightFt, w.heightFt - openings[i].bottomFt)
+        }
+    }
+
+    /// Whether any wall to the ceiling differs from this height.
+    func wallsDiffer(from ft: Double) -> Bool {
+        walls.contains { !isKneeWall($0) && abs($0.heightFt - ft) > 1.0 / 192 }
+    }
+
     /// "Half wall E", "New wall E" or "Wall A".
     func name(of w: Wall) -> String {
         isKneeWall(w) ? "Half wall \(w.label)" : w.planned ? "New wall \(w.label)" : "Wall \(w.label)"
