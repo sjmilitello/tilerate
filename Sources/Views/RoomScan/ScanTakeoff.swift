@@ -2018,6 +2018,19 @@ extension AreaTakeoff {
         let c = r.corners
         var kept: [Piece] = pieces.filter { room.wall($0.wallID)?.planned == true }
         var used = Set<UUID>()
+        // Wall tile runs on past the floor to the curb's outside edge where
+        // the floor's edge at that corner is open (owner, 2026-10-13: "wall
+        // tile typically extends to the outside edge of the curb").
+        let curb = curbless ? 0 : 4.5 / 12
+        let open = openSides(in: room)
+        func curbAt(_ p: ScannedRoom.Point, along u: ScannedRoom.Point) -> Double {
+            open.contains { side in
+                let touches = hypot(side.a.x - p.x, side.a.y - p.y) < 0.05 || hypot(side.b.x - p.x, side.b.y - p.y) < 0.05
+                let sl = max(side.lengthFt, 1e-9)
+                let across = abs(((side.b.x - side.a.x) * u.x + (side.b.y - side.a.y) * u.y) / sl) < 0.5
+                return touches && across
+            } ? curb : 0
+        }
         for i in 0..<4 {
             let a = c[i], b = c[(i + 1) % 4]
             let dx = b.x - a.x, dy = b.y - a.y, l = max(hypot(dx, dy), 1e-9)
@@ -2028,9 +2041,12 @@ extension AreaTakeoff {
                 return abs((dx * wx + dy * wy) / (l * wl)) > 0.95 && room.distanceToWall(mid, w) < 0.4
             }) else { continue }
             // Each section of that wall the side runs along (a divider partway along it).
+            let u = ScannedRoom.Point(x: dx / l, y: dy / l)
+            let extA = curbAt(a, along: u), extB = curbAt(b, along: u)
             for w in room.sections(of: w.id) {
-                let lo = max(0, min(room.along(a, on: w), room.along(b, on: w)))
-                let hi = min(w.lengthFt, max(room.along(a, on: w), room.along(b, on: w)))
+                let ta = room.along(a, on: w), tb = room.along(b, on: w)
+                let lo = max(0, ta < tb ? ta - extA : tb - extB)
+                let hi = min(w.lengthFt, ta < tb ? tb + extB : ta + extA)
                 guard hi - lo > 0.1 else { continue }
                 let height = pieces.first { $0.wallID == w.id }?.heightIn ?? Self.startingHeight(for: .shower, wall: w)
                 let id = used.contains(w.id) ? UUID() : (pieces.first { $0.wallID == w.id }?.id ?? UUID())

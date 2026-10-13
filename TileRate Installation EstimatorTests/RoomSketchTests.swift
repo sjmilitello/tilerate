@@ -87,3 +87,25 @@ struct CurbCornerTests {
         #expect(covered)
     }
 }
+
+struct WallTileToCurbTests {
+    /// A corner shower's wall tile runs on to the curb's outside edge
+    /// (owner, 2026-10-13); curbless, it stops at the floor.
+    @Test func cornerShowerWallTileReachesTheCurbsOutsideEdge() {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        let placed = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        #expect(placed)
+        let r = t.floorRect!
+        #expect(t.pieces.count == 2)
+        for p in t.pieces {
+            let floorSide = abs(r.widthFt - 4) < 1e-6 ? 4.0 : r.widthFt
+            #expect(abs((p.toFt - p.fromFt) - (floorSide + 4.5 / 12)) < 1e-6)
+        }
+        var curbless = t
+        curbless.curbless = true
+        curbless.tileWallsAroundFloor(in: room)
+        for p in curbless.pieces { #expect(abs((p.toFt - p.fromFt) - 4) < 1e-6) }
+    }
+}

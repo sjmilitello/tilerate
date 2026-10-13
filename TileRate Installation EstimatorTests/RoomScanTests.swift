@@ -1032,7 +1032,8 @@ struct RoomScanTests {
         // Along wall C and up wall B, both tiled full height, A no longer.
         #expect(Set(t.pieces.map(\.wallID)) == [B.id, C.id])
         #expect(t.pieces.allSatisfy { $0.heightIn == 96 })
-        #expect(abs(t.wallsSqft(in: room) - (4 + 4) * 8) < 1e-9)
+        // Each wall's tile runs on past the floor to the curb's outside edge (4½″; owner, 2026-10-13).
+        #expect(abs(t.wallsSqft(in: room) - (4 + 4 + 2 * 4.5 / 12) * 8) < 1e-9)
         // The curb on the two open sides.
         let curb = t.trimPieces(in: room, area: .shower, curbHeightIn: 4).first { $0.key == "curb" }
         #expect(abs((curb?.lengthFt ?? 0) - 8) < 1e-9)
@@ -1044,9 +1045,9 @@ struct RoomScanTests {
         turned.tileWallsAroundFloor(in: room)
         #expect(abs(turned.floorRect!.widthFt - 3) < 1e-9 && abs(turned.floorRect!.depthFt - 5) < 1e-9)
         #expect(abs(turned.floorRect!.origin.x - 9) < 1e-9 && abs(turned.floorRect!.origin.y - 8) < 1e-9)
-        #expect(abs(turned.wallsSqft(in: room) - (3 + 5) * 8) < 1e-9)
+        #expect(abs(turned.wallsSqft(in: room) - (3 + 5 + 2 * 4.5 / 12) * 8) < 1e-9)
         let onB = turned.pieces.first { $0.wallID == B.id }!
-        #expect(abs((onB.toFt - onB.fromFt) - 5) < 1e-9)
+        #expect(abs((onB.toFt - onB.fromFt) - (5 + 4.5 / 12)) < 1e-9)
         // A scan turned on the plan (as real ones are) still puts the long side along the longer wall.
         let tilted = room.turned(by: 27)
         var t2 = AreaTakeoff()

@@ -435,15 +435,25 @@ struct ScanEditor: View {
                             } else if mode == .measure, area == .shower, !editingWalls, takeoff.floor == .drawn, !placingShower,
                                       !addingWall, !placingBench {
                                 // Where the shower goes, first (owner, 2026-10-12).
-                                Button {
-                                    show3D = false
-                                    placingShower = true
-                                } label: {
-                                    Label(takeoff.floorRect == nil ? "Put the shower here" : "Move the shower: tap where it goes",
-                                          systemImage: "hand.tap")
-                                        .frame(maxWidth: .infinity)
+                                HStack(spacing: 10) {
+                                    Button {
+                                        show3D = false
+                                        placingShower = true
+                                    } label: {
+                                        Label(takeoff.floorRect == nil ? "Put the shower here" : "Move the shower",
+                                              systemImage: "hand.tap")
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(NDPrimaryButtonStyle())
+                                    if takeoff.floorRect != nil {
+                                        Button(role: .destructive) { removeShower() } label: {
+                                            Label("Remove", systemImage: "trash")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .tint(.red)
+                                        .fixedSize()
+                                    }
                                 }
-                                .buttonStyle(NDPrimaryButtonStyle())
                             }
                             if mode == .measure {
                                 Picker("Walls", selection: $editingWalls) {
@@ -693,6 +703,22 @@ struct ScanEditor: View {
         if wallsNext { wallAdded = true }
     }
 
+    /// Takes the shower off the plan: its floor, curb, drain, tiled walls and
+    /// built-ins (owner, 2026-10-13). Walls drawn in stay — they're the
+    /// room's. Undo puts it back.
+    private func removeShower() {
+        takeoff.floorRect = nil
+        takeoff.coveDepthFt = nil
+        takeoff.drain = nil
+        takeoff.pieces = []
+        takeoff.items = []
+        takeoff.trim = []
+        selectedItem = nil
+        wallsNext = false
+        wallAdded = false
+        placingShower = false
+    }
+
     /// After the shower's placed, the walls (owner, 2026-10-12): add one it
     /// needs, edit the room's, or go on to the tile.
     private var wallsNextCard: some View {
@@ -742,11 +768,13 @@ struct ScanEditor: View {
             }
             .buttonStyle(.plain)
             Spacer()
-            // A step back: put the shower somewhere else.
-            Button { show3D = false; placingShower = true } label: {
-                Label("Move shower", systemImage: "arrow.uturn.backward").font(.system(size: 14, weight: .medium))
+            // A step back: put the shower somewhere else, or take it off.
+            Menu {
+                Button { show3D = false; placingShower = true } label: { Label("Move the shower", systemImage: "hand.tap") }
+                Button(role: .destructive) { removeShower() } label: { Label("Remove the shower", systemImage: "trash") }
+            } label: {
+                Label("Move or remove", systemImage: "arrow.uturn.backward").font(.system(size: 14, weight: .medium))
             }
-            .buttonStyle(.plain)
             .opacity(0.9)
             }
         }

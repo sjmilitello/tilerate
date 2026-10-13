@@ -573,7 +573,17 @@ view above the wall's panel (scrolls to "guide", not "wall"); Edit walls
 shows "Tap a wall to change it" with **Done**, back to the card. **Undo**
 also steps back out of a guide step with nothing changed yet (adding a
 wall or bench, placing, editing walls: `guideStepToUndo`), and undoing the
-shower's placement asks where it goes again.
+shower's placement asks where it goes again. **Remove the shower**
+(card → Move or remove, or Remove beside Move the shower;
+`removeShower`) takes off its floor, curb, drain, tiled walls, built-ins
+and stone choices; walls drawn in stay (they're the room's); Undo puts it
+back.
+
+Wall tile runs on past the shower floor to the curb's **outside edge**
+where the floor's edge at that corner is open (owner, 2026-10-13: "wall tile
+typically extends to the outside edge of the curb"; 4½″, none when
+curbless; `tileWallsAroundFloor`). Showers placed before keep their tile
+until the floor is moved or placed again.
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width
