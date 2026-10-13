@@ -49,8 +49,22 @@ struct ScanEditor: View {
     /// The area screen's tabs (owner, 2026-10-12: one screen per area, the
     /// model docked on top, every option in its tabs).
     enum Tab: String, CaseIterable, Identifiable {
-        case tile = "Tile", measure = "Measure", extras = "Extras", price = "Price"
+        // In the order you go (owner, 2026-10-12: place it, then its tile,
+        // its extras, its price — always forward).
+        case measure = "Measure", tile = "Tile", extras = "Extras", price = "Price"
         var id: String { rawValue }
+        var next: Tab? {
+            let all = Tab.allCases
+            guard let i = all.firstIndex(of: self), i + 1 < all.count else { return nil }
+            return all[i + 1]
+        }
+    }
+
+    /// Moves the embedded screen to a tab.
+    private func goTab(_ new: Tab) {
+        guard let e = embedding else { return }
+        e.tab.wrappedValue = new
+        if new == .measure || new == .extras { switchMode(new == .measure ? .measure : .extras) }
     }
 
     /// The model embedded as an area's screen: the host's pages for the Tile
@@ -500,10 +514,7 @@ struct ScanEditor: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
                             if let e = embedding {
-                                Picker("Tab", selection: Binding(get: { e.tab.wrappedValue }, set: { new in
-                                    e.tab.wrappedValue = new
-                                    if new == .measure || new == .extras { switchMode(new == .measure ? .measure : .extras) }
-                                })) {
+                                Picker("Tab", selection: Binding(get: { e.tab.wrappedValue }, set: { goTab($0) })) {
                                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                                 }
                                 .pickerStyle(.segmented)
@@ -533,6 +544,18 @@ struct ScanEditor: View {
                                  ? "Choose the walls, floor and ceiling being tiled. Add walls and doors that aren't built yet."
                                  : "Add niches, windows, benches and corner pieces on the walls, and choose tile or stone for each piece.")
                                 .font(.footnote).foregroundStyle(.secondary)
+                            if mode == .measure, area == .shower, !editingWalls, takeoff.floor == .drawn, !placingShower {
+                                // Where the shower goes, first (owner, 2026-10-12).
+                                Button {
+                                    show3D = false
+                                    placingShower = true
+                                } label: {
+                                    Label(takeoff.floorRect == nil ? "Put the shower here" : "Move the shower: tap where it goes",
+                                          systemImage: "hand.tap")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(NDPrimaryButtonStyle())
+                            }
                             if mode == .measure {
                                 Picker("Walls", selection: $editingWalls) {
                                     Text(usesWalls ? "Tile walls" : "Floor").tag(false)
@@ -1985,7 +2008,18 @@ struct ScanEditor: View {
                         .contentTransition(.numericText())
                 }
                 Spacer()
-                Button { onUse(takeoff, room); e.onDone() } label: { Text(e.doneTitle).lineLimit(1).fixedSize().padding(.horizontal, 6).frame(minWidth: 90) }
+                // Always forward: the next tab, then the next area (or Done).
+                let next = e.tab.wrappedValue.next
+                Button {
+                    onUse(takeoff, room)
+                    if let next { withAnimation { goTab(next) } } else { e.onDone() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(next.map { "Next: \($0.rawValue)" } ?? e.doneTitle).lineLimit(1).fixedSize()
+                        if next != nil || e.doneTitle != "Done" { Image(systemName: "chevron.right") }
+                    }
+                    .padding(.horizontal, 6).frame(minWidth: 90)
+                }
                     .buttonStyle(NDPrimaryButtonStyle())
                     .fixedSize()
             }

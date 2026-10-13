@@ -549,7 +549,15 @@ area's name) instead of Done, on the model screen and on the last step
 page alike (`finishOrNext`), opening the next on Measure (on a model) or
 Tile (typed). After a scan or sketch, a guided shower not yet placed opens
 waiting for a tap on where it goes (`Embedding.startPlacingShower`, the
-same Put the shower here).
+same Put the shower here), once per guided shower (`showersPlaced`).
+
+**Always forward** (owner, 2026-10-12: tapping back to Tile felt
+backward): the area screen's tabs are in the order you go — Measure, Tile,
+Extras, Price (`ScanEditor.Tab`, `next`) — and its bottom button steps
+through them ("Next: Tile", "Next: Extras", "Next: Price"), then names the
+next guided area or says Done (`goTab`). A shower's Measure tab starts with
+a full-width **Put the shower here** / **Move the shower: tap where it
+goes** above everything else.
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width

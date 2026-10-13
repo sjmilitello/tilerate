@@ -26,6 +26,8 @@ struct AreaFlowView: View {
     @State private var confirmDelete = false
     @State private var workspace3D = false
     @State private var addingAreas = false
+    /// Guided showers already offered "tap where it goes".
+    @State private var showersPlaced: Set<UUID> = []
     @State private var camera3D = Room3DCameraMemory()
     @State private var scanning: ScanTarget? = nil
     /// The model open from the Measure or Extras step.
@@ -208,7 +210,7 @@ struct AreaFlowView: View {
             camera3D: camera3D,
             doneTitle: nextArea.map { "Next: \(Self.areaName($0, in: roomSections))" } ?? "Done",
             startPlacingShower: guide.contains(currentID) && section.area == .shower
-                && section.scanTakeoff?.floorRect == nil))
+                && !showersPlaced.contains(currentID)))
             .id(workspaceVersion)
     }
 
@@ -331,6 +333,7 @@ struct AreaFlowView: View {
 
     /// The bottom button: on to the next area while guided, else done.
     private func finishOrNext() {
+        showersPlaced.insert(currentID)
         guard let next = nextArea else {
             if guide.contains(currentID) { onGuideEnd() }
             onFinish()
@@ -359,6 +362,7 @@ struct AreaFlowView: View {
     /// tab stays where it was.
     private func switchTo(_ id: UUID) {
         guard id != currentID else { return }
+        showersPlaced.insert(currentID)
         activeID = id
         editing = nil
         editingLine = nil
