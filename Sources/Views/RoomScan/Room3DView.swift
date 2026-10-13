@@ -327,9 +327,20 @@ enum Room3DScene {
         var covered: [[ScannedRoom.Point]] = []
         for a in areas {
             guard let s = a.shape, s.outline.count > 2 else { continue }
-            let node = flatShape(s.outline, holes: s.holes, color: .white, lift: -0.004)
-            node.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(s.outline).w,
-                                                       heightFt: bounds(s.outline).h, x0: 0, y0: 0)
+            // Built square to the room's walls and turned back, so the tile
+            // lies square to the room, not to the scanner's axes (owner,
+            // 2026-10-12: the floor tile wasn't square to the room).
+            let turn = room.squaringAngle
+            func squared(_ ring: [ScannedRoom.Point]) -> [ScannedRoom.Point] {
+                ring.map { .init(x: $0.x * cos(-turn) - $0.y * sin(-turn), y: $0.x * sin(-turn) + $0.y * cos(-turn)) }
+            }
+            let node = SCNNode()
+            node.addChildNode(flatShape(squared(s.outline), holes: s.holes.map(squared), color: .white, lift: -0.004))
+            node.eulerAngles.y = Float(-turn)
+            // Laid square to the room's walls, not the scanner's axes
+            // (owner, 2026-10-12: the floor tile wasn't square to the room).
+            node.childNodes.first?.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(squared(s.outline)).w,
+                                                                         heightFt: bounds(squared(s.outline)).h, x0: 0, y0: 0)
             // Another area's floor: a tap on it switches to that area.
             node.name = a.id.map { "area|\($0.uuidString)" } ?? "floor|mine"
             root.addChildNode(node)
