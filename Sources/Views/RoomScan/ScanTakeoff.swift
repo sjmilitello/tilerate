@@ -1363,6 +1363,38 @@ extension AreaTakeoff {
         return doors + curbSides(in: room).stretches
     }
 
+    /// Where a wall put on the curb of an open side goes (owner, 2026-10-13:
+    /// "the wall should line up with it and extend to the end of the curb"):
+    /// along the curb's middle, and on past a corner where another curb
+    /// meets it, to the curb's outside corner. Its first face looks into the
+    /// shower (the shower on its left). Curbless: on the floor's edge.
+    func wallOnCurb(_ side: OpenSide, in room: ScannedRoom, curbWidthFt curb: Double) -> (ScannedRoom.Point, ScannedRoom.Point) {
+        var a = side.a, b = side.b
+        if let r = floorRect {
+            let c = r.corners
+            let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+            let n = ScannedRoom.Point(x: -(b.y - a.y), y: b.x - a.x)
+            if (center.x - a.x) * n.x + (center.y - a.y) * n.y < 0 { swap(&a, &b) }
+        }
+        guard curb > 0 else { return (a, b) }
+        let l = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
+        let u = ScannedRoom.Point(x: (b.x - a.x) / l, y: (b.y - a.y) / l)
+        let out = ScannedRoom.Point(x: u.y, y: -u.x)
+        let others = openSides(in: room).filter { o in
+            !(hypot(o.a.x - side.a.x, o.a.y - side.a.y) < 1e-6 && hypot(o.b.x - side.b.x, o.b.y - side.b.y) < 1e-6)
+        }
+        func corner(_ p: ScannedRoom.Point) -> Bool {
+            others.contains { o in
+                let touches = hypot(o.a.x - p.x, o.a.y - p.y) < 0.05 || hypot(o.b.x - p.x, o.b.y - p.y) < 0.05
+                let ol = max(o.lengthFt, 1e-9)
+                return touches && abs(((o.b.x - o.a.x) * u.x + (o.b.y - o.a.y) * u.y) / ol) < 0.5
+            }
+        }
+        let ea = corner(a) ? curb : 0, eb = corner(b) ? curb : 0
+        return (.init(x: a.x - u.x * ea + out.x * curb / 2, y: a.y - u.y * ea + out.y * curb / 2),
+                .init(x: b.x + u.x * eb + out.x * curb / 2, y: b.y + u.y * eb + out.y * curb / 2))
+    }
+
     /// The curb as drawn (plan and 3-D): a door's curb and each stretch on
     /// the floor's open sides, keyed for its stone choice. Where two meet at
     /// a corner of the floor (a corner shower) one runs on past the corner

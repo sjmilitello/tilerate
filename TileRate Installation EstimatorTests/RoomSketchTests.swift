@@ -109,3 +109,36 @@ struct WallTileToCurbTests {
         for p in curbless.pieces { #expect(abs((p.toFt - p.fromFt) - 4) < 1e-6) }
     }
 }
+
+struct WallOnCurbTests {
+    /// A wall put on a corner shower's curb runs along the curb's middle
+    /// and out to its outside corner (owner, 2026-10-13).
+    @Test func wallOnACornerShowersCurbLinesUpWithItAndReachesItsEnd() {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        let placed = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        #expect(placed)
+        let w = 4.5 / 12
+        let sides = t.openSides(in: room)
+        #expect(sides.count == 2)
+        let side = sides[0]
+        let (a, b) = t.wallOnCurb(side, in: room, curbWidthFt: w)
+        // As long as the side plus the curb's width (to the outside corner).
+        #expect(abs(hypot(b.x - a.x, b.y - a.y) - (side.lengthFt + w)) < 1e-9)
+        // Half the curb's width outside the floor's edge, all along.
+        let r = t.floorRect!
+        let c = r.corners
+        let wm = ScannedRoom.Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        // Distance from the floor's edge line to the wall's line is w/2.
+        let l = side.lengthFt
+        let n = ScannedRoom.Point(x: -(side.b.y - side.a.y) / l, y: (side.b.x - side.a.x) / l)
+        #expect(abs(abs((a.x - side.a.x) * n.x + (a.y - side.a.y) * n.y) - w / 2) < 1e-9)
+        #expect(abs(abs((b.x - side.a.x) * n.x + (b.y - side.a.y) * n.y) - w / 2) < 1e-9)
+        // Outside the floor, not inside it.
+        #expect(!AreaTakeoff.inside(c, wm))
+        // Curbless: on the floor's edge, its length.
+        let (ca, cb) = t.wallOnCurb(side, in: room, curbWidthFt: 0)
+        #expect(abs(hypot(cb.x - ca.x, cb.y - ca.y) - side.lengthFt) < 1e-9)
+    }
+}

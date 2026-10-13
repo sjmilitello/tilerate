@@ -249,7 +249,9 @@ floor's edge), a framed bench out to the curb follows it
 (`benchesFollowFloor`), and it catches with its outside face flush with a
 side wall's end (`curbCatch`), with Catch off and nudge arrows as usual.
 Add a Wall → Full Wall or Half Wall, then tap the curb: the wall goes on
-the curb filling the opening, with no door (`closeSide`; most showers have
+the curb filling the opening — along the curb's middle, as thick as the
+curb, and out to the curb's outside corner where another curb meets it
+(`AreaTakeoff.wallOnCurb`, owner 2026-10-13; `WallOnCurbTests`) — with no door (`closeSide`; most showers have
 no header — Add door is there for one); drag its end in and the curb fills
 the gap with its jambs. Its first face looks into the shower and is
 tiled. Adding a wall where a drawn-in one already lies

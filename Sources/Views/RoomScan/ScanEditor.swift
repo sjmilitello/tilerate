@@ -815,16 +815,11 @@ struct ScanEditor: View {
     /// the gap; Add door is there for a header). A half wall stands at its
     /// usual height. Its first face looks into the shower and is tiled.
     private func closeSide(_ side: AreaTakeoff.OpenSide, full: Bool) {
-        var a = side.a, b = side.b
-        // Its first face toward the shower.
-        if let r = takeoff.floorRect {
-            let c = r.corners
-            let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
-            let n = ScannedRoom.Point(x: -(b.y - a.y), y: b.x - a.x)
-            if (center.x - a.x) * n.x + (center.y - a.y) * n.y < 0 { swap(&a, &b) }
-        }
+        let curb = takeoff.curbless ? 0 : stone.curbWidthFt
+        let (a, b) = takeoff.wallOnCurb(side, in: room, curbWidthFt: curb)
         let ceiling = room.ceilingFt * 12
         let w = placeWall(from: a, to: b, heightIn: full ? ceiling : min(42, ceiling), door: false)
+        if curb > 0, let i = room.walls.firstIndex(where: { $0.id == w.id }) { room.walls[i].thicknessIn = curb * 12 }
         face = 0
         tapWall(w.id)
         if wallsNext { wallAdded = true }
