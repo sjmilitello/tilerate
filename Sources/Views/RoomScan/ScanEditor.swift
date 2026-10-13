@@ -27,6 +27,14 @@ struct OtherAreaPieces: Equatable {
     var floorOutline: [ScannedRoom.Point]? = nil
     var floorHoles: [[ScannedRoom.Point]] = []
     var continuousFloors: [[ScannedRoom.Point]] = []
+    /// Its shower's curb as drawn (`curbRuns`), each run two points (its
+    /// inside face) and its stone key, shown from every area (owner,
+    /// 2026-10-12); its height and which parts are stone, for 3-D.
+    var curbs: [CurbRun] = []
+    var curbHeightIn: Double = 4
+    var stoneParts: Set<String> = []
+
+    struct CurbRun: Equatable { var a: ScannedRoom.Point; var b: ScannedRoom.Point; var key: String }
 }
 
 /// A niche whose tile is being chosen, for the sheet.
@@ -302,7 +310,8 @@ struct ScanEditor: View {
                 return q
             }, floor: o.floor, curbless: o.curbless, tile: o.tile, floorTile: o.floorTile, wallTiles: o.wallTiles,
                roomFloor: o.roomFloor, floorOutline: o.floorOutline, floorHoles: o.floorHoles,
-               continuousFloors: o.continuousFloors)
+               continuousFloors: o.continuousFloors, curbs: o.curbs, curbHeightIn: o.curbHeightIn,
+               stoneParts: o.stoneParts)
         }
     }
 
@@ -359,6 +368,7 @@ struct ScanEditor: View {
                            onFloorChanged: area == .shower ? { takeoff.tileWallsAroundFloor(in: room) } : nil,
                            onFloorMoved: { takeoff.coveDepthFt = nil },
                            curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
+                           curbDrawn: area == .shower ? takeoff.curbRuns(in: room, widthFt: stone.curbWidthFt).map { ($0.a, $0.b) } : [],
                            curbWidthFt: takeoff.curbless ? 0 : stone.curbWidthFt,
                            drain: showerDrawn ? $takeoff.drain : nil,
                            drainShown: showerDrawn ? takeoff.drainShown() : nil,
@@ -2052,6 +2062,8 @@ struct PlanCanvas: View {
     var onFloorMoved: (() -> Void)? = nil
     /// The shower's curb: open sides of its floor.
     var curbEdges: [(ScannedRoom.Point, ScannedRoom.Point)] = []
+    /// The curb as drawn, corners overlapped (`curbRuns`).
+    var curbDrawn: [(ScannedRoom.Point, ScannedRoom.Point)] = []
     /// How wide the curb is: drawn just outside the floor (0: a line).
     var curbWidthFt: Double = 0
     /// The shower's drain, moved when held; and how it's drawn (the chosen
@@ -3209,9 +3221,24 @@ struct PlanCanvas: View {
             ctx.draw(text, at: at)
         }
 
+        // Other showers' curbs, dimmer (owner, 2026-10-12: shown from every area).
+        for o in others where !o.curbs.isEmpty {
+            let mid = o.floor?.center
+            for r in o.curbs {
+                let len = max(hypot(r.b.x - r.a.x, r.b.y - r.a.y), 1e-9)
+                var n = ScannedRoom.Point(x: -(r.b.y - r.a.y) / len, y: (r.b.x - r.a.x) / len)
+                if let m = mid, ((r.a.x + r.b.x) / 2 - m.x) * n.x + ((r.a.y + r.b.y) / 2 - m.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+                let w = max(curbWidthFt > 0 ? curbWidthFt : 4.5 / 12, 1.5 / 12)
+                var band = Path()
+                band.addLines([f.at(r.a), f.at(r.b), f.at(.init(x: r.b.x + n.x * w, y: r.b.y + n.y * w)),
+                               f.at(.init(x: r.a.x + n.x * w, y: r.a.y + n.y * w))])
+                band.closeSubpath()
+                ctx.fill(band, with: .color(Color(red: 0.85, green: 0.78, blue: 0.62).opacity(0.55)))
+            }
+        }
         // The curb.
         let floorMid = (floorRect?.wrappedValue ?? floorRectShown)?.center
-        for (a, b) in curbEdges {
+        for (a, b) in curbDrawn {
             // Its inside face on the floor's edge, as wide as it is.
             let len = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
             var n = ScannedRoom.Point(x: -(b.y - a.y) / len, y: (b.x - a.x) / len)

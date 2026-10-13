@@ -50,7 +50,14 @@ extension Room3DContent {
                                    wallTiles: room.scan.map { other.wallTiles(in: $0) } ?? [:],
                                    roomFloor: other.area == .floor && t.floor == .room,
                                    floorOutline: shape?.outline, floorHoles: shape?.holes ?? [],
-                                   continuousFloors: shape?.continuous ?? [])
+                                   continuousFloors: shape?.continuous ?? [],
+                                   curbs: other.area == .shower ? room.scan.map { scan in
+                                       t.curbRuns(in: scan, widthFt: 4.5 / 12).map { OtherAreaPieces.CurbRun(a: $0.a, b: $0.b, key: $0.key) }
+                                   } ?? [] : [],
+                                   curbHeightIn: t.curbHeightIn ?? 4,
+                                   stoneParts: other.area == .shower ? room.scan.map { scan in
+                                       Set(t.trimPieces(in: scan, area: other.area, curbHeightIn: t.curbHeightIn ?? 4).filter(\.stone).map(\.key))
+                                   } ?? [] : [])
         }
     }
 
@@ -560,29 +567,31 @@ enum Room3DScene {
             root.addChildNode(node)
         }
 
-        // The curb.
+        // Every shower's curb, this area's or another's (owner, 2026-10-12:
+        // the curb showed only from the shower itself). Just outside the
+        // floor: its inside face on the floor's edge, corners overlapped
+        // (`curbRuns`). Its top, inside face and outside face are each tile
+        // or stone.
+        var curbSets: [(runs: [(a: ScannedRoom.Point, b: ScannedRoom.Point, key: String)], mid: ScannedRoom.Point?,
+                        heightIn: Double, stone: Set<String>, tile: TileChoice?)] = []
         if c.area == .shower {
-            // Just outside the floor: its inside face on the floor's edge. Its
-            // top, inside face and outside face are each tile or stone.
-            let mid = c.takeoff.floorRect?.center
-            var curbs: [(ScannedRoom.Point, ScannedRoom.Point, String)] = []
-            if !c.takeoff.curbless {
-                for d in c.takeoff.showerDoors(in: room) {
-                    guard let w = d.wallID.flatMap({ room.wall($0) }) else { continue }
-                    let s = room.span(of: d)
-                    curbs.append((room.point(on: w, along: s.lowerBound), room.point(on: w, along: s.upperBound), "curb:\(d.id)"))
-                }
-                curbs += c.takeoff.curbSides(in: room).stretches.map { ($0.0, $0.1, "curb") }
-            }
-            for (a, b, key) in curbs {
+            curbSets.append((c.takeoff.curbRuns(in: room, widthFt: c.curbWidthFt), c.takeoff.floorRect?.center,
+                             c.curbHeightIn, c.stoneParts, c.tile))
+        }
+        for o in c.others where !o.curbs.isEmpty {
+            curbSets.append((o.curbs.map { ($0.a, $0.b, $0.key) }, o.floor?.center, o.curbHeightIn, o.stoneParts, o.tile))
+        }
+        for set in curbSets {
+            let mid = set.mid
+            for (a, b, key) in set.runs {
                 let len = hypot(b.x - a.x, b.y - a.y)
-                let h = c.curbHeightIn / 12, w = c.curbWidthFt
+                let h = set.heightIn / 12, w = c.curbWidthFt
                 var nx = -(b.y - a.y) / max(len, 1e-9), ny = (b.x - a.x) / max(len, 1e-9)
                 var flipped = false
                 if let m = mid, ((a.x + b.x) / 2 - m.x) * nx + ((a.y + b.y) / 2 - m.y) * ny < 0 { nx = -nx; ny = -ny; flipped = true }
                 let box = SCNBox(width: len, height: h, length: w, chamferRadius: 0.01)
                 func face(_ k: String, _ width: Double) -> SCNMaterial {
-                    c.stoneParts.contains(k) ? plain(stoneColor) : tileMaterial(c.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
+                    set.stone.contains(k) ? plain(stoneColor) : tileMaterial(set.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
                 }
                 let top = face(key, len), inside = face(key + ":inside", len), outside = face(key + ":outside", len)
                 // The box's front (+z) is the side its left hand faces: outside unless turned.
@@ -592,6 +601,8 @@ enum Room3DScene {
                 n.eulerAngles.y = Float(-atan2(b.y - a.y, b.x - a.x))
                 root.addChildNode(n)
             }
+        }
+        if c.area == .shower {
             // The drain: a dark grate on the floor.
             if c.takeoff.floor == .drawn, let d = c.takeoff.drainShown() {
                 let k = c.takeoff.drainOutline(d)

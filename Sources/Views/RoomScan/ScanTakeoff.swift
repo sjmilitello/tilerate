@@ -1363,6 +1363,42 @@ extension AreaTakeoff {
         return doors + curbSides(in: room).stretches
     }
 
+    /// The curb as drawn (plan and 3-D): a door's curb and each stretch on
+    /// the floor's open sides, keyed for its stone choice. Where two meet at
+    /// a corner of the floor (a corner shower) one runs on past the corner
+    /// by the curb's width, so they overlap there instead of meeting at the
+    /// inside corner with a notch outside (owner, 2026-10-12). Drawing only:
+    /// the curb's linear feet are unchanged.
+    func curbRuns(in room: ScannedRoom, widthFt: Double) -> [(a: ScannedRoom.Point, b: ScannedRoom.Point, key: String)] {
+        guard !curbless else { return [] }
+        var runs: [(a: ScannedRoom.Point, b: ScannedRoom.Point, key: String)] = []
+        for d in showerDoors(in: room) {
+            guard let w = d.wallID.flatMap({ room.wall($0) }) else { continue }
+            let s = room.span(of: d)
+            runs.append((room.point(on: w, along: s.lowerBound), room.point(on: w, along: s.upperBound), "curb:\(d.id)"))
+        }
+        runs += curbSides(in: room).stretches.map { ($0.0, $0.1, "curb") }
+        func near(_ p: ScannedRoom.Point, _ q: ScannedRoom.Point) -> Bool { hypot(p.x - q.x, p.y - q.y) < 0.05 }
+        func dir(_ r: (a: ScannedRoom.Point, b: ScannedRoom.Point, key: String)) -> ScannedRoom.Point {
+            let l = max(hypot(r.b.x - r.a.x, r.b.y - r.a.y), 1e-9)
+            return .init(x: (r.b.x - r.a.x) / l, y: (r.b.y - r.a.y) / l)
+        }
+        for i in runs.indices {
+            for j in runs.indices where j > i {
+                let u = dir(runs[i]), v = dir(runs[j])
+                guard abs(u.x * v.y - u.y * v.x) > 0.5 else { continue }   // not in line
+                for atStart in [true, false] {
+                    let p = atStart ? runs[i].a : runs[i].b
+                    guard near(p, runs[j].a) || near(p, runs[j].b) else { continue }
+                    let s: Double = atStart ? -1 : 1
+                    let q = ScannedRoom.Point(x: p.x + u.x * s * widthFt, y: p.y + u.y * s * widthFt)
+                    if atStart { runs[i].a = q } else { runs[i].b = q }
+                }
+            }
+        }
+        return runs
+    }
+
     /// Where the curb actually runs: the floor's open sides less any part a
     /// framed bench stands on (owner, 2026-10-09: the curb stops at the
     /// bench), and the framed benches it stops at — their outside ends show

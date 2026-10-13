@@ -766,6 +766,13 @@ sit on another wall's letter. `WallLetteringTests`.
   always 4½″ wide (`StonePrices.curbWidthFt`; Admin's stone curb width is the
   stone on top, which overhangs the curb, so it isn't used for this;
   benches use it too).
+- **Drawn from every area, corners overlapped** (owner, 2026-10-12): a
+  shower's curb shows on the plan (lighter) and in 3-D from the room's
+  other areas too (`OtherAreaPieces.curbs`, with its height and stone
+  parts). A corner shower's two curb runs overlap at the outside corner —
+  one runs on past it by the curb's width — instead of meeting at the
+  inside corner (`AreaTakeoff.curbRuns`, used for drawing only; the curb's
+  linear feet and dimensions are unchanged). `CurbCornerTests`.
 - **Remove the curb (curbless)** (`AreaTakeoff.curbless`, `setCurbless`): no
   curb pieces or curb line, jambs from the floor, and a cove-filled floor
   runs to the outside corners (put back: it stops at the curb again). A
