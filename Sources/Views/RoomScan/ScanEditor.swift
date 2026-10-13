@@ -147,6 +147,8 @@ struct ScanEditor: View {
     @State private var addingFullWall = false
     /// Waiting for a tap on the corner the shower goes in.
     @State private var placingShower = false
+    /// The shower just placed: walls come next (owner, 2026-10-12).
+    @State private var wallsNext = false
     /// The niche whose own tile is being chosen.
     @State private var nicheTileFor: UUID? = nil
     /// Tapping a wall chooses it to change its shape (any wall, scanned or
@@ -340,7 +342,7 @@ struct ScanEditor: View {
     var body: some View {
         OwnNavigation(own: embedding == nil) {
             VStack(spacing: 0) {
-                if placingShower { placingShowerBanner }
+                placingBanner
                 ZStack(alignment: .bottomTrailing) {
                 if show3D {
                     Room3DView(content: content3D, showFixtures: $showFixtures, onTap: { tap3D($0) },
@@ -419,11 +421,15 @@ struct ScanEditor: View {
                             }
                             .pickerStyle(.segmented)
                             }
+                            if !(mode == .measure && area == .shower && wallsNext) {
                             Text(mode == .measure
                                  ? "Choose the walls, floor and ceiling being tiled. Add walls and doors that aren't built yet."
                                  : "Add niches, windows, benches and corner pieces on the walls, and choose tile or stone for each piece.")
                                 .font(.footnote).foregroundStyle(.secondary)
-                            if mode == .measure, area == .shower, !editingWalls, takeoff.floor == .drawn, !placingShower {
+                            }
+                            if mode == .measure, area == .shower, wallsNext, !placingShower, !addingWall, !editingWalls, !placingBench {
+                                wallsNextCard
+                            } else if mode == .measure, area == .shower, !editingWalls, takeoff.floor == .drawn, !placingShower {
                                 // Where the shower goes, first (owner, 2026-10-12).
                                 Button {
                                     show3D = false
@@ -663,6 +669,57 @@ struct ScanEditor: View {
         }
         let w = placeWall(from: a, to: b, heightIn: height, door: addingFullWall && onOpening && area == .shower)
         if usesWalls { tapWall(w.id) } else { selectedWall = w.id }
+    }
+
+    /// After the shower's placed, the walls (owner, 2026-10-12): add one it
+    /// needs, edit the room's, or go on to the tile.
+    private var wallsNextCard: some View {
+        let green = Color(red: 0.11, green: 0.56, blue: 0.29)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Next: the walls").font(.system(size: 23, weight: .bold))
+            Text("Add a wall the shower needs, or change the room's.")
+                .font(.system(size: 16, weight: .medium)).opacity(0.95)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Menu {
+                    Button { wallsNext = false; show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
+                    Button { wallsNext = false; show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
+                    Button { wallsNext = false; show3D = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
+                } label: {
+                    Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .foregroundStyle(green)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                Button {
+                    wallsNext = false
+                    editingWalls = true
+                } label: {
+                    Label("Edit walls", systemImage: "pencil")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .foregroundStyle(green)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                wallsNext = false
+                if embedding != nil { withAnimation { goTab(.tile) } }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(embedding != nil ? "Walls are right, next: Tile" : "Walls are right")
+                    Image(systemName: "chevron.right")
+                }
+                .font(.system(size: 16, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(.white)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(green, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     /// Add a Wall: full or half, then tap the curb or drag on the plan.
@@ -1051,7 +1108,9 @@ struct ScanEditor: View {
                editingOutline: editingOutline,
                onTapPoint: placingShower ? { p in
                    placingShower = false
-                   if !takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
+                   if takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
+                       wallsNext = true
+                   } else {
                        placeNote = "There's no cove or corner there. Tap inside the cove, or near the corner where the shower goes."
                    }
                } : nil,
@@ -1137,14 +1196,7 @@ struct ScanEditor: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             .padding(8)
         } else if placingBench {
-            HStack(spacing: 10) {
-                Image(systemName: "hand.tap")
-                Text("Tap the wall the bench goes against.").font(.caption)
-                Button("Cancel") { placingBench = false }.font(.caption.weight(.semibold))
-            }
-            .padding(10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .padding(8)
+            EmptyView()
         } else if let note = placeNote {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle")
@@ -1155,33 +1207,23 @@ struct ScanEditor: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             .padding(8)
         }
-        if addingWall {
-            HStack(spacing: 10) {
-                Image(systemName: "hand.draw")
-                Text(addingWallHint)
-                    .font(.caption).fixedSize(horizontal: false, vertical: true)
-                Button("Cancel") { addingWall = false }
-                    .font(.caption.weight(.semibold))
-            }
-            .padding(10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .padding(8)
-        }
     }
 
-    /// Hard to miss (owner, 2026-10-12): large type on a green banner.
-    private var placingShowerBanner: some View {
+    /// Hard to miss (owner, 2026-10-12): large type on a green banner,
+    /// above the plan so none of the room is covered.
+    private func bigBanner(_ title: String, _ detail: String, icon: String = "hand.tap.fill",
+                           cancel: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "hand.tap.fill").font(.system(size: 30))
+            Image(systemName: icon).font(.system(size: 30))
             VStack(alignment: .leading, spacing: 3) {
-                Text("Tap where the shower goes").font(.system(size: 23, weight: .bold))
+                Text(title).font(.system(size: 23, weight: .bold))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("A corner, or inside a nook of three walls.")
+                Text(detail)
                     .font(.system(size: 16, weight: .medium)).opacity(0.95)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
-            Button("Cancel") { placingShower = false }
+            Button("Cancel", action: cancel)
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(Color.white.opacity(0.2), in: Capsule())
@@ -1189,13 +1231,21 @@ struct ScanEditor: View {
         .foregroundStyle(.white)
         .padding(14)
         .background(Color(red: 0.11, green: 0.56, blue: 0.29), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
         .padding(8)
     }
 
-    private var addingWallHint: String {
-        let lead = openSides.isEmpty ? "" : "Tap the curb to put the \(addingFullWall ? "full" : "half") wall on the shower opening, or "
-        return lead + (openSides.isEmpty ? "Drag" : "drag") + " on the plan from where it starts to where it ends."
+    /// The big banner for whatever the plan is waiting for a tap on.
+    @ViewBuilder
+    private var placingBanner: some View {
+        if placingShower {
+            bigBanner("Tap where the shower goes", "A corner, or inside a nook of three walls.") { placingShower = false }
+        } else if addingWall {
+            bigBanner(openSides.isEmpty ? "Draw the \(addingFullWall ? "full" : "half") wall" : "Tap the curb, or draw the wall",
+                      openSides.isEmpty ? "Drag from where it starts to where it ends." : "Or drag from where it starts to where it ends.",
+                      icon: "hand.draw.fill") { addingWall = false }
+        } else if placingBench {
+            bigBanner("Tap the wall the bench goes against", "It runs along that side of the shower floor.") { placingBench = false }
+        }
     }
 
     private func placeShowerFloor() {

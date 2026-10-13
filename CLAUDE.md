@@ -561,7 +561,11 @@ goes** above everything else. While it waits for the tap the plan shows
 "Tap where the shower goes" in large type on a green banner above the plan,
 so none of the room is covered
 (`placingShowerBanner`; owner's call: big type in a colour you notice,
-not rings on the plan).
+not rings on the plan). The same banner (`bigBanner`, `placingBanner`)
+asks for the curb or a drawn wall while adding a wall, and for the wall a
+framed bench goes against. Once the shower's placed, **Next: the walls**
+(`wallsNextCard`, green, at the top of Measure) offers Add a Wall (full,
+half, framed bench), Edit walls, or "Walls are right, next: Tile".
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width
