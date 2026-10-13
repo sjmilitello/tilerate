@@ -28,6 +28,8 @@ struct NewEstimateView: View {
     @State private var addingRoom = false
     /// A room getting more areas, chosen several at a time.
     @State private var addingAreasTo: RoomRef? = nil
+    /// Areas just added to each room, to be guided through one at a time.
+    @State private var guides: [UUID: [UUID]] = [:]
     @State private var sketchingRoom: RoomRef? = nil
     /// A new room's areas, placed on its model once it's scanned or sketched.
     @State private var pendingAreas: (room: UUID, ids: [UUID])? = nil
@@ -68,6 +70,7 @@ struct NewEstimateView: View {
                     switch route {
                     case let .area(room, section, step):
                         AreaFlowView(store: store, roomID: room, sectionID: section, startStep: step,
+                                     guide: guides[room] ?? [], onGuideEnd: { guides[room] = nil },
                                      onFinish: { path.removeAll() })
                     case .review:
                         EstimateReviewView(store: store, saved: saved,
@@ -121,7 +124,8 @@ struct NewEstimateView: View {
         .sheet(item: $addingAreasTo) { ref in
             NDNewRoomSheet(defaultName: roomName(ref.id), addingTo: roomName(ref.id)) { _, areas, _ in
                 guard let r = store.doc.rooms.firstIndex(where: { $0.id == ref.id }) else { return }
-                let ids = store.doc.rooms[r].addAreas(areas, prices: StonePrices(rates: store.pricingRates))
+                let ids = store.doc.rooms[r].addAreas(Self.showersFirst(areas), prices: StonePrices(rates: store.pricingRates))
+                guides[ref.id] = ids
                 let step = store.doc.rooms[r].scan != nil ? 2 : 1
                 if let first = ids.first {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { path.append(.area(room: ref.id, section: first, step: step)) }
@@ -445,7 +449,7 @@ struct NewEstimateView: View {
     /// sketched, or its first area opened to type square feet.
     private func createRoom(_ name: String, _ areas: [Area], _ method: NDNewRoomSheet.Method) {
         var room = EstimateRoom(name: name)
-        room.sections = areas.map { a in
+        room.sections = Self.showersFirst(areas).map { a in
             var s = EstimateSection()
             s.area = a
             s.startWithUsualTile()
@@ -454,6 +458,7 @@ struct NewEstimateView: View {
         store.doc.rooms.append(room)
         let ref = RoomRef(id: room.id, newRoom: true)
         let ids = room.sections.map(\.id)
+        guides[room.id] = ids
         switch method {
         case .type:
             if let first = ids.first {
@@ -471,6 +476,13 @@ struct NewEstimateView: View {
             pendingAreas = (room.id, ids)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sketchingRoom = ref }
         }
+    }
+
+    /// Showers, then tub surrounds, first (owner, 2026-10-12: their
+    /// footprints come out of the floor), the rest as ticked.
+    static func showersFirst(_ areas: [Area]) -> [Area] {
+        areas.filter { $0 == .shower } + areas.filter { $0 == .tub }
+            + areas.filter { $0 != .shower && $0 != .tub }
     }
 
     private func roomName(_ id: UUID?) -> String {

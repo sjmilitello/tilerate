@@ -49,3 +49,10 @@ struct RoomSketchTests {
         #expect(wall.scanTakeoff?.pieces.isEmpty != false)
     }
 }
+
+struct GuidedOrderTests {
+    @Test func showersThenTubsComeBeforeTheFloor() {
+        #expect(NewEstimateView.showersFirst([.floor, .backsplash, .tub, .shower, .shower])
+                == [.shower, .shower, .tub, .floor, .backsplash])
+    }
+}

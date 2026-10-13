@@ -539,6 +539,18 @@ when the room has one). A room with no model can get one from its menu:
 **Sketch this room** (its areas with nothing typed yet are placed on it;
 typed ones stay typed).
 
+**Guided through the areas** (owner, 2026-10-12): the areas just added
+(a new room's, or several added at once) are walked one at a time —
+showers first, then tub surrounds (their footprints come out of the floor;
+`NewEstimateView.showersFirst`), then the rest as ticked.
+`AreaFlowView.guide` holds them (`NewEstimateView.guides`, per room, kept
+till the last is finished): the bottom button says "Next: Floor" (the next
+area's name) instead of Done, on the model screen and on the last step
+page alike (`finishOrNext`), opening the next on Measure (on a model) or
+Tile (typed). After a scan or sketch, a guided shower not yet placed opens
+waiting for a tap on where it goes (`Embedding.startPlacingShower`, the
+same Put the shower here).
+
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width
 and depth, and the corner cut out at the bottom right: its width and

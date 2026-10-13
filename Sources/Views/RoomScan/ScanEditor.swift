@@ -68,6 +68,11 @@ struct ScanEditor: View {
         var onPickTile: (UUID?, Surface) -> Void
         /// The 3-D camera, kept as the areas switch.
         var camera3D: Room3DCameraMemory
+        /// The bottom button: "Done", or "Next: Floor" while being guided
+        /// through a new room's areas (owner, 2026-10-12).
+        var doneTitle: String = "Done"
+        /// Opens waiting for a tap on where the shower goes.
+        var startPlacingShower: Bool = false
     }
 
     /// A surface tapped on the Tile tab.
@@ -223,7 +228,8 @@ struct ScanEditor: View {
         _history = State(initialValue: EditHistory(EditSnapshot(room: room, takeoff: takeoff)))
         _selectedWall = State(initialValue: takeoff.pieces.first?.wallID)
         _selectedPiece = State(initialValue: takeoff.pieces.first?.id)
-        _show3D = State(initialValue: embedding?.show3D.wrappedValue ?? false)
+        _show3D = State(initialValue: embedding?.startPlacingShower == true ? false : (embedding?.show3D.wrappedValue ?? false))
+        _placingShower = State(initialValue: embedding?.startPlacingShower ?? false)
     }
 
     private var usesWalls: Bool { area != .floor }
@@ -358,7 +364,7 @@ struct ScanEditor: View {
                            drainShown: showerDrawn ? takeoff.drainShown() : nil,
                            items: takeoff.items,
                            showDimensions: showDimensions,
-                           hint: addingWall ? nil : pickingTile ? "Tap a wall or floor to choose its tile"
+                           hint: addingWall || placingShower ? nil : pickingTile ? "Tap a wall or floor to choose its tile"
                                 : (editingWalls && mode == .measure ? "Tap a wall to change it · pinch to zoom"
                                 : !usesWalls ? "Pinch to zoom"
                                 : mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"),
@@ -1969,7 +1975,7 @@ struct ScanEditor: View {
                         .contentTransition(.numericText())
                 }
                 Spacer()
-                Button { onUse(takeoff, room); e.onDone() } label: { Text("Done").frame(minWidth: 90) }
+                Button { onUse(takeoff, room); e.onDone() } label: { Text(e.doneTitle).lineLimit(1).fixedSize().padding(.horizontal, 6).frame(minWidth: 90) }
                     .buttonStyle(NDPrimaryButtonStyle())
                     .fixedSize()
             }

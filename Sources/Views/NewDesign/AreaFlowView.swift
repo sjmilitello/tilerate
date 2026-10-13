@@ -8,6 +8,10 @@ struct AreaFlowView: View {
     let roomID: UUID
     let sectionID: UUID
     let startStep: Int
+    /// A new room's areas, to be guided through one at a time (owner,
+    /// 2026-10-12): "Next: Floor" instead of Done until the last.
+    var guide: [UUID] = []
+    var onGuideEnd: () -> Void = {}
     let onFinish: () -> Void
 
     @State private var step = 0
@@ -196,12 +200,15 @@ struct AreaFlowView: View {
             priceTab: AnyView(reviewStep),
             price: areaPrice,
             menu: AnyView(workspaceMenu(scan)),
-            onDone: onFinish,
+            onDone: { finishOrNext() },
             areaBar: AnyView(areaBar),
             onSwitchArea: { switchTo($0) },
             show3D: $workspace3D,
             onPickTile: { pickTile($0, $1) },
-            camera3D: camera3D))
+            camera3D: camera3D,
+            doneTitle: nextArea.map { "Next: \(Self.areaName($0, in: roomSections))" } ?? "Done",
+            startPlacingShower: guide.contains(currentID) && section.area == .shower
+                && section.scanTakeoff?.floorRect == nil))
             .id(workspaceVersion)
     }
 
@@ -311,6 +318,33 @@ struct AreaFlowView: View {
 
     private var mainTileBinding: Binding<TileChoice> {
         Binding(get: { section.fullMainTile ?? .usual }, set: { sec.wrappedValue.setMainTile($0) })
+    }
+
+    private var roomSections: [EstimateSection] { roomIndex.map { store.doc.rooms[$0].sections } ?? [] }
+
+    /// The next area to be guided to, after this one.
+    private var nextArea: EstimateSection? {
+        guard let i = guide.firstIndex(of: currentID) else { return nil }
+        let rest = guide[(i + 1)...]
+        return rest.lazy.compactMap { id in roomSections.first { $0.id == id } }.first
+    }
+
+    /// The bottom button: on to the next area while guided, else done.
+    private func finishOrNext() {
+        guard let next = nextArea else {
+            if guide.contains(currentID) { onGuideEnd() }
+            onFinish()
+            return
+        }
+        let onModel = activeScan != nil && !next.measuredByHand
+        activeID = next.id
+        editing = nil
+        editingLine = nil
+        autoOpened = true
+        visitedExtras = false
+        step = onModel ? 2 : 1
+        workspaceTab = onModel ? .measure : .tile
+        workspaceVersion += 1
     }
 
     /// An area's name in its room: "Shower", or "Shower 2" for the second.
@@ -1433,10 +1467,11 @@ struct AreaFlowView: View {
                     .contentTransition(.numericText())
             }
             Button {
-                if step < 4 { go(step + 1) } else { onFinish() }
+                if step < 4 { go(step + 1) } else { finishOrNext() }
             } label: {
                 HStack(spacing: 6) {
-                    Text(step < 4 ? "Next: \(NDProgress.steps[step + 1].lowercased())" : "Done")
+                    Text(step < 4 ? "Next: \(NDProgress.steps[step + 1].lowercased())"
+                         : nextArea.map { "Next: \(Self.areaName($0, in: roomSections))" } ?? "Done")
                     if step < 4 { Image(systemName: "chevron.right") }
                 }
             }
