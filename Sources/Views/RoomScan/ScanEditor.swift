@@ -340,6 +340,7 @@ struct ScanEditor: View {
     var body: some View {
         OwnNavigation(own: embedding == nil) {
             VStack(spacing: 0) {
+                if placingShower { placingShowerBanner }
                 ZStack(alignment: .bottomTrailing) {
                 if show3D {
                     Room3DView(content: content3D, showFixtures: $showFixtures, onTap: { tap3D($0) },
@@ -362,78 +363,7 @@ struct ScanEditor: View {
                             }
                         }
                 } else {
-                PlanCanvas(room: room, mine: takeoff.pieces, others: othersHere, selectedWall: selectedWall,
-                           floorRect: floorRectBinding,
-                           floorRectName: selectedSkip != nil ? "No tile" : "Shower floor",
-                           tiledFloor: tiledFloor,
-                           floorHoles: floorHoles,
-                           skipBoxes: tiledFloor != nil ? takeoff.skipBoxes : [],
-                           selectedSkip: selectedSkip,
-                           onSelectSkip: { selectedSkip = $0 },
-                           outline: tiledFloor != nil ? $takeoff.floorOutline : nil,
-                           editingOutline: editingOutline,
-                           onTapPoint: placingShower ? { p in
-                               placingShower = false
-                               if !takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
-                                   placeNote = "There's no cove or corner there. Tap inside the cove, or near the corner where the shower goes."
-                               }
-                           } : nil,
-                           onResetFloor: placeShowerFloor,
-                           onFloorChanged: area == .shower ? { takeoff.tileWallsAroundFloor(in: room) } : nil,
-                           onFloorMoved: { takeoff.coveDepthFt = nil },
-                           curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
-                           curbDrawn: area == .shower ? takeoff.curbRuns(in: room, widthFt: stone.curbWidthFt).map { ($0.a, $0.b) } : [],
-                           curbWidthFt: takeoff.curbless ? 0 : stone.curbWidthFt,
-                           drain: showerDrawn ? $takeoff.drain : nil,
-                           drainShown: showerDrawn ? takeoff.drainShown() : nil,
-                           items: takeoff.items,
-                           showDimensions: showDimensions,
-                           hint: addingWall || placingShower ? nil : pickingTile ? "Tap a wall or floor to choose its tile"
-                                : (editingWalls && mode == .measure ? "Tap a wall to change it · pinch to zoom"
-                                : !usesWalls ? "Pinch to zoom"
-                                : mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"),
-                           addingWall: addingWall,
-                           onAddWall: { a, b in addDrawnWall(from: a, to: b) },
-                           onMovePlannedEnd: { id, start, p in
-                               room.movePlannedEnd(id, start: start, to: p)
-                               clampPieces(on: id)
-                           },
-                           onMovePlannedWall: { original, d, reach in
-                               let guides = takeoff.newWallLines(in: room, thicknessIn: original.thicknessIn).flatMap { [$0.0, $0.1] }
-                               // Where it would be without catching, to tell whether it caught.
-                               var free = room
-                               free.movePlannedWall(original, by: d, guides: guides, reach: 0)
-                               room.movePlannedWall(original, by: d, guides: guides, reach: reach)
-                               return free.wall(original.id) != room.wall(original.id)
-                           },
-                           editAnyWall: editingWalls && mode == .measure,
-                           onMoveWall: { id, d in editRoom { $0.moveWall(id, by: d) } },
-                           onMoveWallEnd: { id, start, p in editRoom { $0.moveWallEnd(id, start: start, to: p) } },
-                           onWallDragEnded: { dragBase = nil },
-                           openSides: openSides.map { ($0.a, $0.b) },
-                           onTapOpenSide: { i in
-                               // Adding a wall: it goes on the curb, filling the opening.
-                               addingWall = false
-                               closeSide(openSides[i], full: addingFullWall)
-                           },
-                           onTapOtherArea: embedding.map { e in { id in e.onSwitchArea(id) } },
-                           onPickTile: pickingTile ? { pick in
-                               guard let e = embedding else { return }
-                               switch pick {
-                               case .other(let id): e.onPickTile(id, .floor)
-                               case .ownFloor: e.onPickTile(nil, .floor)
-                               case .wall(let id):
-                                   let o = tileOwner(ofWall: id)
-                                   if o.found { e.onPickTile(o.owner, .wall(id)) } else { tapWall(id) }
-                               }
-                           } : nil,
-                           snapNewWall: { a, b in
-                               area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
-                           }) { wallID in
-                    tapWall(wallID)
-                }
-                // Taller with dimensions on: at 250 pt many numbers outgrow their walls.
-                .frame(height: showDimensions ? 340 : 250)
+                planView
                 }
                 HStack(spacing: 8) {
                     if !show3D {
@@ -453,58 +383,7 @@ struct ScanEditor: View {
                 .padding(8)
                 }
                 .background(Color(white: 0.09))
-                .overlay(alignment: .top) {
-                    if placingShower {
-                        HStack(spacing: 10) {
-                            Image(systemName: "hand.tap")
-                            Text("Tap the corner where the shower goes.").font(.caption)
-                            Button("Cancel") { placingShower = false }.font(.caption.weight(.semibold))
-                        }
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .padding(8)
-                    } else if let p = placing3D {
-                        HStack(spacing: 10) {
-                            Image(systemName: "hand.tap")
-                            Text("Tap the wall where the \(p.title.lowercased()) goes.").font(.caption)
-                            Button("Cancel") { placing3D = nil }.font(.caption.weight(.semibold))
-                        }
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .padding(8)
-                    } else if placingBench {
-                        HStack(spacing: 10) {
-                            Image(systemName: "hand.tap")
-                            Text("Tap the wall the bench goes against.").font(.caption)
-                            Button("Cancel") { placingBench = false }.font(.caption.weight(.semibold))
-                        }
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .padding(8)
-                    } else if let note = placeNote {
-                        HStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle")
-                            Text(note).font(.caption).fixedSize(horizontal: false, vertical: true)
-                            Button("OK") { placeNote = nil }.font(.caption.weight(.semibold))
-                        }
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .padding(8)
-                    }
-                    if addingWall {
-                        HStack(spacing: 10) {
-                            Image(systemName: "hand.draw")
-                            Text((openSides.isEmpty ? "" : "Tap the curb to put the \(addingFullWall ? "full" : "half") wall on the shower opening, or ")
-                                 + (openSides.isEmpty ? "Drag" : "drag") + " on the plan from where it starts to where it ends.")
-                                .font(.caption).fixedSize(horizontal: false, vertical: true)
-                            Button("Cancel") { addingWall = false }
-                                .font(.caption.weight(.semibold))
-                        }
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .padding(8)
-                    }
-                }
+                .overlay(alignment: .top) { planBanners }
 
                 // The room's areas, always in view: switch or add without leaving.
                 if let e = embedding {
@@ -1158,6 +1037,167 @@ struct ScanEditor: View {
 
     /// Puts the shower floor in the corner of the shower's walls, or in
     /// the middle of the room when no walls are chosen yet.
+    /// The 2-D plan, with everything it can do on this screen.
+    private var planView: some View {
+    PlanCanvas(room: room, mine: takeoff.pieces, others: othersHere, selectedWall: selectedWall,
+               floorRect: floorRectBinding,
+               floorRectName: selectedSkip != nil ? "No tile" : "Shower floor",
+               tiledFloor: tiledFloor,
+               floorHoles: floorHoles,
+               skipBoxes: tiledFloor != nil ? takeoff.skipBoxes : [],
+               selectedSkip: selectedSkip,
+               onSelectSkip: { selectedSkip = $0 },
+               outline: tiledFloor != nil ? $takeoff.floorOutline : nil,
+               editingOutline: editingOutline,
+               onTapPoint: placingShower ? { p in
+                   placingShower = false
+                   if !takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
+                       placeNote = "There's no cove or corner there. Tap inside the cove, or near the corner where the shower goes."
+                   }
+               } : nil,
+               onResetFloor: placeShowerFloor,
+               onFloorChanged: area == .shower ? { takeoff.tileWallsAroundFloor(in: room) } : nil,
+               onFloorMoved: { takeoff.coveDepthFt = nil },
+               curbEdges: area == .shower ? takeoff.curbEdges(in: room) : [],
+               curbDrawn: curbDrawn,
+               curbWidthFt: takeoff.curbless ? 0 : stone.curbWidthFt,
+               drain: showerDrawn ? $takeoff.drain : nil,
+               drainShown: showerDrawn ? takeoff.drainShown() : nil,
+               items: takeoff.items,
+               showDimensions: showDimensions,
+               hint: planHint,
+               addingWall: addingWall,
+               onAddWall: { a, b in addDrawnWall(from: a, to: b) },
+               onMovePlannedEnd: { id, start, p in
+                   room.movePlannedEnd(id, start: start, to: p)
+                   clampPieces(on: id)
+               },
+               onMovePlannedWall: { original, d, reach in
+                   let guides = takeoff.newWallLines(in: room, thicknessIn: original.thicknessIn).flatMap { [$0.0, $0.1] }
+                   // Where it would be without catching, to tell whether it caught.
+                   var free = room
+                   free.movePlannedWall(original, by: d, guides: guides, reach: 0)
+                   room.movePlannedWall(original, by: d, guides: guides, reach: reach)
+                   return free.wall(original.id) != room.wall(original.id)
+               },
+               editAnyWall: editingWalls && mode == .measure,
+               onMoveWall: { id, d in editRoom { $0.moveWall(id, by: d) } },
+               onMoveWallEnd: { id, start, p in editRoom { $0.moveWallEnd(id, start: start, to: p) } },
+               onWallDragEnded: { dragBase = nil },
+               openSides: openSides.map { ($0.a, $0.b) },
+               onTapOpenSide: { i in
+                   // Adding a wall: it goes on the curb, filling the opening.
+                   addingWall = false
+                   closeSide(openSides[i], full: addingFullWall)
+               },
+               onTapOtherArea: embedding.map { e in { id in e.onSwitchArea(id) } },
+               onPickTile: pickingTile ? { pick in
+                   guard let e = embedding else { return }
+                   switch pick {
+                   case .other(let id): e.onPickTile(id, .floor)
+                   case .ownFloor: e.onPickTile(nil, .floor)
+                   case .wall(let id):
+                       let o = tileOwner(ofWall: id)
+                       if o.found { e.onPickTile(o.owner, .wall(id)) } else { tapWall(id) }
+                   }
+               } : nil,
+               snapNewWall: { a, b in
+                   area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
+               }) { wallID in
+        tapWall(wallID)
+    }
+    // Taller with dimensions on: at 250 pt many numbers outgrow their walls.
+    .frame(height: showDimensions ? 340 : 250)
+    }
+
+    private var planHint: String? {
+        if addingWall || placingShower { return nil }
+        if pickingTile { return "Tap a wall or floor to choose its tile" }
+        if editingWalls && mode == .measure { return "Tap a wall to change it · pinch to zoom" }
+        if !usesWalls { return "Pinch to zoom" }
+        return mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"
+    }
+
+    private var curbDrawn: [(ScannedRoom.Point, ScannedRoom.Point)] {
+        area == .shower ? takeoff.curbRuns(in: room, widthFt: stone.curbWidthFt).map { ($0.a, $0.b) } : []
+    }
+
+    /// What the plan is waiting for, over its top.
+    @ViewBuilder
+    private var planBanners: some View {
+        if placingShower {
+            EmptyView()   // above the plan instead, so none of the room is covered
+        } else if let p = placing3D {
+            HStack(spacing: 10) {
+                Image(systemName: "hand.tap")
+                Text("Tap the wall where the \(p.title.lowercased()) goes.").font(.caption)
+                Button("Cancel") { placing3D = nil }.font(.caption.weight(.semibold))
+            }
+            .padding(10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(8)
+        } else if placingBench {
+            HStack(spacing: 10) {
+                Image(systemName: "hand.tap")
+                Text("Tap the wall the bench goes against.").font(.caption)
+                Button("Cancel") { placingBench = false }.font(.caption.weight(.semibold))
+            }
+            .padding(10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(8)
+        } else if let note = placeNote {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                Text(note).font(.caption).fixedSize(horizontal: false, vertical: true)
+                Button("OK") { placeNote = nil }.font(.caption.weight(.semibold))
+            }
+            .padding(10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(8)
+        }
+        if addingWall {
+            HStack(spacing: 10) {
+                Image(systemName: "hand.draw")
+                Text(addingWallHint)
+                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+                Button("Cancel") { addingWall = false }
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(8)
+        }
+    }
+
+    /// Hard to miss (owner, 2026-10-12): large type on a green banner.
+    private var placingShowerBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "hand.tap.fill").font(.system(size: 30))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Tap where the shower goes").font(.system(size: 23, weight: .bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("A corner, or inside a nook of three walls.")
+                    .font(.system(size: 16, weight: .medium)).opacity(0.95)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button("Cancel") { placingShower = false }
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color.white.opacity(0.2), in: Capsule())
+        }
+        .foregroundStyle(.white)
+        .padding(14)
+        .background(Color(red: 0.11, green: 0.56, blue: 0.29), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
+        .padding(8)
+    }
+
+    private var addingWallHint: String {
+        let lead = openSides.isEmpty ? "" : "Tap the curb to put the \(addingFullWall ? "full" : "half") wall on the shower opening, or "
+        return lead + (openSides.isEmpty ? "Drag" : "drag") + " on the plan from where it starts to where it ends."
+    }
+
     private func placeShowerFloor() {
         takeoff.coveDepthFt = nil
         if let r = takeoff.suggestedFloorRect(in: room) {

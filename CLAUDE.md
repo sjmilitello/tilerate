@@ -557,7 +557,11 @@ Extras, Price (`ScanEditor.Tab`, `next`) — and its bottom button steps
 through them ("Next: Tile", "Next: Extras", "Next: Price"), then names the
 next guided area or says Done (`goTab`). A shower's Measure tab starts with
 a full-width **Put the shower here** / **Move the shower: tap where it
-goes** above everything else.
+goes** above everything else. While it waits for the tap the plan shows
+"Tap where the shower goes" in large type on a green banner above the plan,
+so none of the room is covered
+(`placingShowerBanner`; owner's call: big type in a colour you notice,
+not rings on the plan).
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width
