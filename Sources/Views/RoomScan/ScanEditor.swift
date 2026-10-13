@@ -1807,7 +1807,7 @@ struct ScanEditor: View {
             case .floor:
                 Text("Floor").font(.ndTitle(20))
                 Picker("Floor", selection: $takeoff.floor) {
-                    Text("Scanned floor").tag(AreaTakeoff.FloorSource.room)
+                    Text(room.sketched ? "Room floor" : "Scanned floor").tag(AreaTakeoff.FloorSource.room)
                     Text("Width × depth").tag(AreaTakeoff.FloorSource.size)
                 }
                 .pickerStyle(.segmented)

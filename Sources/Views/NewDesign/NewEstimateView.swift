@@ -24,6 +24,11 @@ struct NewEstimateView: View {
     @State private var scanningRoom: RoomRef? = nil
     @State private var calibratingRoom: RoomRef? = nil
     @State private var pendingFirstArea: UUID? = nil
+    /// Adding a room: its name, areas and how it's measured (owner, 2026-10-12).
+    @State private var addingRoom = false
+    @State private var sketchingRoom: RoomRef? = nil
+    /// A new room's areas, placed on its model once it's scanned or sketched.
+    @State private var pendingAreas: (room: UUID, ids: [UUID])? = nil
 
     /// A room to act on; `newRoom` when it was just added (its first area
     /// starts once it's scanned).
@@ -106,6 +111,19 @@ struct NewEstimateView: View {
         } message: { _ in
             Text("Scan it and choose what's tiled on the model, or type the measurements as before.")
         }
+        .sheet(isPresented: $addingRoom) {
+            NDNewRoomSheet(defaultName: "Room \(store.doc.rooms.count + 1)") { name, areas, method in
+                createRoom(name, areas, method)
+            }
+        }
+        .sheet(item: $sketchingRoom) { ref in
+            NDSketchRoomSheet(roomName: roomName(ref.id)) { sketch in
+                guard let r = store.doc.rooms.firstIndex(where: { $0.id == ref.id }) else { return }
+                store.doc.rooms[r].scan = sketch
+                pendingFirstArea = ref.id
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { startFirstArea() }
+            }
+        }
         .fullScreenCover(item: $scanningRoom) { ref in
             RoomScanCover { room in finishRoomScan(room, ref) }
         }
@@ -155,7 +173,7 @@ struct NewEstimateView: View {
                         ForEach(store.doc.rooms) { room in
                             roomBlock(room, totals: t)
                         }
-                        Button { roomPrompt = RoomPrompt(roomID: nil, name: "Room \(store.doc.rooms.count + 1)") } label: {
+                        Button { addingRoom = true } label: {
                             Label("Add room", systemImage: "plus")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(ND.secondary)
@@ -259,7 +277,7 @@ struct NewEstimateView: View {
                 Text("Add a room, then the areas you're tiling in it: a shower, a floor, a backsplash.")
                     .font(.system(size: 15))
                     .foregroundStyle(ND.secondary)
-                Button("Add room") { roomPrompt = RoomPrompt(roomID: nil, name: "Room 1") }
+                Button("Add room") { addingRoom = true }
                     .buttonStyle(NDPrimaryButtonStyle())
             }
             .padding(18)
@@ -274,15 +292,15 @@ struct NewEstimateView: View {
                     Button { roomPrompt = RoomPrompt(roomID: room.id, name: room.name) } label: { Label("Rename", systemImage: "pencil") }
                     if RoomScanner.isAvailable {
                         Button { scanningRoom = RoomRef(id: room.id) } label: {
-                            Label(room.scan == nil ? "Scan this room" : "Scan the room again", systemImage: "viewfinder")
+                            Label(room.scan == nil || room.scan?.sketched == true ? "Scan this room" : "Scan the room again", systemImage: "viewfinder")
                         }
                     }
                     Button(role: .destructive) { roomToDelete = room } label: { Label("Delete room", systemImage: "trash") }
                 } label: {
                     HStack(spacing: 6) {
                         Text(room.name).font(.ndTitle(19))
-                        if room.scan != nil {
-                            Image(systemName: "viewfinder").font(.system(size: 13, weight: .semibold)).foregroundStyle(ND.link)
+                        if let scan = room.scan {
+                            Image(systemName: scan.sketched ? "pencil.and.ruler" : "viewfinder").font(.system(size: 13, weight: .semibold)).foregroundStyle(ND.link)
                         }
                         Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(ND.muted)
                     }
@@ -330,7 +348,7 @@ struct NewEstimateView: View {
                     .background(ND.selectedBg)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(sec.area?.rawValue ?? "New area").font(.system(size: 16, weight: .semibold))
+                    Text(AreaFlowView.areaName(sec, in: room.sections)).font(.system(size: 16, weight: .semibold))
                     if let w = warnings.first {
                         Label(w, systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: 13))
@@ -403,6 +421,38 @@ struct NewEstimateView: View {
         roomPrompt = nil
     }
 
+    /// A new room with its areas, each on the usual tile; then scanned,
+    /// sketched, or its first area opened to type square feet.
+    private func createRoom(_ name: String, _ areas: [Area], _ method: NDNewRoomSheet.Method) {
+        var room = EstimateRoom(name: name)
+        room.sections = areas.map { a in
+            var s = EstimateSection()
+            s.area = a
+            s.startWithUsualTile()
+            return s
+        }
+        store.doc.rooms.append(room)
+        let ref = RoomRef(id: room.id, newRoom: true)
+        let ids = room.sections.map(\.id)
+        switch method {
+        case .type:
+            if let first = ids.first {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { path.append(.area(room: room.id, section: first, step: 1)) }
+            }
+        case .scan:
+            pendingAreas = (room.id, ids)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if RoomScanner.isAvailable { scanningRoom = ref }
+                #if DEBUG
+                if !RoomScanner.isAvailable { finishRoomScan(ScannedRoom.sample.turned(by: 27), ref) }
+                #endif
+            }
+        case .sketch:
+            pendingAreas = (room.id, ids)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sketchingRoom = ref }
+        }
+    }
+
     private func roomName(_ id: UUID?) -> String {
         store.doc.rooms.first { $0.id == id }?.name ?? "the room"
     }
@@ -420,6 +470,14 @@ struct NewEstimateView: View {
     private func startFirstArea() {
         guard let id = pendingFirstArea, let r = store.doc.rooms.firstIndex(where: { $0.id == id }) else { return }
         pendingFirstArea = nil
+        // Areas ticked when the room was added: placed on the model, the
+        // first opened on its Measure tab.
+        if let p = pendingAreas, p.room == id {
+            pendingAreas = nil
+            store.doc.rooms[r].placeAreas(p.ids, prices: StonePrices(rates: store.pricingRates))
+            if let first = p.ids.first { path.append(.area(room: id, section: first, step: 2)) }
+            return
+        }
         let sec = EstimateSection()
         store.doc.rooms[r].sections.append(sec)
         path.append(.area(room: id, section: sec.id, step: 0))

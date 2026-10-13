@@ -518,6 +518,32 @@ wall showed the area's main tile. The 3-D view and camera are kept as
 areas switch (`Room3DCameraMemory`, saved each frame by the scene view's
 renderer delegate since the next area's view opens before the last closes).
 
+## Adding a room: its areas first, then scan or sketch (owner, 2026-10-12)
+
+**Add room** opens `NDNewRoomSheet`: the name, every kind of area ticked
+with a count (two showers: "Shower", "Shower 2", numbered for display only,
+`AreaFlowView.areaName`), then how to measure — **Scan the room**,
+**Sketch it: type its sides**, or **Just type square feet** (the step pages,
+as before; ⋯ → Enter by hand instead stays on every area). The areas are
+made at once on the usual tile (`NewEstimateView.createRoom`). After a scan
+(and Tape a wall?) or a sketch they're placed on the model where it
+suggests (`EstimateRoom.placeAreas`, from `ScannedRoom.suggestions`: the
+floor, a shower filling a cove, a tub surround round a found tub, a
+backsplash behind a cabinet; each suggestion used once); anything that
+can't be placed starts empty. The first area opens on its Measure tab, the
+rest one chip away. Renaming a room is still the alert.
+
+**Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
+typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width
+and depth, and the corner cut out at the bottom right: its width and
+depth), and the ceiling, typed as a tape is read, drawn to scale as typed.
+It makes a `ScannedRoom` with `sketched = true` (walls at the ceiling with
+the room on their right, lettered by `reletter`, floor outline and area), so
+every model tool works on it. A sketched room has no calibration, says
+"Room floor" not "Scanned floor", shows a pencil-and-ruler icon on the
+overview, and offers "Scan the room"/"Scan this room" to replace it.
+`RoomSketchTests`.
+
 ## Two ways to measure a room (owner's design, 2026-10-08)
 
 Adding a room asks **Scan the room** or **Enter measurements by hand**

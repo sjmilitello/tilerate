@@ -965,6 +965,9 @@ struct ScannedRoom: Codable, Hashable, Equatable {
     /// (`EstimateRoom.init(from:)`, `upgradeLettering`).
     var lettering: Int = ScannedRoom.letteringVersion
     static let letteringVersion = 2
+    /// Drawn from typed sides (`RoomSketch`), not scanned: a room measured
+    /// by hand, with the same model (owner, 2026-10-12).
+    var sketched: Bool = false
 
     /// Something the scanner found in the room: its footprint and height.
     struct Fixture: Codable, Hashable, Equatable {
@@ -1775,6 +1778,7 @@ extension ScannedRoom {
         c.read(.calibrations, into: &calibrations)
         lettering = 0
         c.read(.lettering, into: &lettering)
+        c.read(.sketched, into: &sketched)
     }
 }
 

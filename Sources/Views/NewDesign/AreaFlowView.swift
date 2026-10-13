@@ -204,11 +204,13 @@ struct AreaFlowView: View {
     @ViewBuilder
     private func workspaceMenu(_ scan: ScannedRoom) -> some View {
         Button { step = 0 } label: { Label("Change the kind of area", systemImage: "square.grid.2x2") }
-        Button { calibrating = true } label: {
-            Label(scan.calibrations.isEmpty ? "Calibrate with a tape measure" : "Check the calibration", systemImage: "ruler")
+        if !scan.sketched {
+            Button { calibrating = true } label: {
+                Label(scan.calibrations.isEmpty ? "Calibrate with a tape measure" : "Check the calibration", systemImage: "ruler")
+            }
         }
         if RoomScanner.isAvailable {
-            Button { scanning = .room } label: { Label("Scan the room again", systemImage: "viewfinder") }
+            Button { scanning = .room } label: { Label(scan.sketched ? "Scan the room" : "Scan the room again", systemImage: "viewfinder") }
             Button { scanning = .area } label: { Label("Scan just this area", systemImage: "square.dashed") }
         }
         Button { sec.wrappedValue.measuredByHand = true } label: { Label("Enter by hand instead", systemImage: "keyboard") }
@@ -225,7 +227,7 @@ struct AreaFlowView: View {
                         let on = a.id == currentID
                         Button { switchTo(a.id) } label: {
                             VStack(spacing: 0) {
-                                Text(a.area?.rawValue ?? "New area").font(.system(size: 13, weight: .semibold))
+                                Text(Self.areaName(a, in: areas)).font(.system(size: 13, weight: .semibold))
                                 if let room, a.area != nil {
                                     Text(ND.money(sectionPrice(room: EstimateRoom(name: room.name), section: a, rates: store.pricingRates).subtotal))
                                         .font(.system(size: 11).monospacedDigit()).opacity(0.75)
@@ -305,6 +307,14 @@ struct AreaFlowView: View {
 
     private var mainTileBinding: Binding<TileChoice> {
         Binding(get: { section.fullMainTile ?? .usual }, set: { sec.wrappedValue.setMainTile($0) })
+    }
+
+    /// An area's name in its room: "Shower", or "Shower 2" for the second.
+    static func areaName(_ a: EstimateSection, in areas: [EstimateSection]) -> String {
+        guard let kind = a.area else { return "New area" }
+        let same = areas.filter { $0.area == kind }
+        guard same.count > 1, let n = same.firstIndex(where: { $0.id == a.id }) else { return kind.rawValue }
+        return n == 0 ? kind.rawValue : "\(kind.rawValue) \(n + 1)"
     }
 
     /// Work on another of the room's areas without leaving the screen; the
@@ -741,7 +751,7 @@ struct AreaFlowView: View {
                     if let t = section.scanTakeoff {
                         Text(scanSummary(t, scan)).font(.system(size: 14)).foregroundStyle(ND.secondary)
                     }
-                    Button { calibrating = true } label: {
+                    if !scan.sketched { Button { calibrating = true } label: {
                         Label(scan.calibrations.isEmpty ? "Calibrate with a tape measure" : "Calibrated · check or calibrate again",
                               systemImage: scan.calibrations.isEmpty ? "ruler" : "checkmark.seal")
                             .font(.system(size: 14, weight: .medium))
@@ -749,7 +759,7 @@ struct AreaFlowView: View {
                     .sheet(isPresented: $calibrating) {
                         CalibrateScanSheet(room: scan, onApply: { applyCalibration($0) },
                                            onUndo: scan.calibrations.isEmpty ? nil : { undoCalibration() })
-                    }
+                    } }
                     Button { editorMode = .measure } label: {
                         Label(measuredSqft > 0 ? "Edit on the model" : "Choose on the model", systemImage: "cube")
                             .frame(maxWidth: .infinity)
