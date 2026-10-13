@@ -565,7 +565,15 @@ not rings on the plan). The same banner (`bigBanner`, `placingBanner`)
 asks for the curb or a drawn wall while adding a wall, and for the wall a
 framed bench goes against. Once the shower's placed, **Next: the walls**
 (`wallsNextCard`, green, at the top of Measure) offers Add a Wall (full,
-half, framed bench), Edit walls, or "Walls are right, next: Tile".
+half, framed bench), Edit walls, or "Walls are right, next: Tile", and
+Move shower (a step back). Every choice leads on (owner, 2026-10-13: "naturally
+push users to where they need to go"): adding a wall or bench shows its
+green prompt, then the card again as **Wall added** (`wallAdded`), kept in
+view above the wall's panel (scrolls to "guide", not "wall"); Edit walls
+shows "Tap a wall to change it" with **Done**, back to the card. **Undo**
+also steps back out of a guide step with nothing changed yet (adding a
+wall or bench, placing, editing walls: `guideStepToUndo`), and undoing the
+shower's placement asks where it goes again.
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width

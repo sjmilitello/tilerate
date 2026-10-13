@@ -149,6 +149,9 @@ struct ScanEditor: View {
     @State private var placingShower = false
     /// The shower just placed: walls come next (owner, 2026-10-12).
     @State private var wallsNext = false
+    /// While guided through the walls: a wall or bench was just added, so
+    /// the card says so and offers the next thing.
+    @State private var wallAdded = false
     /// The niche whose own tile is being chosen.
     @State private var nicheTileFor: UUID? = nil
     /// Tapping a wall chooses it to change its shape (any wall, scanned or
@@ -428,8 +431,9 @@ struct ScanEditor: View {
                                 .font(.footnote).foregroundStyle(.secondary)
                             }
                             if mode == .measure, area == .shower, wallsNext, !placingShower, !addingWall, !editingWalls, !placingBench {
-                                wallsNextCard
-                            } else if mode == .measure, area == .shower, !editingWalls, takeoff.floor == .drawn, !placingShower {
+                                wallsNextCard.id("guide")
+                            } else if mode == .measure, area == .shower, !editingWalls, takeoff.floor == .drawn, !placingShower,
+                                      !addingWall, !placingBench {
                                 // Where the shower goes, first (owner, 2026-10-12).
                                 Button {
                                     show3D = false
@@ -472,7 +476,8 @@ struct ScanEditor: View {
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .onChange(of: selectedWall) { _, _ in
-                        withAnimation { scroller.scrollTo("wall", anchor: .top) }
+                        // Guided through the walls: keep the card in view, the wall under it.
+                        withAnimation { scroller.scrollTo(wallsNext ? "guide" : "wall", anchor: .top) }
                     }
                 }
 
@@ -491,7 +496,7 @@ struct ScanEditor: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                        .disabled(!history.canUndo && snapshot == history.current)
+                        .disabled(!history.canUndo && snapshot == history.current && !guideStepToUndo)
                         .accessibilityLabel("Undo")
                     Button { redo() } label: { Image(systemName: "arrow.uturn.forward") }
                         .disabled(!history.canRedo)
@@ -598,9 +603,24 @@ struct ScanEditor: View {
         selectedOpening = nil
     }
 
+    /// A guide step Undo can leave (adding a wall, placing, editing walls).
+    private var guideStepToUndo: Bool {
+        addingWall || placingBench || placing3D != nil || (placingShower && takeoff.floorRect != nil) || (wallsNext && editingWalls)
+    }
+
     private func undo() {
+        // A step of the guide with nothing changed yet: Undo goes back a step
+        // (owner, 2026-10-13: Undo didn't get them back to the choice).
+        if addingWall { addingWall = false; return }
+        if placingBench { placingBench = false; return }
+        if placing3D != nil { placing3D = nil; return }
+        if placingShower, takeoff.floorRect != nil { placingShower = false; return }
+        if wallsNext, editingWalls { editingWalls = false; selectedOpening = nil; return }
         guard let back = history.undo(from: snapshot) else { return }
         restore(back)
+        wallAdded = false
+        // Undid placing the shower: ask where it goes again.
+        if area == .shower, takeoff.floor == .drawn, takeoff.floorRect == nil { wallsNext = false; placingShower = true }
     }
 
     private func redo() {
@@ -632,6 +652,7 @@ struct ScanEditor: View {
         if placingBench {
             placingBench = false
             addBench(on: wall, floating: false)
+            if wallsNext { wallAdded = true }
             return
         }
         guard usesWalls else {
@@ -669,6 +690,7 @@ struct ScanEditor: View {
         }
         let w = placeWall(from: a, to: b, heightIn: height, door: addingFullWall && onOpening && area == .shower)
         if usesWalls { tapWall(w.id) } else { selectedWall = w.id }
+        if wallsNext { wallAdded = true }
     }
 
     /// After the shower's placed, the walls (owner, 2026-10-12): add one it
@@ -676,15 +698,16 @@ struct ScanEditor: View {
     private var wallsNextCard: some View {
         let green = Color(red: 0.11, green: 0.56, blue: 0.29)
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Next: the walls").font(.system(size: 23, weight: .bold))
-            Text("Add a wall the shower needs, or change the room's.")
+            Text(wallAdded ? "Wall added" : "Next: the walls").font(.system(size: 23, weight: .bold))
+            Text(wallAdded ? "Drag its ends or type its size below. Add another, or carry on."
+                           : "Add a wall the shower needs, or change the room's.")
                 .font(.system(size: 16, weight: .medium)).opacity(0.95)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Menu {
-                    Button { wallsNext = false; show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
-                    Button { wallsNext = false; show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
-                    Button { wallsNext = false; show3D = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
+                    Button { show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
+                    Button { show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
+                    Button { show3D = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
                 } label: {
                     Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
                         .font(.system(size: 16, weight: .semibold))
@@ -693,7 +716,8 @@ struct ScanEditor: View {
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 Button {
-                    wallsNext = false
+                    show3D = false
+                    wallAdded = false
                     editingWalls = true
                 } label: {
                     Label("Edit walls", systemImage: "pencil")
@@ -704,8 +728,10 @@ struct ScanEditor: View {
                 }
                 .buttonStyle(.plain)
             }
+            HStack {
             Button {
                 wallsNext = false
+                wallAdded = false
                 if embedding != nil { withAnimation { goTab(.tile) } }
             } label: {
                 HStack(spacing: 4) {
@@ -715,6 +741,14 @@ struct ScanEditor: View {
                 .font(.system(size: 16, weight: .semibold))
             }
             .buttonStyle(.plain)
+            Spacer()
+            // A step back: put the shower somewhere else.
+            Button { show3D = false; placingShower = true } label: {
+                Label("Move shower", systemImage: "arrow.uturn.backward").font(.system(size: 14, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .opacity(0.9)
+            }
         }
         .foregroundStyle(.white)
         .padding(14)
@@ -765,6 +799,7 @@ struct ScanEditor: View {
         let w = placeWall(from: a, to: b, heightIn: full ? ceiling : min(42, ceiling), door: false)
         face = 0
         tapWall(w.id)
+        if wallsNext { wallAdded = true }
     }
 
     // MARK: Benches, niches, windows and corner pieces
@@ -1110,6 +1145,7 @@ struct ScanEditor: View {
                    placingShower = false
                    if takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
                        wallsNext = true
+                       wallAdded = false
                    } else {
                        placeNote = "There's no cove or corner there. Tap inside the cove, or near the corner where the shower goes."
                    }
@@ -1212,7 +1248,7 @@ struct ScanEditor: View {
     /// Hard to miss (owner, 2026-10-12): large type on a green banner,
     /// above the plan so none of the room is covered.
     private func bigBanner(_ title: String, _ detail: String, icon: String = "hand.tap.fill",
-                           cancel: @escaping () -> Void) -> some View {
+                           button: String = "Cancel", cancel: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 30))
             VStack(alignment: .leading, spacing: 3) {
@@ -1223,7 +1259,7 @@ struct ScanEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
-            Button("Cancel", action: cancel)
+            Button(button, action: cancel)
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(Color.white.opacity(0.2), in: Capsule())
@@ -1245,6 +1281,13 @@ struct ScanEditor: View {
                       icon: "hand.draw.fill") { addingWall = false }
         } else if placingBench {
             bigBanner("Tap the wall the bench goes against", "It runs along that side of the shower floor.") { placingBench = false }
+        } else if wallsNext, editingWalls, mode == .measure {
+            // Guided: editing the room's walls, with the way on (owner, 2026-10-13).
+            bigBanner("Tap a wall to change it", "Drag it or its ends, or type its size below. Done when the walls are right.",
+                      icon: "hand.point.up.left.fill", button: "Done") {
+                editingWalls = false
+                selectedOpening = nil
+            }
         }
     }
 
