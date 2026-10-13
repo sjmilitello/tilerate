@@ -342,12 +342,20 @@ enum Room3DScene {
                 ring.map { .init(x: $0.x * cos(-turn) - $0.y * sin(-turn), y: $0.x * sin(-turn) + $0.y * cos(-turn)) }
             }
             let node = SCNNode()
-            node.addChildNode(flatShape(squared(s.outline), holes: s.holes.map(squared), color: .white, lift: -0.004))
-            node.eulerAngles.y = Float(-turn)
+            // The tile over the whole outline, and what's left out laid on top
+            // as bare floor: holes touching each other or the walls (a corner
+            // shower's floor and curb strips) made SceneKit drop whole
+            // triangles of tile (owner, 2026-10-13).
+            let tileNode = flatShape(squared(s.outline), color: .white, lift: -0.004)
             // Laid square to the room's walls, not the scanner's axes
             // (owner, 2026-10-12: the floor tile wasn't square to the room).
-            node.childNodes.first?.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(squared(s.outline)).w,
-                                                                         heightFt: bounds(squared(s.outline)).h, x0: 0, y0: 0)
+            tileNode.geometry?.firstMaterial = tileMaterial(a.floorTile, widthFt: bounds(squared(s.outline)).w,
+                                                            heightFt: bounds(squared(s.outline)).h, x0: 0, y0: 0)
+            node.addChildNode(tileNode)
+            for hole in s.holes where hole.count > 2 {
+                node.addChildNode(flatShape(squared(hole), color: UIColor(white: 0.32, alpha: 1), lift: -0.002))
+            }
+            node.eulerAngles.y = Float(-turn)
             // Another area's floor: a tap on it switches to that area.
             node.name = a.id.map { "area|\($0.uuidString)" } ?? "floor|mine"
             root.addChildNode(node)

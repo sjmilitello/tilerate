@@ -722,7 +722,10 @@ opens), "no tile" boxes (`skipBoxes`: Leave out an area, or the cabinets the
 scanner found, once, `addScannedSkips`; chosen with a tap, moved and resized
 like the shower floor), the tub when left out, and "Also leave out" square
 feet. The plan fills it in blue with those as holes; 3-D tiles it the same
-way (`Room3DContent.floorShape`, an even-odd `SCNShape`), square to the
+way (`Room3DContent.floorShape`: the tile over the whole outline, each
+hole laid on top as bare floor — holes cut into one `SCNShape` dropped
+whole triangles of tile when they touched each other or the walls, as a
+corner shower's floor and curb strips do; owner, 2026-10-13), square to the
 room's walls: the shape is built turned by `squaringAngle` and its node
 turned back, since a shape's tile follows its own axes (owner,
 2026-10-12: the floor tile wasn't square to the room). A curbless shower
