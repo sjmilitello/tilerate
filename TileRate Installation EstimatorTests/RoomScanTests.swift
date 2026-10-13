@@ -243,7 +243,8 @@ struct RoomScanTests {
         t.trim = [.init(key: trim[0].key, stone: true)]
         t.apply(r, to: &s, prices: prices)
         let cap = try #require(s.additionsLabor.first)
-        #expect(cap.activity == "Stone wall cap" && cap.qty == 4 && cap.rate == 25 && cap.unit == "lin ft")
+        // On the wall group's line (owner, 2026-10-13: one line per group).
+        #expect(cap.activity == "Stone wall trim" && cap.qty == 4 && cap.rate == 25 && cap.unit == "lin ft")
         s.additionsLabor[0].rate = 28                                    // changed on the estimate
         t.trim[0].lengthFt = 4.5
         t.apply(r, to: &s, prices: prices)
@@ -268,7 +269,8 @@ struct RoomScanTests {
         t.floorRect = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
                                             widthFt: 9, depthFt: 3)
         let trim = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
-        #expect(Set(trim.map(\.name)) == ["Curb", "Curb inside face", "Curb outside face", "Left jamb", "Right jamb"])
+        #expect(Set(trim.map(\.name)) == ["Curb", "Curb inside face", "Curb outside face", "Left jamb", "Right jamb",
+                                          "Ceiling header (over the curb)"])
         #expect(abs(trim.first { $0.name == "Curb" }!.lengthFt - 9) < 1e-9)
         #expect(trim.filter { $0.kind == .jamb }.allSatisfy { abs($0.lengthFt - (8 - 4.0 / 12)) < 1e-9 })
         // Facing in (up the screen) from y = 3, x = 0 is on the left.
@@ -295,7 +297,7 @@ struct RoomScanTests {
         #expect(abs(byName["Left lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)   // curb to cap
         #expect(abs(byName["Left upper jamb"]! - 4.5) < 1e-9)                // cap to the top of the tile
         #expect(abs(byName["Wall cap (half wall E)"]! - 3) < 1e-9)
-        #expect(trim.count == 7)   // with the curb's inside and outside faces
+        #expect(trim.count == 9)   // with the curb's inside and outside faces, and the ceiling headers over the curb and the cap
 
         // Tile stops at 84″: the jambs follow; a 6″ curb shortens them.
         t.pieces[0].heightIn = 84
@@ -305,18 +307,19 @@ struct RoomScanTests {
         #expect(abs(lower.first { $0.name == "Right jamb" }!.lengthFt - 6.5) < 1e-9)
         #expect(abs(lower.first { $0.name == "Left upper jamb" }!.lengthFt - 3.5) < 1e-9)
 
-        // Stone curb and cap, tile jambs: two lines.
+        // Stone curb and cap, tile jambs: a line per group (owner, 2026-10-13).
         t.trim = [.init(key: "curb", stone: true), .init(key: "cap:\(knee.id)", stone: true)]
         var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
         t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
-        #expect(s.additionsLabor.map(\.activity) == ["Stone curb", "Stone wall cap"])
+        #expect(s.additionsLabor.map(\.activity) == ["Stone curb", "Stone wall trim"])
         #expect(s.additionsLabor.map(\.qty) == [4, 3])
-        // Stone jambs: one line for all of them.
+        // Stone jambs join the cap on the wall line, each at its own price:
+        // 3′ of cap at $25 and 6½′ + 3′ of jambs at $20, as one amount.
         t.trim.append(.init(key: "jamb:right", stone: true))
         t.trim.append(.init(key: "jamb:left:lower", stone: true))
         t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
-        let jambs = try #require(s.additionsLabor.first { $0.activity == "Stone jambs" })
-        #expect(abs(jambs.qty - (6.5 + 3)) < 0.01 && jambs.rate == 20)
+        let wall = try #require(s.additionsLabor.first { $0.activity == "Stone wall trim" })
+        #expect(wall.qty == 1 && abs(wall.amount - (3 * 25 + (6.5 + 3) * 20)) < 0.01)
     }
 
     @Test func aFourWallShowerWithANewWallAndDoorHasACurbJambsAndHeader() throws {
@@ -353,7 +356,7 @@ struct RoomScanTests {
         t.trim = [.init(key: "header:\(door.id)", stone: true)]
         var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
         t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
-        #expect(s.additionsLabor.map(\.activity) == ["Stone header"] && s.additionsLabor[0].qty == 2.5
+        #expect(s.additionsLabor.map(\.activity) == ["Stone door trim"] && s.additionsLabor[0].qty == 2.5
                 && s.additionsLabor[0].rate == 25)
 
         // Dragged to the ceiling: no header, and the jambs run to the top of the tile.
@@ -476,7 +479,7 @@ struct RoomScanTests {
         // A 13″ × 24″ tile niche: back 2.17, sides 2 × 3.5″ × 24″ = 1.17, top and sill 13″ × 3.5″ each = 0.63.
         var n = AreaTakeoff.Item()
         n.kind = .niche; n.fromFt = 0; n.toFt = 13.0 / 12; n.heightIn = 24; n.tile = glass
-        let sqft = AreaTakeoff.nicheTileSqft(n)
+        let sqft = AreaTakeoff().nicheTileSqft(n)
         #expect(abs(sqft - 3.97) < 0.005)
         var t = AreaTakeoff()
         t.items = [n]
@@ -491,7 +494,8 @@ struct RoomScanTests {
         #expect(abs((line?.amount ?? 0) - 6 * sqft) < 1e-9)
         // Stone all around: only its back is tile.
         n.stone = .all
-        #expect(abs(AreaTakeoff.nicheTileSqft(n) - (13.0 / 12 * 2)) < 0.01)
+        let allAround = AreaTakeoff().nicheTileSqft(n)
+        #expect(abs(allAround - (13.0 / 12 * 2)) < 0.01)
         // The estimate names it.
         let words = describeSection(s, wording: r.wording)
         #expect(words.contains("Niche in"))
@@ -567,13 +571,16 @@ struct RoomScanTests {
         var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
         s.features.shelves = 5   // typed earlier: placed items override it
         t.apply(r, to: &s, prices: prices)
-        let top = s.additionsLabor.first { $0.activity == "Stone bench top" }
+        let top = s.additionsLabor.first { $0.activity == "Stone framed bench" }
         #expect(top?.qty == 9 && top?.unit == "sq ft" && top?.rate == 35)
         #expect(s.features.benches == 1 && s.features.niches == 1 && s.features.windows == 1)
         #expect(s.features.shelves == 1 && s.features.seats == 1 && s.features.footrests == 0)
-        // Stone shelves only: the base shelf and one divider, 13″ each.
+        // Stone shelves only: the base shelf and one divider, 13″ each, on the
+        // niche's stone line; the niche itself is its minimum (owner, 2026-10-13).
         let niche = s.features.sized.first { $0.kind == .niche }
-        #expect(niche?.stone == true && abs((niche?.linFt ?? 0) - 26.0 / 12) < 1e-9)
+        #expect(niche?.stone == false)
+        let nicheStone = s.additionsLabor.first { $0.activity == "Stone niche" }
+        #expect(abs((nicheStone?.qty ?? 0) - 2.17) < 1e-9)
         #expect(s.features.sized.first { $0.kind == .bench }?.linFt == 9)
     }
 

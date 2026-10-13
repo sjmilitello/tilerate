@@ -54,6 +54,13 @@ extension Room3DContent {
                                    curbs: other.area == .shower ? room.scan.map { scan in
                                        t.curbRuns(in: scan, widthFt: 4.5 / 12).map { OtherAreaPieces.CurbRun(a: $0.a, b: $0.b, key: $0.key) }
                                    } ?? [] : [],
+                                   jambs: other.area == .shower ? room.scan.map { scan in
+                                       t.jambFaces(in: scan, curbHeightIn: t.curbHeightIn ?? 4)
+                                           + t.doorAndHeaderFaces(in: scan, curbHeightIn: t.curbHeightIn ?? 4).jambs
+                                   } ?? [] : [],
+                                   headers: other.area == .shower ? room.scan.map {
+                                       t.doorAndHeaderFaces(in: $0, curbHeightIn: t.curbHeightIn ?? 4).headers
+                                   } ?? [] : [],
                                    curbHeightIn: t.curbHeightIn ?? 4,
                                    stoneParts: other.area == .shower ? room.scan.map { scan in
                                        Set(t.trimPieces(in: scan, area: other.area, curbHeightIn: t.curbHeightIn ?? 4).filter(\.stone).map(\.key))
@@ -506,7 +513,8 @@ enum Room3DScene {
                     p.firstMaterial = stone ? plain(stoneColor) : tileMaterial(nicheTile, widthFt: width, heightFt: height, x0: gx, y0: gy)
                     return p
                 }
-                let sides = item.stone == .all, sill = item.stone != .tile
+                let sides = c.takeoff.partStone(item, "jambs"), top = c.takeoff.partStone(item, "header"),
+                    sill = c.takeoff.partStone(item, "shelf"), dividerStone = c.takeoff.partStone(item, "dividers")
                 // The back.
                 let back = SCNNode(geometry: surface(w0, h, stone: false, gx: x0, gy: y0))
                 back.position = SCNVector3(x0 + w0 / 2, y0 + h / 2, inner)
@@ -520,7 +528,7 @@ enum Room3DScene {
                     node.addChildNode(n)
                 }
                 // The top facing down, the sill facing up.
-                for (y, stone, turn) in [(y0 + h, sides, Float.pi / 2), (y0, sill, -Float.pi / 2)] {
+                for (y, stone, turn) in [(y0 + h, top, Float.pi / 2), (y0, sill, -Float.pi / 2)] {
                     let n = SCNNode(geometry: surface(w0, d, stone: stone, gx: x0, gy: 0))
                     n.position = SCNVector3(x0 + w0 / 2, y, (face + inner) / 2)
                     n.eulerAngles.x = turn
@@ -531,7 +539,7 @@ enum Room3DScene {
                     for k in 1...item.dividers {
                         let y = y0 + h * Double(k) / Double(item.dividers + 1)
                         let shelf = SCNBox(width: w0, height: 0.06, length: d, chamferRadius: 0)
-                        shelf.firstMaterial = item.stone == .tile ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : plain(stoneColor)
+                        shelf.firstMaterial = !dividerStone ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : plain(stoneColor)
                         let n = SCNNode(geometry: shelf)
                         n.position = SCNVector3(x0 + w0 / 2, y, (face + inner) / 2)
                         node.addChildNode(n)
@@ -607,6 +615,42 @@ enum Room3DScene {
                 let n = SCNNode(geometry: box)
                 n.position = SCNVector3((a.x + b.x) / 2 + nx * w / 2, h / 2, (a.y + b.y) / 2 + ny * w / 2)
                 n.eulerAngles.y = Float(-atan2(b.y - a.y, b.x - a.x))
+                root.addChildNode(n)
+            }
+        }
+        // Stone jambs: the strip of wall above each end of the curb, as wide
+        // as the curb (owner, 2026-10-13: stone jambs didn't show).
+        var jambSets: [(faces: [AreaTakeoff.JambFace], stone: Set<String>)] = []
+        var headerSets: [(strips: [AreaTakeoff.HeaderStrip], stone: Set<String>)] = []
+        if c.area == .shower {
+            let doors = c.takeoff.doorAndHeaderFaces(in: room, curbHeightIn: c.curbHeightIn, curbWidthFt: c.curbWidthFt)
+            jambSets.append((c.takeoff.jambFaces(in: room, curbHeightIn: c.curbHeightIn, curbWidthFt: c.curbWidthFt) + doors.jambs, c.stoneParts))
+            headerSets.append((doors.headers, c.stoneParts))
+        }
+        for o in c.others where !o.headers.isEmpty { headerSets.append((o.headers, o.stoneParts)) }
+        // Headers: a door's underside, and the ceiling headers, facing down.
+        for set in headerSets {
+            for h in set.strips where set.stone.contains(h.key) {
+                let len = hypot(h.b.x - h.a.x, h.b.y - h.a.y)
+                guard len > 0.01 else { continue }
+                let plane = SCNPlane(width: len, height: h.widthFt)
+                plane.firstMaterial = plain(stoneColor)
+                let n = SCNNode(geometry: plane)
+                n.position = SCNVector3((h.a.x + h.b.x) / 2, h.heightFt - 0.008, (h.a.y + h.b.y) / 2)
+                n.eulerAngles = SCNVector3(Float.pi / 2, Float(-atan2(h.b.y - h.a.y, h.b.x - h.a.x)), 0)
+                root.addChildNode(n)
+            }
+        }
+        for o in c.others where !o.jambs.isEmpty { jambSets.append((o.jambs, o.stoneParts)) }
+        for set in jambSets {
+            for f in set.faces where set.stone.contains(f.key) {
+                let plane = SCNPlane(width: f.widthFt, height: f.topFt - f.bottomFt)
+                // One-sided, like the walls: seen from behind its wall, it's gone too.
+                plane.firstMaterial = plain(stoneColor)
+                let n = SCNNode(geometry: plane)
+                n.position = SCNVector3(f.center.x + f.facing.x * 0.008, (f.bottomFt + f.topFt) / 2,
+                                        f.center.y + f.facing.y * 0.008)
+                n.eulerAngles.y = Float(atan2(f.facing.x, f.facing.y))
                 root.addChildNode(n)
             }
         }

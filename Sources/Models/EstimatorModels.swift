@@ -365,6 +365,12 @@ struct Rates: Codable, Equatable {
     /// default width is set. Keyed by `StoneItem.rawValue`; read with
     /// `stoneRate(_:)` (curb, cap and jamb fall back to the per-foot fields above).
     var stoneRates: [String: StoneRate] = [:]
+    /// Stone material, per square foot of stone (each piece's length × its
+    /// width): included in each stone line's price, or — when listed apart —
+    /// one "Stone pieces" materials line (owner, 2026-10-13: the stone prices
+    /// are to install it).
+    var stoneMaterialPerSqft: Double = 0
+    var stoneMaterialSeparate: Bool = false
     /// A bench placed on a scan: the higher of `unitBench` (its minimum) and
     /// its length at this price.
     var benchPerLinFt: Double = 0
@@ -591,6 +597,8 @@ extension Rates {
         c.read(.showerDoorWidthIn, into: &showerDoorWidthIn)
         c.read(.showerDoorHeightIn, into: &showerDoorHeightIn)
         c.read(.stoneRates, into: &stoneRates)
+        c.read(.stoneMaterialPerSqft, into: &stoneMaterialPerSqft)
+        c.read(.stoneMaterialSeparate, into: &stoneMaterialSeparate)
         c.read(.benchPerLinFt, into: &benchPerLinFt)
         c.read(.unitSeat, into: &unitSeat)
         c.read(.unitWindow, into: &unitWindow)
@@ -708,7 +716,91 @@ enum StoneItem: String, CaseIterable, Codable {
     }
 }
 
+/// The groups of stone pieces in Admin, on the model and on the estimate
+/// (owner, 2026-10-13): one estimate line each.
+enum StoneGroup: String, CaseIterable, Identifiable {
+    case curb, wall, door, window, niche, ceiling, floatingBench, framedBench
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .curb: "Curb"
+        case .wall: "Wall"
+        case .door: "Door"
+        case .window: "Window"
+        case .niche: "Niche"
+        case .ceiling: "Ceiling"
+        case .floatingBench: "Wall to wall floating bench"
+        case .framedBench: "Framed bench"
+        }
+    }
+    var line: String {
+        switch self {
+        case .curb: "Stone curb"
+        case .wall: "Stone wall trim"
+        case .door: "Stone door trim"
+        case .window: "Stone window trim"
+        case .niche: "Stone niche"
+        case .ceiling: "Stone ceiling header"
+        case .floatingBench: "Stone floating bench"
+        case .framedBench: "Stone framed bench"
+        }
+    }
+    var parts: [StonePart] { StonePart.allCases.filter { $0.group == self } }
+}
+
+/// Every stone part with its own install price in Admin (owner, 2026-10-13).
+enum StonePart: String, CaseIterable, Codable, Identifiable {
+    case curbTop, curbInside, curbOutside, wallCap, wallJamb, doorJamb, doorHeader,
+         windowSill, windowJamb, windowHeader, nicheShelf, nicheJamb, nicheHeader, nicheDivider,
+         ceilingHeader, floatingBenchTop, framedBenchTop, framedBenchFront, framedBenchSide
+    var id: String { rawValue }
+    var group: StoneGroup {
+        switch self {
+        case .curbTop, .curbInside, .curbOutside: .curb
+        case .wallCap, .wallJamb: .wall
+        case .doorJamb, .doorHeader: .door
+        case .windowSill, .windowJamb, .windowHeader: .window
+        case .nicheShelf, .nicheJamb, .nicheHeader, .nicheDivider: .niche
+        case .ceilingHeader: .ceiling
+        case .floatingBenchTop: .floatingBench
+        case .framedBenchTop, .framedBenchFront, .framedBenchSide: .framedBench
+        }
+    }
+    var title: String {
+        switch self {
+        case .curbTop: "Top"
+        case .curbInside: "Inside"
+        case .curbOutside: "Outside"
+        case .wallCap: "Cap"
+        case .wallJamb, .doorJamb, .windowJamb, .nicheJamb: "Jambs"
+        case .doorHeader, .windowHeader, .nicheHeader, .ceilingHeader: "Header"
+        case .windowSill: "Sill"
+        case .nicheShelf: "Base shelf"
+        case .nicheDivider: "Divider shelves"
+        case .floatingBenchTop, .framedBenchTop: "Top"
+        case .framedBenchFront: "Front"
+        case .framedBenchSide: "Sides"
+        }
+    }
+    /// The price it starts from: the one it was part of before.
+    var legacy: StoneItem {
+        switch self {
+        case .curbTop, .curbInside, .curbOutside: .curb
+        case .wallCap, .doorHeader, .ceilingHeader: .cap
+        case .wallJamb, .doorJamb: .jamb
+        case .windowSill, .windowJamb, .windowHeader: .window
+        case .nicheShelf, .nicheJamb, .nicheHeader, .nicheDivider: .niche
+        case .floatingBenchTop, .framedBenchTop: .benchTop
+        case .framedBenchFront, .framedBenchSide: .benchFront
+        }
+    }
+}
+
 extension Rates {
+    /// A part's install price: its own once set, else the price it was part of.
+    func stoneRate(_ part: StonePart) -> StoneRate { stoneRates[part.rawValue] ?? stoneRate(part.legacy) }
+    mutating func setStoneRate(_ r: StoneRate, for part: StonePart) { stoneRates[part.rawValue] = r }
+
     func stoneRate(_ item: StoneItem) -> StoneRate {
         if let r = stoneRates[item.rawValue] { return r }
         switch item {

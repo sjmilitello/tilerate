@@ -31,6 +31,9 @@ struct OtherAreaPieces: Equatable {
     /// inside face) and its stone key, shown from every area (owner,
     /// 2026-10-12); its height and which parts are stone, for 3-D.
     var curbs: [CurbRun] = []
+    /// Its entry jambs, drawn in stone when they are.
+    var jambs: [AreaTakeoff.JambFace] = []
+    var headers: [AreaTakeoff.HeaderStrip] = []
     var curbHeightIn: Double = 4
     var stoneParts: Set<String> = []
 
@@ -152,6 +155,8 @@ struct ScanEditor: View {
     /// While guided through the walls: a wall or bench was just added, so
     /// the card says so and offers the next thing.
     @State private var wallAdded = false
+    /// Stone groups opened on the Extras panel.
+    @State private var openStoneGroups: Set<StoneGroup> = []
     /// The niche whose own tile is being chosen.
     @State private var nicheTileFor: UUID? = nil
     /// Tapping a wall chooses it to change its shape (any wall, scanned or
@@ -329,7 +334,7 @@ struct ScanEditor: View {
                 return q
             }, floor: o.floor, curbless: o.curbless, tile: o.tile, floorTile: o.floorTile, wallTiles: o.wallTiles,
                roomFloor: o.roomFloor, floorOutline: o.floorOutline, floorHoles: o.floorHoles,
-               continuousFloors: o.continuousFloors, curbs: o.curbs, curbHeightIn: o.curbHeightIn,
+               continuousFloors: o.continuousFloors, curbs: o.curbs, jambs: o.jambs, headers: o.headers, curbHeightIn: o.curbHeightIn,
                stoneParts: o.stoneParts)
         }
     }
@@ -1070,23 +1075,10 @@ struct ScanEditor: View {
                         .buttonStyle(.bordered)
                         .font(.subheadline)
                     }
-                    Picker("Stone", selection: $takeoff.items[i].stone) {
-                        Text("Tile").tag(AreaTakeoff.Item.Stone.tile)
-                        Text("Stone all around").tag(AreaTakeoff.Item.Stone.all)
-                        Text("Stone shelves").tag(AreaTakeoff.Item.Stone.shelves)
-                    }
-                    .pickerStyle(.segmented)
-                    let ft = AreaTakeoff.nicheStoneFt(takeoff.items[i])
-                    if ft > 0 {
-                        Text("Stone: \(inchText(ft)) (\(item.stone == .all ? "top, sides, base shelf and dividers" : "base shelf and dividers"))")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    itemStoneParts(item, [("shelf", "Base shelf"), ("jambs", "Jambs"), ("header", "Header")]
+                                   + (item.dividers > 0 ? [("dividers", "Divider shelves")] : []))
                 } else {
-                    Picker("Stone", selection: $takeoff.items[i].stone) {
-                        Text("Tile").tag(AreaTakeoff.Item.Stone.tile)
-                        Text("Stone all around").tag(AreaTakeoff.Item.Stone.all)
-                    }
-                    .pickerStyle(.segmented)
+                    itemStoneParts(item, [("sill", "Sill"), ("jambs", "Jambs"), ("header", "Header")])
                     Text("The window isn't tiled; it comes off the wall.").font(.caption).foregroundStyle(.secondary)
                 }
             case .framedBench, .floatingBench:
@@ -1181,7 +1173,7 @@ struct ScanEditor: View {
                curbWidthFt: takeoff.curbless ? 0 : stone.curbWidthFt,
                drain: showerDrawn ? $takeoff.drain : nil,
                drainShown: showerDrawn ? takeoff.drainShown() : nil,
-               items: takeoff.items,
+               items: drawnItems,
                showDimensions: showDimensions,
                hint: planHint,
                addingWall: addingWall,
@@ -1265,6 +1257,29 @@ struct ScanEditor: View {
             .padding(10)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             .padding(8)
+        }
+    }
+
+    /// A niche's or window's stone, part by part (owner, 2026-10-13).
+    private func itemStoneParts(_ item: AreaTakeoff.Item, _ parts: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Stone").font(.subheadline.weight(.semibold))
+            ForEach(parts, id: \.0) { part, title in
+                Toggle(title, isOn: Binding(get: { takeoff.partStone(item, part) },
+                                            set: { takeoff.setPartStone(item, part, $0) }))
+                    .font(.subheadline)
+            }
+        }
+    }
+
+    /// Items as drawn on the plan: a niche or window shows stone when any
+    /// part of it is.
+    private var drawnItems: [AreaTakeoff.Item] {
+        takeoff.items.map { i in
+            guard i.kind == .niche || i.kind == .window else { return i }
+            var d = i
+            d.stone = takeoff.anyStone(i) ? .all : .tile
+            return d
         }
     }
 
@@ -1722,8 +1737,28 @@ struct ScanEditor: View {
                     Text("Draw the shower floor on the plan and choose its walls; the curb and jambs are measured from them.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                ForEach(pieces) { piece in trimRow(piece) }
-                Text("Tile is part of the wall square feet. Stone goes on its own line per linear foot (prices in Admin).")
+                // By group (owner, 2026-10-13): tap one to see its pieces.
+                ForEach(StoneGroup.allCases.filter { g in pieces.contains { $0.part.group == g } }) { group in
+                    let these = pieces.filter { $0.part.group == group }
+                    let stoneCount = these.filter(\.stone).count
+                    DisclosureGroup(isExpanded: Binding(get: { openStoneGroups.contains(group) },
+                                                        set: { if $0 { openStoneGroups.insert(group) } else { openStoneGroups.remove(group) } })) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(these) { piece in trimRow(piece) }
+                        }
+                        .padding(.top, 6)
+                    } label: {
+                        HStack {
+                            Text(group.title).font(.headline)
+                            Spacer()
+                            Text(stoneCount == 0 ? "Tile" : stoneCount == these.count ? "All stone" : "\(stoneCount) of \(these.count) stone")
+                                .font(.subheadline).foregroundStyle(stoneCount > 0 ? Color(red: 0.85, green: 0.78, blue: 0.62) : .secondary)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                }
+                Text("Tile is part of the wall square feet. Stone goes on one line per group, each piece at its own price (Admin → Stone pieces).")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -4083,7 +4118,7 @@ struct WallElevation: View {
         let rect = CGRect(x: a.x, y: a.y, width: max(b.x - a.x, 2), height: max(b.y - a.y, 3))
         let selected = selectedItem.wrappedValue == item.id
         let stoneColor = Color(red: 0.85, green: 0.78, blue: 0.62)
-        let color: Color = item.kind == .window ? .cyan : item.kind.isCorner || item.stone != .tile ? stoneColor : .mint
+        let color: Color = item.kind == .window ? .cyan : item.kind.isCorner || takeoff.anyStone(item) ? stoneColor : .mint
         ZStack {
             Rectangle().fill(item.kind == .window ? Color.cyan.opacity(0.15) : item.kind == .niche ? Color(white: 0.05) : color.opacity(0.35))
             Rectangle().stroke(color, lineWidth: selected ? 2.5 : 1.5)
@@ -4094,7 +4129,7 @@ struct WallElevation: View {
                         p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: rect.width, y: y))
                     }
                 }
-                .stroke(item.stone == .tile ? Color.white.opacity(0.6) : stoneColor, lineWidth: 2)
+                .stroke(!takeoff.partStone(item, "dividers") ? Color.white.opacity(0.6) : stoneColor, lineWidth: 2)
             }
             if !item.kind.isCorner, rect.width > 34, rect.height > 16 {
                 VStack(spacing: 0) {

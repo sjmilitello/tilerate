@@ -318,6 +318,31 @@ within 1½″ to those lines and to other walls' ends, an end onto a wall it
 nearly touches. Its ends drag on the plan; height, thickness and
 length can be typed; it can be deleted.
 
+**Stone pieces by part (owner, 2026-10-13).** Admin → Stone pieces lists
+groups — Curb (Top, Inside, Outside), Wall (Cap, Jambs), Door (Jambs,
+Header), Window (Sill, Jambs, Header), Niche (Base shelf, Jambs, Header,
+Divider shelves), Ceiling (Header), Wall to wall floating bench (Top),
+Framed bench (Top, Front, Sides) — each opening to its parts, each with its
+own install price (`StonePart`, `StoneGroup`, `Rates.stoneRate(_: StonePart)`;
+per linear foot, or per square foot once a width is set). A part with no
+price of its own uses the one it was part of before (`StonePart.legacy`),
+so prices carry over. Corner shelf, footrest and bench sit under Stone
+pieces too, with their price each and size (the same `unitShelf` etc.).
+The stone prices are to install it; **Stone material** (per sq ft of stone,
+each piece's length × its width) is added into each line's price, or —
+switched on — listed as one "Stone pieces" materials line
+(`stoneMaterialPerSqft`, `stoneMaterialSeparate`). On the estimate: one line
+per group ("Stone curb", "Stone wall trim", "Stone door trim", "Stone
+window trim", "Stone niche", "Stone ceiling header", "Stone floating
+bench", "Stone framed bench"; `stoneLineID(_:StoneGroup)`): by length at
+the price when every piece in it has one price, else the total as one. A
+niche or window is its minimum (Features) **plus** its stone parts on its
+group's line (it used to be the higher of the two). On the model the
+Extras panel lists the groups ("Tile", "All stone", "2 of 3 stone"), each
+opening to its pieces; a niche's or window's panel has a Tile/Stone switch
+per part (`partStone`/`setPartStone`, keys `niche:<id>:shelf` etc.; an
+item saved before starts from its old choice). `StonePartPricingTests`.
+
 Shower entry trim (owner's rules, 2026-10-07): curbs, wall caps, jambs and
 headers (`TrimPiece`, from `AreaTakeoff.trimPieces`) are tile by default —
 part of the wall square feet, no adder — and each can be switched to stone
@@ -345,7 +370,37 @@ tile. The curb's inside and outside faces below its top are stone
 pieces too (`curb:inside`, `curb:outside`, and per door
 `curb:<id>:inside/outside`), priced and lined as the curb. In 3-D each of
 the curb's top and faces and the bench's top, front and end shows tile or
-stone on its own. A knee wall outside a
+stone on its own. Stone entry jambs show in 3-D too (owner, 2026-10-13:
+they didn't): the strip of wall face above each end of the curb, as wide
+as the curb, on the face of the wall there (`AreaTakeoff.jambFaces`, keyed
+as `trimPieces` keys them; also from the room's other areas; one-sided
+like the walls). A shower door's jambs (the sides of the doorway, as deep
+as the wall, curb to header) and its header (the underside of the top of
+the doorway, facing down — like a curb top at the top) show too
+(`doorAndHeaderFaces`, `HeaderStrip`).
+
+**Ceiling headers** (owner, 2026-10-13: installed over the curb and/or wall
+caps of open showers when the ceiling is tiled, to frame the ceiling tile,
+so a glass panel can later sit between): every open shower offers
+"Ceiling header (over the curb)" (`header:ceiling`, the curb's length) and
+one over each half wall's cap (`header:ceiling:<id>`). Tile means none;
+stone is priced and lined as a door header (the cap & header price, "Stone
+header"/"Stone wall cap & header"). Drawn as a strip on the ceiling over
+the curb's middle (or the half wall), 4½″ wide. To come, after talking it
+through with the owner: drawing a header (a soffit) on the model, or one
+from a scan, with the stone on it.
+
+A half wall at the entry (owner's rules, 2026-10-13), told apart by
+whether it carries on past the entry's corner (`meetsFace`): a corner
+shower with a half wall put on one curb (it runs the curb's width past the
+corner) has the entry meet its **face** — the lower jamb is the strip of its
+face above the curb's end, and its free end, flush with the curb's outside,
+is a stone piece of its own, **Half wall X end** (`kneeEnd:<id>:start|end`),
+floor to cap, priced and lined as a jamb. A half wall ending at the corner
+(a three-wall shower with one partway along the curb) has the entry meet
+its **end** — the lower jamb is its end face. Either way the upper jamb is
+on the wall the half wall is attached to, above the cap, as wide as the
+half wall. `HalfWallJambTests`. A knee wall outside a
 shower: a cap and a jamb on each exposed end.
 
 A shower door (`OpeningKind.showerDoor`, saved with the scan) goes in any

@@ -741,37 +741,74 @@ extension AreaTakeoff {
             break
         }
         let pieces = trimPieces(in: room, area: section.area, curbHeightIn: prices.curbHeightIn)
+        // Stone went on a line per kind before it was grouped: those go.
         for kind in TrimKind.allCases {
             let id = Self.stoneLineID(section.id, kind)
-            let stone = pieces.filter { $0.kind == kind && $0.stone }
-            let rate = prices.rate(kind)
-            let feet = stone.reduce(0) { $0 + $1.lengthFt }
-            // By the square foot once a width is set and chosen in Admin.
-            let lf = ((rate.usesSqft ? rate.sqft(linFt: feet) : feet) * 100).rounded() / 100
-            let unit = rate.usesSqft ? "sq ft" : "lin ft"
-            let price = rate.usesSqft ? rate.perSqft : rate.perLinFt
-            // Caps and headers share a price; the line says which it has.
-            let headers = stone.contains { $0.key.hasPrefix("header:") }
-            let caps = stone.contains { !$0.key.hasPrefix("header:") }
-            let name = kind != .cap ? kind.stoneLine
-                : headers && caps ? "Stone wall cap & header" : headers ? "Stone header" : kind.stoneLine
-            if lf > 0 {
-                if let i = section.additionsLabor.firstIndex(where: { $0.id == id }) {
-                    section.additionsLabor[i].qty = lf
-                    if section.additionsLabor[i].unit != unit {
-                        section.additionsLabor[i].unit = unit
-                        section.additionsLabor[i].rate = price
-                    }
-                    // Renamed only while it still has a name the app gave it.
-                    if TrimKind.capLineNames.contains(section.additionsLabor[i].activity) {
-                        section.additionsLabor[i].activity = name
-                    }
+            section.additionsLabor.removeAll { $0.id == id }
+        }
+        // One line per group (owner, 2026-10-13), each part at its own install
+        // price, with the stone material in it unless it's listed apart.
+        var materialSqft = 0.0
+        for group in StoneGroup.allCases {
+            let id = Self.stoneLineID(section.id, group)
+            let stone = pieces.filter { $0.part.group == group && $0.stone && $0.lengthFt > 0 }
+            var total = 0.0
+            for p in stone {
+                let rate = prices.rate(p.part)
+                total += rate.amount(linFt: p.lengthFt)
+                let sqft = rate.widthIn > 0 ? p.lengthFt * rate.widthIn / 12 : 0
+                materialSqft += sqft
+                if !prices.materialSeparate { total += sqft * prices.materialPerSqft }
+            }
+            total = (total * 100).rounded() / 100
+            guard !stone.isEmpty, total > 0 || stone.contains(where: { $0.lengthFt > 0 }) else {
+                section.additionsLabor.removeAll { $0.id == id }
+                continue
+            }
+            // One price throughout: length (or square feet) at that price;
+            // else the group's total as one.
+            let rates = Set(stone.map { prices.rate($0.part) })
+            let qty: Double, rate: Double, unit: String
+            if rates.count == 1, let r = rates.first {
+                let feet = stone.reduce(0) { $0 + $1.lengthFt }
+                let material = prices.materialSeparate ? 0 : prices.materialPerSqft
+                if r.usesSqft {
+                    qty = (r.sqft(linFt: feet) * 100).rounded() / 100
+                    rate = r.perSqft + material
+                    unit = "sq ft"
                 } else {
-                    section.additionsLabor.append(AdditionItem(id: id, activity: name, qty: lf, rate: price, unit: unit))
+                    qty = (feet * 100).rounded() / 100
+                    rate = r.perLinFt + material * r.widthIn / 12
+                    unit = "lin ft"
                 }
             } else {
-                section.additionsLabor.removeAll { $0.id == id }
+                qty = 1
+                rate = total
+                unit = ""
             }
+            if let i = section.additionsLabor.firstIndex(where: { $0.id == id }) {
+                section.additionsLabor[i].qty = qty
+                // A price changed on the estimate stays while the line's unit does.
+                if section.additionsLabor[i].unit != unit || unit.isEmpty {
+                    section.additionsLabor[i].unit = unit
+                    section.additionsLabor[i].rate = rate
+                }
+            } else {
+                section.additionsLabor.append(AdditionItem(id: id, activity: group.line, qty: qty, rate: rate, unit: unit))
+            }
+        }
+        // The stone material on its own line, when listed apart.
+        let materialID = Self.stoneMaterialLineID(section.id)
+        if prices.materialSeparate, prices.materialPerSqft > 0, materialSqft > 0 {
+            let qty = (materialSqft * 100).rounded() / 100
+            if let i = section.additionsMaterials.firstIndex(where: { $0.id == materialID }) {
+                section.additionsMaterials[i].qty = qty
+            } else {
+                section.additionsMaterials.append(AdditionItem(id: materialID, activity: "Stone pieces", qty: qty,
+                                                               rate: prices.materialPerSqft, taxable: true, unit: "sq ft"))
+            }
+        } else {
+            section.additionsMaterials.removeAll { $0.id == materialID }
         }
         // What's placed on the walls sets the area's features (owner's call:
         // "Use these measurements" overrides typed counts).
@@ -835,11 +872,12 @@ extension AreaTakeoff {
 
     /// Square feet of tile inside a niche: the back, and the sides, top and
     /// sill where they aren't stone.
-    static func nicheTileSqft(_ n: Item) -> Double {
-        let w = n.widthFt, h = n.heightIn / 12, d = nicheDepthIn / 12
+    func nicheTileSqft(_ n: Item) -> Double {
+        let w = n.widthFt, h = n.heightIn / 12, d = Self.nicheDepthIn / 12
         var sqft = w * h
-        if n.stone != .all { sqft += 2 * d * h + w * d }   // sides and top
-        if n.stone == .tile { sqft += w * d }              // sill
+        if !partStone(n, "jambs") { sqft += 2 * d * h }   // sides
+        if !partStone(n, "header") { sqft += w * d }      // top
+        if !partStone(n, "shelf") { sqft += w * d }       // sill
         return (sqft * 100).rounded() / 100
     }
 
@@ -864,14 +902,13 @@ extension AreaTakeoff {
             switch i.kind {
             case .framedBench, .floatingBench:
                 return SizedFeature(kind: .bench, label: "\(i.kind.name) \(inchText(i.widthFt))", linFt: i.widthFt)
+            // Its minimum here; its stone parts on the stone lines (owner,
+            // 2026-10-13: the minimum plus the stone).
             case .niche:
-                let stone = i.stone == .all ? ", stone all around" : i.stone == .shelves ? ", stone shelves" : ""
-                return SizedFeature(kind: .niche, label: "Niche \(inches(i.widthFt * 12)) × \(inches(i.heightIn))\(stone)",
-                                    linFt: Self.nicheStoneFt(i), stone: i.stone != .tile,
-                                    tile: i.tile, tileSqft: i.tile == nil ? 0 : Self.nicheTileSqft(i))
+                return SizedFeature(kind: .niche, label: "Niche \(inches(i.widthFt * 12)) × \(inches(i.heightIn))",
+                                    tile: i.tile, tileSqft: i.tile == nil ? 0 : nicheTileSqft(i))
             case .window:
-                return SizedFeature(kind: .window, label: "Window \(inches(i.widthFt * 12)) × \(inches(i.heightIn))\(i.stone == .tile ? "" : ", stone wrap")",
-                                    linFt: Self.windowStoneFt(i), stone: i.stone != .tile)
+                return SizedFeature(kind: .window, label: "Window \(inches(i.widthFt * 12)) × \(inches(i.heightIn))")
             default:
                 return nil
             }
@@ -1024,6 +1061,20 @@ extension AreaTakeoff {
     /// A stone line's id, the same every time for an area and kind, so
     /// re-measuring updates it instead of adding another (its price, once
     /// changed on the estimate, is kept).
+    static func stoneLineID(_ sectionID: UUID, _ group: StoneGroup) -> UUID {
+        var bytes = sectionID.uuid
+        bytes.14 ^= 0x5A
+        bytes.13 ^= UInt8(20 + (StoneGroup.allCases.firstIndex(of: group) ?? 0))
+        return UUID(uuid: bytes)
+    }
+
+    static func stoneMaterialLineID(_ sectionID: UUID) -> UUID {
+        var bytes = sectionID.uuid
+        bytes.14 ^= 0x5A
+        bytes.13 ^= 40
+        return UUID(uuid: bytes)
+    }
+
     static func stoneLineID(_ sectionID: UUID, _ kind: TrimKind) -> UUID {
         var bytes = sectionID.uuid
         bytes.14 ^= 0x5A
@@ -1074,25 +1125,11 @@ func inchText(_ feet: Double) -> String { Lengths.inchesText(feet: feet) }
 /// What frames a shower or a knee wall: tile by default (part of the wall
 /// square feet), or stone, charged per linear foot on its own line.
 enum TrimKind: String, CaseIterable {
-    case curb, cap, jamb, benchTop, benchFront
-    var salt: Int { switch self { case .curb: 1; case .cap: 2; case .jamb: 3; case .benchTop: 4; case .benchFront: 5 } }
-    var item: StoneItem {
-        switch self {
-        case .curb: .curb
-        case .cap: .cap
-        case .jamb: .jamb
-        case .benchTop: .benchTop
-        case .benchFront: .benchFront
-        }
-    }
-    var stoneLine: String {
-        switch self {
-        case .curb: "Stone curb"
-        case .cap: "Stone wall cap"
-        case .jamb: "Stone jambs"
-        case .benchTop: "Stone bench top"
-        case .benchFront: "Stone bench front"
-        }
+    case curb, cap, jamb, benchTop, benchFront, niche, window
+    /// Ids of the lines stone went on before it was grouped (2026-10-13),
+    /// so they're taken off when measured again.
+    var salt: Int {
+        switch self { case .curb: 1; case .cap: 2; case .jamb: 3; case .benchTop: 4; case .benchFront: 5; case .niche: 6; case .window: 7 }
     }
     /// Names the app gives the cap line (headers are priced as caps).
     static let capLineNames: Set<String> = ["Stone wall cap", "Stone header", "Stone wall cap & header"]
@@ -1109,6 +1146,10 @@ struct StonePrices {
     var doorWidthIn: Double = 30
     var doorHeightIn: Double = 80
     var stone: [StoneItem: StoneRate] = [:]
+    /// Each part's install price (owner, 2026-10-13), and the stone material.
+    var parts: [StonePart: StoneRate] = [:]
+    var materialPerSqft: Double = 0
+    var materialSeparate: Bool = false
     var defaults = ScanItemDefaults()
     /// The price list's Curbless Shower and Linear Drain, nil once deleted there.
     var curblessItem: PriceListItem? = PriceListItem.curblessShower
@@ -1117,6 +1158,15 @@ struct StonePrices {
     /// Admin's stone curb width is the stone on top, which overhangs the
     /// curb, so it doesn't say where the shower floor stops.
     var curbWidthFt: Double { 4.5 / 12 }
+    func rate(_ p: StonePart) -> StoneRate {
+        if let r = parts[p] { return r }
+        switch p.legacy {
+        case .curb: return stone[.curb] ?? StoneRate(perLinFt: curb)
+        case .cap: return stone[.cap] ?? StoneRate(perLinFt: cap)
+        case .jamb: return stone[.jamb] ?? StoneRate(perLinFt: jamb)
+        case let item: return stone[item] ?? StoneRate()
+        }
+    }
     func rate(_ k: TrimKind) -> StoneRate {
         if let r = stone[k.item] { return r }
         switch k {
@@ -1128,11 +1178,27 @@ struct StonePrices {
     }
 }
 
+extension TrimKind {
+    var item: StoneItem {
+        switch self {
+        case .curb: .curb
+        case .cap: .cap
+        case .jamb: .jamb
+        case .benchTop: .benchTop
+        case .benchFront: .benchFront
+        case .niche: .niche
+        case .window: .window
+        }
+    }
+}
+
 extension StonePrices {
     init(rates r: Rates) {
         self.init(curb: r.stoneCurbPerLinFt, cap: r.stoneCapPerLinFt, jamb: r.stoneJambPerLinFt, curbHeightIn: r.curbHeightIn,
                   doorWidthIn: r.showerDoorWidthIn, doorHeightIn: r.showerDoorHeightIn,
                   stone: Dictionary(uniqueKeysWithValues: StoneItem.allCases.map { ($0, r.stoneRate($0)) }),
+                  parts: Dictionary(uniqueKeysWithValues: StonePart.allCases.map { ($0, r.stoneRate($0)) }),
+                  materialPerSqft: r.stoneMaterialPerSqft, materialSeparate: r.stoneMaterialSeparate,
                   defaults: r.scanDefaults,
                   curblessItem: r.priceList.first { $0.id == PriceListItem.curblessShower.id },
                   linearDrainItem: r.priceList.first { $0.id == PriceListItem.linearDrain.id })
@@ -1144,6 +1210,8 @@ extension StonePrices {
 struct TrimPiece: Identifiable, Equatable {
     let key: String
     let kind: TrimKind
+    /// Which priced part it is (owner, 2026-10-13).
+    var part: StonePart = .curbTop
     let name: String
     /// As measured from the plan.
     let measuredFt: Double
@@ -1199,6 +1267,18 @@ extension AreaTakeoff {
                     if room.isKneeWall(wall) {
                         out.append(("\(key):lower", .jamb, "\(name.capitalized) lower jamb", max(0, wall.heightFt - curb)))
                         out.append(("\(key):upper", .jamb, "\(name.capitalized) upper jamb", max(0, top - wall.heightFt)))
+                        // The entry meets the half wall's face (a corner shower with a
+                        // half wall on one curb): its free end, flush with the curb's
+                        // outside, is a piece of its own, floor to cap, priced as a
+                        // jamb (owner, 2026-10-13).
+                        if Self.meetsFace(of: wall, corner: corner) {
+                            for start in [true, false] where room.isFreeEnd(of: wall, start: start) {
+                                let k = "kneeEnd:\(wall.id):\(start ? "start" : "end")"
+                                guard !used.contains(k) else { continue }
+                                used.insert(k)
+                                out.append((k, .jamb, "Half wall \(wall.label) end", wall.heightFt))
+                            }
+                        }
                     } else if let bench = curbRun.benches.first(where: { $0.wallID == wall.id }) {
                         // A framed bench here is flush with the curb's outside:
                         // the jamb splits at its top (owner, 2026-10-09) — curb to
@@ -1212,6 +1292,12 @@ extension AreaTakeoff {
                 }
             }
             for w in kneeWalls { out.append(("cap:\(w.id)", .cap, "Wall cap (half wall \(w.label))", w.lengthFt)) }
+            // A header on the ceiling over the entry and over each half wall's
+            // cap, framing the ceiling tile, so glass can later sit between it
+            // and the curb or cap (owner, 2026-10-13). Tile means none; priced
+            // like a door header.
+            if width > 0 { out.append(("header:ceiling", .cap, "Ceiling header (over the curb)", width)) }
+            for w in kneeWalls { out.append(("header:ceiling:\(w.id)", .cap, "Ceiling header (over half wall \(w.label))", w.lengthFt)) }
         }
         if area == .shower {
             // Each door opening in a wall this shower tiles: a curb across
@@ -1249,11 +1335,81 @@ extension AreaTakeoff {
             out.append(("benchTop:\(b.id)", .benchTop, "\(b.kind.name) top", b.widthFt))
             if b.kind == .framedBench { out.append(("benchFront:\(b.id)", .benchFront, "\(b.kind.name) front", b.widthFt)) }
         }
+        // A niche's and a window's stone parts (owner, 2026-10-13): each part
+        // chosen on its own, starting from the niche's or window's choice.
+        var defaults: [String: Bool] = [:]
+        for i in items where i.kind == .niche || i.kind == .window {
+            let w = i.widthFt, h = i.heightIn / 12
+            let label = "\(i.kind.name) \(Int((w * 12).rounded()))″ × \(Int(i.heightIn.rounded()))″"
+            let parts: [(String, String, Double)] = i.kind == .niche
+                ? [("shelf", "base shelf", w), ("jambs", "jambs", 2 * h), ("header", "header", w),
+                   ("dividers", "divider shelves", Double(i.dividers) * w)]
+                : [("sill", "sill", w), ("jambs", "jambs", 2 * h), ("header", "header", w)]
+            for (part, name, ft) in parts where ft > 0.01 {
+                let key = Self.partKey(i, part)
+                defaults[key] = partStone(i, part)
+                out.append((key, i.kind == .niche ? .niche : .window, "\(label) \(name)", ft))
+            }
+        }
+        let doorIDs = Set(showerDoors(in: room).map(\.id.uuidString))
         return out.map { key, kind, name, ft in
             let choice = trim.first { $0.key == key }
-            return TrimPiece(key: key, kind: kind, name: name, measuredFt: ft,
-                             lengthFt: choice?.lengthFt ?? ft, stone: choice?.stone ?? false)
+            return TrimPiece(key: key, kind: kind, part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
+                             name: name, measuredFt: ft,
+                             lengthFt: choice?.lengthFt ?? ft, stone: choice?.stone ?? defaults[key] ?? false)
         }
+    }
+
+    /// A niche's or window's part ("shelf", "jambs", "header", "dividers";
+    /// a window's "sill", "jambs", "header"): its key, and whether it's stone
+    /// — chosen on its own, else as the niche's or window's old choice had it
+    /// (stone all around: every part; shelves only: base shelf and dividers).
+    static func partKey(_ i: Item, _ part: String) -> String { "\(i.kind.rawValue):\(i.id):\(part)" }
+
+    func partStone(_ i: Item, _ part: String) -> Bool {
+        if let c = trim.first(where: { $0.key == Self.partKey(i, part) }) { return c.stone }
+        if i.kind == .window { return i.stone != .tile }
+        return part == "shelf" || part == "dividers" ? i.stone != .tile : i.stone == .all
+    }
+
+    mutating func setPartStone(_ i: Item, _ part: String, _ on: Bool) {
+        let key = Self.partKey(i, part)
+        if let k = trim.firstIndex(where: { $0.key == key }) { trim[k].stone = on } else { trim.append(.init(key: key, stone: on)) }
+    }
+
+    /// Whether any part of a niche or window is stone.
+    func anyStone(_ i: Item) -> Bool {
+        (i.kind == .niche ? ["shelf", "jambs", "header", "dividers"] : ["sill", "jambs", "header"]).contains { partStone(i, $0) }
+    }
+
+    /// Which priced part a stone piece is, from its key.
+    static func stonePart(_ key: String, kind: TrimKind, doors: Set<String>, items: [Item]) -> StonePart {
+        let parts = key.split(separator: ":").map(String.init)
+        func item(_ id: String) -> Item? { items.first { $0.id.uuidString == id } }
+        switch kind {
+        case .curb:
+            return key.hasSuffix(":inside") ? .curbInside : key.hasSuffix(":outside") ? .curbOutside : .curbTop
+        case .cap:
+            if key.hasPrefix("header:ceiling") { return .ceilingHeader }
+            if key.hasPrefix("header:") { return .doorHeader }
+            return .wallCap
+        case .jamb:
+            return parts.count > 1 && doors.contains(parts[1]) ? .doorJamb : .wallJamb
+        case .benchTop:
+            return parts.count > 1 && item(parts[1])?.kind == .floatingBench ? .floatingBenchTop : .framedBenchTop
+        case .benchFront:
+            return key.hasPrefix("benchSide:") ? .framedBenchSide : .framedBenchFront
+        case .niche:
+            switch parts.last { case "jambs": return .nicheJamb; case "header": return .nicheHeader
+                                case "dividers": return .nicheDivider; default: return .nicheShelf }
+        case .window:
+            switch parts.last { case "jambs": return .windowJamb; case "header": return .windowHeader; default: return .windowSill }
+        }
+    }
+
+    /// Whether a stone piece of this area is stone (by its key).
+    func isStone(_ key: String, in room: ScannedRoom, area: Area?, curbHeightIn: Double = 4) -> Bool {
+        trimPieces(in: room, area: area, curbHeightIn: curbHeightIn).first { $0.key == key }?.stone ?? false
     }
 
     /// A stretch of the shower floor's edge with no wall along it: where
@@ -1471,6 +1627,204 @@ extension AreaTakeoff {
             if let s0 = startT, len - s0 > 1.0 / 12 { out.append((side.point(s0), side.b)) }
         }
         return (out, benches.filter { stopped.contains($0.id) })
+    }
+
+    /// Whether the entry, at this corner, meets the wall's face rather than
+    /// its end: the wall carries on past the corner (a half wall put on a
+    /// corner shower's curb runs the curb's width past it), instead of ending
+    /// there.
+    static func meetsFace(of wall: ScannedRoom.Wall, corner p: ScannedRoom.Point) -> Bool {
+        let l = max(wall.lengthFt, 1e-9)
+        let ux = (wall.end.x - wall.start.x) / l, uy = (wall.end.y - wall.start.y) / l
+        let along = (p.x - wall.start.x) * ux + (p.y - wall.start.y) * uy
+        let reach = drawnThicknessFt(wall) / 2 + 0.05
+        return along > reach && along < l - reach
+    }
+
+    /// How thick a wall is drawn: a wall drawn in as built, a scanned one 4″.
+    static func drawnThicknessFt(_ w: ScannedRoom.Wall) -> Double { w.planned ? max(w.thicknessIn, 1) / 12 : 4.0 / 12 }
+
+    /// Where each entry jamb (and half wall end) is, for drawing (owner,
+    /// 2026-10-13): a rectangle standing on the plan — its middle, the way it
+    /// faces, its width, and its bottom and top — keyed as `trimPieces` keys
+    /// them.
+    /// - Against a full wall (or a bench): the strip of wall face above the
+    ///   end of the curb, as wide as the curb.
+    /// - Against a half wall: the lower jamb on the half wall — its face
+    ///   above the curb's end when the entry meets its face (a corner shower
+    ///   with a half wall on one curb), else its end; the upper jamb on the
+    ///   wall the half wall is attached to, above the cap, as wide as the
+    ///   half wall; and, when the entry meets its face, its free end, floor to
+    ///   cap.
+    struct JambFace: Equatable {
+        var key: String
+        var center: ScannedRoom.Point
+        var facing: ScannedRoom.Point
+        var widthFt: Double
+        var bottomFt: Double
+        var topFt: Double
+    }
+
+    func jambFaces(in room: ScannedRoom, curbHeightIn: Double, curbWidthFt: Double = 4.5 / 12) -> [JambFace] {
+        guard floor == .drawn, let r = floorRect else { return [] }
+        let curb = curbless ? 0 : (self.curbHeightIn ?? curbHeightIn) / 12
+        let top = pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? room.ceilingFt
+        let c = r.corners
+        let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+        let curbRun = curbSides(in: room)
+        var out: [JambFace] = []
+        var used = Set<String>()
+        func unit(_ w: ScannedRoom.Wall) -> ScannedRoom.Point {
+            let l = max(w.lengthFt, 1e-9)
+            return .init(x: (w.end.x - w.start.x) / l, y: (w.end.y - w.start.y) / l)
+        }
+        /// The strip of a wall's face from `p` running `n` for `width`,
+        /// facing `into`, on the face of the wall (drawn as thick as it is).
+        func faceStrip(_ wall: ScannedRoom.Wall, at p: ScannedRoom.Point, n: ScannedRoom.Point,
+                       into: ScannedRoom.Point, width: Double) -> (ScannedRoom.Point, ScannedRoom.Point) {
+            let u = unit(wall)
+            var wn = ScannedRoom.Point(x: -u.y, y: u.x)
+            if wn.x * into.x + wn.y * into.y < 0 { wn = .init(x: -wn.x, y: -wn.y) }
+            let off = (p.x - wall.start.x) * wn.x + (p.y - wall.start.y) * wn.y
+            let shift = max(0, Self.drawnThicknessFt(wall) / 2 - off)
+            return (.init(x: p.x + n.x * width / 2 + wn.x * shift, y: p.y + n.y * width / 2 + wn.y * shift), wn)
+        }
+        for side in openSides(in: room) {
+            let l = max(side.lengthFt, 1e-9)
+            let u = ScannedRoom.Point(x: (side.b.x - side.a.x) / l, y: (side.b.y - side.a.y) / l)
+            var n = ScannedRoom.Point(x: -u.y, y: u.x)
+            let mid = ScannedRoom.Point(x: (side.a.x + side.b.x) / 2, y: (side.a.y + side.b.y) / 2)
+            if (mid.x - center.x) * n.x + (mid.y - center.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+            for (corner, wall, into) in [(side.a, side.startWall, u), (side.b, side.endWall, ScannedRoom.Point(x: -u.x, y: -u.y))] {
+                guard let wall else { continue }
+                let name = sideName(corner, entry: (side.a, side.b), center: center)
+                var key = "jamb:\(name)", k = 2
+                while used.contains(key) { key = "jamb:\(name):\(k)"; k += 1 }
+                used.insert(key)
+                func add(_ key: String, _ s: (ScannedRoom.Point, ScannedRoom.Point), _ width: Double, _ lo: Double, _ hi: Double) {
+                    guard hi - lo > 0.01 else { return }
+                    out.append(JambFace(key: key, center: s.0, facing: s.1, widthFt: width, bottomFt: lo, topFt: hi))
+                }
+                if room.isKneeWall(wall) {
+                    let t = Self.drawnThicknessFt(wall)
+                    let wu = unit(wall)
+                    let face = Self.meetsFace(of: wall, corner: corner)
+                    // Lower: on its face above the curb's end, or its end.
+                    if face {
+                        add("\(key):lower", faceStrip(wall, at: corner, n: n, into: into, width: curbWidthFt), curbWidthFt, curb, wall.heightFt)
+                    } else {
+                        // Its end at the corner: the end face, looking out along it.
+                        let atStart = hypot(corner.x - wall.start.x, corner.y - wall.start.y) < hypot(corner.x - wall.end.x, corner.y - wall.end.y)
+                        let e = atStart ? wall.start : wall.end
+                        let d = atStart ? ScannedRoom.Point(x: -wu.x, y: -wu.y) : wu
+                        add("\(key):lower", (e, d), t, curb, wall.heightFt)
+                    }
+                    // Upper: on the wall it's attached to, above the cap.
+                    for atStart in [true, false] where !room.isFreeEnd(of: wall, start: atStart) {
+                        let q = atStart ? wall.start : wall.end
+                        let d = atStart ? wu : ScannedRoom.Point(x: -wu.x, y: -wu.y)   // toward its other end
+                        guard let back = room.walls.filter({ $0.id != wall.id && room.distanceToWall(q, $0) < 0.3 })
+                                .min(by: { room.distanceToWall(q, $0) < room.distanceToWall(q, $1) }) else { continue }
+                        let bu = unit(back)
+                        var bn = ScannedRoom.Point(x: -bu.y, y: bu.x)
+                        if bn.x * d.x + bn.y * d.y < 0 { bn = .init(x: -bn.x, y: -bn.y) }
+                        let off = (q.x - back.start.x) * bn.x + (q.y - back.start.y) * bn.y
+                        let shift = max(0, Self.drawnThicknessFt(back) / 2 - off)
+                        add("\(key):upper", (.init(x: q.x + bn.x * shift, y: q.y + bn.y * shift), bn), t, wall.heightFt, top)
+                        break
+                    }
+                    // Its free end, flush with the curb's outside.
+                    if face {
+                        for atStart in [true, false] where room.isFreeEnd(of: wall, start: atStart) {
+                            let kk = "kneeEnd:\(wall.id):\(atStart ? "start" : "end")"
+                            guard !used.contains(kk) else { continue }
+                            used.insert(kk)
+                            let e = atStart ? wall.start : wall.end
+                            let d = atStart ? ScannedRoom.Point(x: -wu.x, y: -wu.y) : wu
+                            add(kk, (e, d), t, 0, wall.heightFt)
+                        }
+                    }
+                } else if let bench = curbRun.benches.first(where: { $0.wallID == wall.id }) {
+                    let s = faceStrip(wall, at: corner, n: n, into: into, width: curbWidthFt)
+                    add("\(key):lower", s, curbWidthFt, curb, bench.heightIn / 12)
+                    add("\(key):upper", s, curbWidthFt, bench.heightIn / 12, top)
+                } else {
+                    add(key, faceStrip(wall, at: corner, n: n, into: into, width: curbWidthFt), curbWidthFt, curb, top)
+                }
+            }
+        }
+        return out
+    }
+
+    /// A strip on the underside of something, for drawing: a door's header
+    /// (the underside of the top of the doorway, as deep as the wall) and the
+    /// ceiling headers over the curb and half wall caps. `a`–`b` runs down
+    /// its middle at `heightFt`, facing down.
+    struct HeaderStrip: Equatable {
+        var key: String
+        var a: ScannedRoom.Point
+        var b: ScannedRoom.Point
+        var widthFt: Double
+        var heightFt: Double
+    }
+
+    /// Each shower door's jambs (the sides of the doorway, as deep as the
+    /// wall, from the curb up to the header) as `JambFace`s, and its header,
+    /// and the ceiling headers, keyed as `trimPieces` keys them.
+    func doorAndHeaderFaces(in room: ScannedRoom, curbHeightIn: Double, curbWidthFt: Double = 4.5 / 12)
+        -> (jambs: [JambFace], headers: [HeaderStrip]) {
+        let curb = curbless ? 0 : (self.curbHeightIn ?? curbHeightIn) / 12
+        let top = pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? room.ceilingFt
+        let floorMid: ScannedRoom.Point = floorRect.map { r in
+            let c = r.corners
+            return .init(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+        } ?? room.middle
+        var jambs: [JambFace] = []
+        var headers: [HeaderStrip] = []
+        for d in showerDoors(in: room) {
+            guard let w = d.wallID.flatMap({ room.wall($0) }), w.lengthFt > 0 else { continue }
+            let u = ScannedRoom.Point(x: (w.end.x - w.start.x) / w.lengthFt, y: (w.end.y - w.start.y) / w.lengthFt)
+            let s = room.span(of: d)
+            let lo = room.point(on: w, along: s.lowerBound), hi = room.point(on: w, along: s.upperBound)
+            let t = Self.drawnThicknessFt(w)
+            let wallTop = pieces.filter { $0.wallID == w.id }.map { $0.heightIn / 12 }.max() ?? top
+            let header = room.hasHeader(d)
+            let jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
+            for (p, facing) in [(lo, u), (hi, ScannedRoom.Point(x: -u.x, y: -u.y))] {
+                let name = sideName(p, entry: (lo, hi), center: floorMid)
+                if jambTop - curb > 0.01 {
+                    jambs.append(JambFace(key: "jamb:\(d.id):\(name)", center: p, facing: facing, widthFt: t,
+                                          bottomFt: curb, topFt: jambTop))
+                }
+            }
+            if header {
+                headers.append(HeaderStrip(key: "header:\(d.id)", a: lo, b: hi, widthFt: t, heightFt: d.bottomFt + d.heightFt))
+            }
+        }
+        if floor == .drawn, floorRect != nil {
+            let ceiling = room.ceilingFt
+            if !curbless {
+                for run in curbRuns(in: room, widthFt: curbWidthFt) where run.key == "curb" {
+                    // Over the curb's middle.
+                    let l = max(hypot(run.b.x - run.a.x, run.b.y - run.a.y), 1e-9)
+                    var n = ScannedRoom.Point(x: -(run.b.y - run.a.y) / l, y: (run.b.x - run.a.x) / l)
+                    let m = ScannedRoom.Point(x: (run.a.x + run.b.x) / 2, y: (run.a.y + run.b.y) / 2)
+                    if (m.x - floorMid.x) * n.x + (m.y - floorMid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+                    let o = curbWidthFt / 2
+                    headers.append(HeaderStrip(key: "header:ceiling", a: .init(x: run.a.x + n.x * o, y: run.a.y + n.y * o),
+                                               b: .init(x: run.b.x + n.x * o, y: run.b.y + n.y * o), widthFt: curbWidthFt, heightFt: ceiling))
+                }
+            } else {
+                for side in openSides(in: room) {
+                    headers.append(HeaderStrip(key: "header:ceiling", a: side.a, b: side.b, widthFt: curbWidthFt, heightFt: ceiling))
+                }
+            }
+            for w in room.walls where room.isKneeWall(w) && pieces.contains(where: { $0.wallID == w.id }) {
+                headers.append(HeaderStrip(key: "header:ceiling:\(w.id)", a: w.start, b: w.end,
+                                           widthFt: Self.drawnThicknessFt(w), heightFt: ceiling))
+            }
+        }
+        return (jambs, headers)
     }
 
     /// "left" or "right", as you stand outside the shower facing in.

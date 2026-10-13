@@ -50,28 +50,42 @@ struct AreaPricingSection: View {
 struct KneeWallSection: View {
     @Binding var rates: Rates
 
-    private func stone(_ item: StoneItem) -> Binding<StoneRate> {
-        Binding(get: { rates.stoneRate(item) }, set: { rates.setStoneRate($0, for: item) })
+    private func stone(_ part: StonePart) -> Binding<StoneRate> {
+        Binding(get: { rates.stoneRate(part) }, set: { rates.setStoneRate($0, for: part) })
     }
 
     private var defaults: Binding<ScanItemDefaults> { $rates.scanDefaults }
 
     var body: some View {
         Section {
-            ForEach(StoneItem.allCases, id: \.self) { item in
+            // Each group opens to its parts, each with its own install price
+            // (owner, 2026-10-13).
+            ForEach(StoneGroup.allCases) { group in
                 NavigationLink {
-                    StoneRateEditor(title: item.title, rate: stone(item))
+                    StoneGroupEditor(group: group, rates: $rates)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(item.title)
-                        Text(stoneSummary(rates.stoneRate(item))).font(.caption).foregroundStyle(.secondary)
+                        Text(group.title)
+                        Text(group.parts.map(\.title).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
+            cornerLink("Corner shelf", price: $rates.unitShelf, size: defaults.cornerShelfIn, height: defaults.cornerShelfHeightIn)
+            cornerLink("Corner footrest", price: $rates.unitFootrest, size: defaults.cornerFootrestIn, height: defaults.cornerFootrestHeightIn)
+            cornerLink("Corner bench", price: $rates.unitSeat, size: defaults.cornerSeatIn, height: defaults.cornerSeatHeightIn)
         } header: {
             Text("Stone pieces")
         } footer: {
-            Text("Curbs, caps, headers, jambs and bench tops and fronts are tile unless switched to stone on the plan; stone goes on its own line (still changeable on an estimate). Set a piece's usual width to price it by the square foot instead. A niche's or window's stone counts toward its own charge (below).")
+            Text("What it costs to install each stone piece. Every piece is tile unless switched to stone on the model; stone goes on one line per group (curb, wall, door…), each piece at its own price, still changeable on an estimate. Set a piece's usual width to price it by the square foot instead. Corner pieces are stone, each at their price.")
+        }
+
+        Section {
+            AmountRow(title: "Stone material, per sq ft", value: $rates.stoneMaterialPerSqft, prefix: "$")
+            Toggle("List stone material on its own line", isOn: $rates.stoneMaterialSeparate)
+        } header: {
+            Text("Stone material")
+        } footer: {
+            Text("Per square foot of stone: each piece's length × its usual width (pieces with no width set have none). Included in each stone line's price, or listed as one \"Stone pieces\" materials line when switched on.")
         }
 
         Section {
@@ -79,13 +93,10 @@ struct KneeWallSection: View {
             AmountRow(title: "Bench, per linear ft", value: $rates.benchPerLinFt, prefix: "$")
             AmountRow(title: "Niche minimum (each)", value: $rates.unitNiche, prefix: "$")
             AmountRow(title: "Window minimum (each)", value: $rates.unitWindow, prefix: "$")
-            AmountRow(title: "Corner shelf (each)", value: $rates.unitShelf, prefix: "$")
-            AmountRow(title: "Corner footrest (each)", value: $rates.unitFootrest, prefix: "$")
-            AmountRow(title: "Corner seat (each)", value: $rates.unitSeat, prefix: "$")
         } header: {
-            Text("Benches, niches, windows & corner pieces")
+            Text("Benches, niches & windows")
         } footer: {
-            Text("A bench placed on a scan is its length at the per-foot price, or the minimum if that's more. A stone niche or window is its stone at the niche or window stone price, or the minimum if that's more; in tile, the minimum. Corner shelves, footrests and seats are stone, each at their price.")
+            Text("A bench placed on a scan is its length at the per-foot price, or the minimum if that's more. A niche or window is its minimum, plus its stone parts at their Stone pieces prices.")
         }
 
         Section {
@@ -99,12 +110,6 @@ struct KneeWallSection: View {
             AmountRow(title: "Window width", value: defaults.windowWidthIn, suffix: "in")
             AmountRow(title: "Window height", value: defaults.windowHeightIn, suffix: "in")
             AmountRow(title: "Window off the floor", value: defaults.windowBottomIn, suffix: "in")
-            AmountRow(title: "Corner shelf size", value: defaults.cornerShelfIn, suffix: "in")
-            AmountRow(title: "Corner shelf height", value: defaults.cornerShelfHeightIn, suffix: "in")
-            AmountRow(title: "Corner footrest size", value: defaults.cornerFootrestIn, suffix: "in")
-            AmountRow(title: "Corner footrest height", value: defaults.cornerFootrestHeightIn, suffix: "in")
-            AmountRow(title: "Corner seat size", value: defaults.cornerSeatIn, suffix: "in")
-            AmountRow(title: "Corner seat height", value: defaults.cornerSeatHeightIn, suffix: "in")
         } header: {
             Text("Starting sizes on a scan")
         } footer: {
@@ -121,6 +126,57 @@ struct KneeWallSection: View {
         } footer: {
             Text("Jambs run from the curb to the top of the tile, or to the header over a shower door. A shower door starts at this size; drag it on the wall to change it, or to the ceiling for no header. A wall added on the plan starts at this thickness (4½″ is a 2×4 with backer board both sides).")
         }
+    }
+}
+
+extension KneeWallSection {
+    /// A corner piece under Stone pieces: its price each and its size.
+    func cornerLink(_ title: String, price: Binding<Double>, size: Binding<Double>, height: Binding<Double>) -> some View {
+        NavigationLink {
+            Form {
+                Section {
+                    AmountRow(title: "Price (each)", value: price, prefix: "$")
+                    AmountRow(title: "Size (along each wall)", value: size, suffix: "in")
+                    AmountRow(title: "Height off the floor", value: height, suffix: "in")
+                } footer: {
+                    Text("Stone, at this price each. It starts at this size and height when placed on a scan.")
+                }
+            }
+            .navigationTitle(title)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text("\(price.wrappedValue.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD").precision(.fractionLength(0...2)))) each · \(inchText(size.wrappedValue / 12))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// A stone group's parts, each with its install price (owner, 2026-10-13).
+struct StoneGroupEditor: View {
+    let group: StoneGroup
+    @Binding var rates: Rates
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(group.parts) { part in
+                    NavigationLink {
+                        StoneRateEditor(title: "\(group.title) \(part.title.lowercased())",
+                                        rate: Binding(get: { rates.stoneRate(part) }, set: { rates.setStoneRate($0, for: part) }))
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(part.title)
+                            Text(stoneSummary(rates.stoneRate(part))).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } footer: {
+                Text("What it costs to install each part in stone. On the estimate they add up on one \"\(group.line)\" line.")
+            }
+        }
+        .navigationTitle(group.title)
     }
 }
 
