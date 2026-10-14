@@ -2788,6 +2788,21 @@ struct PlanCanvas: View {
         }
     }
 
+    /// Whether a shower floor stays within the room's floor (its walls' lines).
+    private func fitsRoom(_ r: AreaTakeoff.FloorRect) -> Bool {
+        let outline = room.floorOutline
+        guard outline.count > 2 else { return true }
+        return r.corners.allSatisfy { p in
+            if AreaTakeoff.inside(outline, p) { return true }
+            return outline.indices.contains { i in
+                let a = outline[i], b = outline[(i + 1) % outline.count]
+                let dx = b.x - a.x, dy = b.y - a.y, l2 = max(dx * dx + dy * dy, 1e-12)
+                let t = min(max(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0), 1)
+                return hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t)) < 0.03
+            }
+        }
+    }
+
     /// Entering a catch: a light tick and a green flash where it caught
     /// (owner's call, 2026-10-08, so an unwanted catch is plain to see).
     private func cue(_ isCaught: Bool, at p: ScannedRoom.Point?) {
@@ -3068,8 +3083,16 @@ struct PlanCanvas: View {
             guard let start = steerFloor, let binding = floorRect else { return }
             let a = Steering.sixteenth(steered.x * start.u.x + steered.y * start.u.y)
             let b = Steering.sixteenth(steered.x * start.v.x + steered.y * start.v.y)
-            binding.wrappedValue?.origin = .init(x: start.origin.x + start.u.x * a + start.v.x * b,
-                                                 y: start.origin.y + start.u.y * a + start.v.y * b)
+            // Kept inside the room (owner, 2026-10-14: a floor dragged past the
+            // walls showed outside the room in 3-D): each way on its own if
+            // both won't fit.
+            for (da, db) in [(a, b), (a, 0), (0, b)] {
+                var moved = start
+                moved.origin = .init(x: start.origin.x + start.u.x * da + start.v.x * db,
+                                     y: start.origin.y + start.u.y * da + start.v.y * db)
+                // (A floor already past the walls, e.g. a rough scan, moves freely.)
+                if fitsRoom(moved) || !fitsRoom(start) { binding.wrappedValue = moved; break }
+            }
             shown = binding.wrappedValue?.center
         case .floorEdge(let axis, let near):
             guard let start = steerFloor, let binding = floorRect else { return }
@@ -3088,12 +3111,21 @@ struct PlanCanvas: View {
                 length = c
             }
             cue(abs(length - free) > 1e-9, at: .init(x: anchor.x + out.x * length, y: anchor.y + out.y * length))
-            var updated = start
-            if axis == .u { updated.widthFt = length } else { updated.depthFt = length }
-            if near {
-                updated.origin = .init(x: start.origin.x - dir.x * (length - old), y: start.origin.y - dir.y * (length - old))
+            func sized(_ length: Double) -> AreaTakeoff.FloorRect {
+                var updated = start
+                if axis == .u { updated.widthFt = length } else { updated.depthFt = length }
+                if near {
+                    updated.origin = .init(x: start.origin.x - dir.x * (length - old), y: start.origin.y - dir.y * (length - old))
+                }
+                return updated
             }
-            binding.wrappedValue = updated
+            // Not past the walls: back to the furthest that still fits.
+            if fitsRoom(start), !fitsRoom(sized(length)), length > old {
+                var lo = old, hi = length
+                for _ in 0..<30 { let mid = (lo + hi) / 2; if fitsRoom(sized(mid)) { lo = mid } else { hi = mid } }
+                length = (lo * 192).rounded(.down) / 192
+            }
+            binding.wrappedValue = sized(max(1.0 / 12, length))
             shown = .init(x: anchor.x + out.x * length, y: anchor.y + out.y * length)
         case .drain:
             guard let start = steerDrain, let r = floorRect?.wrappedValue, let binding = drain else { return }

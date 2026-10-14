@@ -2348,6 +2348,54 @@ extension ScannedRoom {
         return found
     }
 
+    /// The end of a narrow room or a long alcove (owner, 2026-10-14: a shower
+    /// across the end of a sketched room came out as a corner shower): a back
+    /// wall with a side wall square to it at each end, 2½–6′ apart, running
+    /// out past the tap. The shower goes wall to wall across it.
+    func roomEnd(around p: Point) -> (origin: Point, u: Point, v: Point, widthFt: Double, reachFt: Double)? {
+        let a = squaringAngle
+        let dirs = [Point(x: cos(a), y: sin(a)), Point(x: -sin(a), y: cos(a)),
+                    Point(x: -cos(a), y: -sin(a)), Point(x: sin(a), y: -cos(a))]
+        func dot(_ q: Point, _ r: Point) -> Double { q.x * r.x + q.y * r.y }
+        func hit(_ d: Point) -> (wall: Wall, t: Double)? {
+            var best: (Wall, Double)?
+            for w in walls where w.lengthFt > 0.1 && !isKneeWall(w) {
+                let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+                let den = d.x * ey - d.y * ex
+                guard abs(den) > 1e-9 else { continue }
+                let qx = w.start.x - p.x, qy = w.start.y - p.y
+                let t = (qx * ey - qy * ex) / den
+                let s = (qx * d.y - qy * d.x) / den
+                guard t > 1e-6, s >= -0.02, s <= 1.02, t < (best?.1 ?? .infinity) else { continue }
+                best = (w, t)
+            }
+            return best.map { ($0.0, $0.1) }
+        }
+        func unit(_ w: Wall) -> Point {
+            let l = max(w.lengthFt, 1e-9)
+            return .init(x: (w.end.x - w.start.x) / l, y: (w.end.y - w.start.y) / l)
+        }
+        let hits = dirs.map(hit)
+        var best: (origin: Point, u: Point, v: Point, widthFt: Double, reachFt: Double)?
+        for k in 0..<4 {
+            let back = dirs[k], s1 = dirs[(k + 1) % 4], s2 = dirs[(k + 3) % 4], out = dirs[(k + 2) % 4]
+            guard let hb = hits[k], let h1 = hits[(k + 1) % 4], let h2 = hits[(k + 3) % 4] else { continue }
+            guard abs(dot(unit(hb.wall), back)) < 0.3, abs(dot(unit(h1.wall), back)) > 0.9,
+                  abs(dot(unit(h2.wall), back)) > 0.9 else { continue }
+            let width = h1.t + h2.t
+            guard width >= 2.5, width <= 6, hb.t < 6 else { continue }
+            let b = Point(x: p.x + back.x * hb.t, y: p.y + back.y * hb.t)
+            // How far the room runs out from the back wall (to the far wall, or the sides' ends).
+            let far = hits[(k + 2) % 4].map { $0.t + hb.t } ?? 10
+            guard far > 3 else { continue }
+            // Nearest back wall wins.
+            if let f = best, dot(Point(x: f.origin.x - p.x, y: f.origin.y - p.y), back) <= hb.t { continue }
+            let origin = Point(x: b.x + s1.x * h1.t, y: b.y + s1.y * h1.t)
+            best = (origin, s2, out, width, far)
+        }
+        return best
+    }
+
     /// Inside corners of the room, where two scanned walls meet: the corner
     /// and the direction along each wall away from it.
     func insideCorners() -> [(at: Point, a: Point, b: Point)] {
@@ -2400,6 +2448,15 @@ extension AreaTakeoff {
             coveDepthFt = cove.depthFt
             floorRect = FloorRect(origin: cove.origin, u: cove.u, v: cove.v, widthFt: cove.widthFt,
                                   depthFt: curbless ? cove.depthFt : max(1, cove.depthFt - curbWidthFt))
+            tileWallsAroundFloor(in: room)
+            return true
+        }
+        // The end of a narrow room: wall to wall, 48″ deep (a corner shower's depth).
+        if let end = room.roomEnd(around: tap) {
+            floor = .drawn
+            coveDepthFt = nil
+            floorRect = FloorRect(origin: end.origin, u: end.u, v: end.v, widthFt: end.widthFt,
+                                  depthFt: min(4, max(1, end.reachFt - 3)))
             tileWallsAroundFloor(in: room)
             return true
         }
@@ -2574,7 +2631,46 @@ extension AreaTakeoff {
         tileWallsAroundFloor(in: room)
     }
 
+    /// A floor edge let go within reach of a wall (the 0.4′ that counts as
+    /// against it) goes the rest of the way, so a three-wall shower's floor
+    /// is tight to all three (owner, 2026-10-14).
+    mutating func snapFloorToWalls(in room: ScannedRoom) {
+        guard floor == .drawn, var r = floorRect else { return }
+        func gap(along a: ScannedRoom.Point, _ b: ScannedRoom.Point, out n: ScannedRoom.Point) -> Double? {
+            let len = max(hypot(b.x - a.x, b.y - a.y), 1e-9)
+            let u = ScannedRoom.Point(x: (b.x - a.x) / len, y: (b.y - a.y) / len)
+            var best: Double?
+            // The room's own walls (a wall drawn in on the curb stands over the curb, not the floor).
+            for w in room.walls where w.lengthFt > 0.1 && !w.planned {
+                let wl = w.lengthFt
+                guard abs(((w.end.x - w.start.x) * u.x + (w.end.y - w.start.y) * u.y) / wl) > 0.95 else { continue }
+                let g = (w.start.x - a.x) * n.x + (w.start.y - a.y) * n.y
+                guard g > 0.005, g < 0.4 else { continue }
+                // Running along most of the edge.
+                let t0 = (w.start.x - a.x) * u.x + (w.start.y - a.y) * u.y, t1 = (w.end.x - a.x) * u.x + (w.end.y - a.y) * u.y
+                let overlap = min(len, max(t0, t1)) - max(0, min(t0, t1))
+                guard overlap > min(1, len / 2) else { continue }
+                best = min(best ?? g, g)
+            }
+            return best
+        }
+        let c = r.corners
+        // Edge along u at the origin (out: −v), and the far one (out: +v).
+        if let g = gap(along: c[0], c[1], out: .init(x: -r.v.x, y: -r.v.y)) {
+            r.origin = .init(x: r.origin.x - r.v.x * g, y: r.origin.y - r.v.y * g); r.depthFt += g
+        }
+        if let g = gap(along: c[3], c[2], out: r.v) { r.depthFt += g }
+        // Edge along v at the origin (out: −u), and the far one (out: +u).
+        let c2 = r.corners
+        if let g = gap(along: c2[0], c2[3], out: .init(x: -r.u.x, y: -r.u.y)) {
+            r.origin = .init(x: r.origin.x - r.u.x * g, y: r.origin.y - r.u.y * g); r.widthFt += g
+        }
+        if let g = gap(along: c2[1], c2[2], out: r.u) { r.widthFt += g }
+        floorRect = r
+    }
+
     mutating func tileWallsAroundFloor(in room: ScannedRoom) {
+        snapFloorToWalls(in: room)
         guard floor == .drawn, let r = floorRect else { return }
         let c = r.corners
         var kept: [Piece] = pieces.filter { room.wall($0.wallID)?.planned == true }

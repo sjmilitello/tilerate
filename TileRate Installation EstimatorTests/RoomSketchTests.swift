@@ -452,3 +452,63 @@ struct NicheBackStoneTests {
         #expect(line?.unit == "sq ft" && line?.qty == 2 && line?.rate == 60)
     }
 }
+
+struct RoomEndShowerTests {
+    /// A shower across the end of a narrow room goes wall to wall (owner,
+    /// 2026-10-14: it came out as a corner shower).
+    @Test func aNarrowRoomsEndIsFilledWallToWall() throws {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 64.5, depthIn: 105.5, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        let placed = t.placeShower(near: .init(x: 2.5, y: 8), in: room, curbWidthFt: 4.5 / 12)
+        #expect(placed)
+        let r = try #require(t.floorRect)
+        #expect(abs(r.widthFt - 64.5 / 12) < 1e-9)          // wall to wall
+        #expect(abs(r.depthFt - 4) < 1e-9)                  // 48″ deep
+        // Inside the room, against the far end wall.
+        for c in r.corners {
+            #expect(c.x > -1e-9 && c.x < 64.5 / 12 + 1e-9 && c.y > -1e-9 && c.y < 105.5 / 12 + 1e-9)
+        }
+        #expect(r.corners.contains { abs($0.y - 105.5 / 12) < 1e-9 })
+        // Three walls tiled; one curb across the open side.
+        #expect(Set(t.pieces.map(\.wallID)).count == 3)
+        #expect(t.curbEdges(in: room).count == 1)
+    }
+
+    @Test func aWideRoomStillGetsACornerShower() throws {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let r = try #require(t.floorRect)
+        #expect(abs(r.widthFt - 4) < 1e-9 && abs(r.depthFt - 4) < 1e-9)
+    }
+}
+
+struct FloorSnapToWallTests {
+    /// A corner shower's curb dragged to a few inches short of the far wall
+    /// snaps the floor to it: a three-wall shower, tight to all three
+    /// (owner, 2026-10-14).
+    @Test func aCurbLetGoNearAWallSnapsTheFloorToIt() throws {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 64.5, depthIn: 105.5, ceilingIn: 96))
+        for shortIn in [1.0, 3.0, 4.5] {
+            var t = AreaTakeoff()
+            t.floor = .drawn
+            let c = room.walls.first { $0.label == "B" }!.end
+            t.floorRect = .init(origin: c, u: .init(x: -1, y: 0), v: .init(x: 0, y: -1), widthFt: 4, depthFt: 4)
+            t.tileWallsAroundFloor(in: room)
+            t.floorRect?.widthFt = (64.5 - shortIn) / 12
+            t.tileWallsAroundFloor(in: room)
+            let r = try #require(t.floorRect)
+            #expect(abs(r.widthFt - 64.5 / 12) < 1e-9)
+            #expect(t.openSides(in: room).count == 1 && Set(t.pieces.map(\.wallID)).count == 3)
+        }
+        // 6″ short: still a corner shower, left as it is.
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        let c = room.walls.first { $0.label == "B" }!.end
+        t.floorRect = .init(origin: c, u: .init(x: -1, y: 0), v: .init(x: 0, y: -1), widthFt: (64.5 - 6) / 12, depthFt: 4)
+        t.tileWallsAroundFloor(in: room)
+        #expect(abs(t.floorRect!.widthFt - 58.5 / 12) < 1e-9 && t.openSides(in: room).count == 2)
+    }
+}

@@ -879,6 +879,16 @@ sit on another wall's letter. `WallLetteringTests`.
   that far past a wall's line. Showers filled into a cove before are
   deepened to match when opened (`fitCove`). A tub in the cove doesn't matter (a conversion). Anywhere else,
   48″ × 48″ in the nearest inside corner (no longer the last size, or 60″ × 36″).
+  The end of a narrow room or a long alcove (a back wall with a side wall
+  square to it at each end, 2½–6′ apart, `ScannedRoom.roomEnd`; owner,
+  2026-10-14) gets a shower wall to wall across it, 48″ deep. A dragged
+  shower floor stays inside the room's floor (`ScanEditor.fitsRoom`: a
+  move tries each way alone, an edge stops at the wall); one already past
+  the walls moves freely. An edge let go within 0.4′ (≈4¾″) of one of the room's walls — the
+  reach that counts as against it — snaps the rest of the way
+  (`snapFloorToWalls`, in `tileWallsAroundFloor`), so a corner shower whose
+  curb is dragged to the far wall becomes a three-wall shower tight to all
+  three; walls drawn in (e.g. on the curb) aren't snapped to.
 - **The curb** is drawn (plan and 3-D) just outside the floor's open sides,
   always 4½″ wide (`StonePrices.curbWidthFt`; Admin's stone curb width is the
   stone on top, which overhangs the curb, so it isn't used for this;
