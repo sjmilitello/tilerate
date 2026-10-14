@@ -524,6 +524,7 @@ extension AreaTakeoff {
     func wallsSqft(in room: ScannedRoom) -> Double {
         // Tile on a wall that's since been deleted doesn't count; tile on benches does.
         pieces.filter { room.wall($0.wallID) != nil }.reduce(0) { $0 + sqft(of: $1, in: room) } + benchTileSqft(in: room)
+            + soffitTileSqft(in: room)
     }
 
     func floorSqft(in room: ScannedRoom) -> Double {
@@ -1235,7 +1236,9 @@ extension AreaTakeoff {
         let curb = curbless ? 0 : (self.curbHeightIn ?? curbHeightIn) / 12
         let ceiling = room.ceilingFt
         // The top of the tile: this area's tallest tile on full walls, else the ceiling.
-        let top = pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? ceiling
+        // A header dropped over the curb: the entry jambs stop at its underside.
+        let top = min(pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? ceiling,
+                      entryHeaderBottom(in: room) ?? .infinity)
         let kneeWalls = room.walls.filter { w in room.isKneeWall(w) && pieces.contains { $0.wallID == w.id } }
 
         if area == .shower, floor == .drawn, let r = floorRect {
@@ -1296,8 +1299,11 @@ extension AreaTakeoff {
             // cap, framing the ceiling tile, so glass can later sit between it
             // and the curb or cap (owner, 2026-10-13). Tile means none; priced
             // like a door header.
-            if width > 0 { out.append(("header:ceiling", .cap, "Ceiling header (over the curb)", width)) }
-            for w in kneeWalls { out.append(("header:ceiling:\(w.id)", .cap, "Ceiling header (over half wall \(w.label))", w.lengthFt)) }
+            let dropped = Set(soffits.map(\.over))
+            if width > 0, !dropped.contains("curb") { out.append(("header:ceiling", .cap, "Ceiling header (over the curb)", width)) }
+            for w in kneeWalls where !dropped.contains("cap:\(w.id.uuidString)") {
+                out.append(("header:ceiling:\(w.id)", .cap, "Ceiling header (over half wall \(w.label))", w.lengthFt))
+            }
         }
         if area == .shower {
             // Each door opening in a wall this shower tiles: a curb across
@@ -1311,7 +1317,8 @@ extension AreaTakeoff {
                 let label = "door in " + wallName.prefix(1).lowercased() + wallName.dropFirst()
                 let wallTop = pieces.filter { $0.wallID == w.id }.map { $0.heightIn / 12 }.max() ?? top
                 let header = room.hasHeader(d)
-                let jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
+                var jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
+                if let sf = soffits.first(where: { $0.over == "door:\(d.id.uuidString)" }) { jambTop = min(jambTop, room.ceilingFt - sf.dropIn / 12) }
                 if !curbless {
                     out.append(("curb:\(d.id)", .curb, "Curb (\(label))", width))
                     out.append(("curb:\(d.id):inside", .curb, "Curb inside face (\(label))", width))
@@ -1328,6 +1335,15 @@ extension AreaTakeoff {
                 for start in [true, false] where room.isFreeEnd(of: w, start: start) {
                     out.append(("jamb:\(w.id):\(start ? "start" : "end")", .jamb, "Half wall \(w.label) end jamb", w.heightFt))
                 }
+            }
+        }
+        // Each dropped header's underside (owner, 2026-10-13).
+        if area == .shower {
+            for sf in soffits {
+                let len = soffitLengthFt(sf, in: room)
+                guard len > 0 else { continue }
+                let name = soffitTargets(in: room).first { $0.over == sf.over }?.name.lowercased() ?? "the shower"
+                out.append(("soffit:\(sf.id.uuidString)", .cap, "Header \(name)", len))
             }
         }
         // Each bench's top, and a framed bench's front.
@@ -1390,7 +1406,7 @@ extension AreaTakeoff {
         case .curb:
             return key.hasSuffix(":inside") ? .curbInside : key.hasSuffix(":outside") ? .curbOutside : .curbTop
         case .cap:
-            if key.hasPrefix("header:ceiling") { return .ceilingHeader }
+            if key.hasPrefix("header:ceiling") || key.hasPrefix("soffit:") { return .ceilingHeader }
             if key.hasPrefix("header:") { return .doorHeader }
             return .wallCap
         case .jamb:
@@ -1629,6 +1645,96 @@ extension AreaTakeoff {
         return (out, benches.filter { stopped.contains($0.id) })
     }
 
+    /// Where a header (soffit) runs, in plan: along the middle of what it's
+    /// over — the curb, a half wall, or a doorway in its wall — and its width.
+    func soffitLines(_ s: Soffit, in room: ScannedRoom, curbWidthFt: Double = 4.5 / 12)
+        -> [(a: ScannedRoom.Point, b: ScannedRoom.Point, widthFt: Double)] {
+        let parts = s.over.split(separator: ":").map(String.init)
+        switch parts.first {
+        case "curb":
+            // Over every curb run (a corner shower's two meet at its outside corner).
+            guard !curbless, let r = floorRect else { return [] }
+            let c = r.corners
+            let mid = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
+            return curbRuns(in: room, widthFt: curbWidthFt).filter { $0.key == "curb" }.map { run in
+                let l = max(hypot(run.b.x - run.a.x, run.b.y - run.a.y), 1e-9)
+                var n = ScannedRoom.Point(x: -(run.b.y - run.a.y) / l, y: (run.b.x - run.a.x) / l)
+                let m = ScannedRoom.Point(x: (run.a.x + run.b.x) / 2, y: (run.a.y + run.b.y) / 2)
+                if (m.x - mid.x) * n.x + (m.y - mid.y) * n.y < 0 { n = .init(x: -n.x, y: -n.y) }
+                let o = curbWidthFt / 2
+                return (.init(x: run.a.x + n.x * o, y: run.a.y + n.y * o), .init(x: run.b.x + n.x * o, y: run.b.y + n.y * o), curbWidthFt)
+            }
+        case "cap":
+            guard parts.count > 1, let w = room.walls.first(where: { $0.id.uuidString == parts[1] }) else { return [] }
+            return [(w.start, w.end, Self.drawnThicknessFt(w))]
+        case "door":
+            guard parts.count > 1, let d = room.openings.first(where: { $0.id.uuidString == parts[1] }),
+                  let w = d.wallID.flatMap({ room.wall($0) }) else { return [] }
+            let sp = room.span(of: d)
+            return [(room.point(on: w, along: sp.lowerBound), room.point(on: w, along: sp.upperBound), Self.drawnThicknessFt(w))]
+        default:
+            return []
+        }
+    }
+
+    /// A header's total length over everything it's over.
+    func soffitLengthFt(_ s: Soffit, in room: ScannedRoom) -> Double {
+        soffitLines(s, in: room).reduce(0) { $0 + hypot($1.b.x - $1.a.x, $1.b.y - $1.a.y) }
+    }
+
+    /// What a header can go over in this area: the curb, each half wall,
+    /// each doorway — with a name each, and whether one's already there.
+    func soffitTargets(in room: ScannedRoom) -> [(over: String, name: String)] {
+        var out: [(String, String)] = []
+        if floor == .drawn, floorRect != nil, !curbless, !curbSides(in: room).stretches.isEmpty { out.append(("curb", "Over the curb")) }
+        for w in room.walls where room.isKneeWall(w) && pieces.contains(where: { $0.wallID == w.id }) {
+            out.append(("cap:\(w.id.uuidString)", "Over half wall \(w.label)"))
+        }
+        for d in showerDoors(in: room) {
+            let wallName = d.wallID.flatMap { room.wall($0) }.map { room.name(of: $0) } ?? "wall"
+            out.append(("door:\(d.id.uuidString)", "Over the door in \(wallName.prefix(1).lowercased() + wallName.dropFirst())"))
+        }
+        return out
+    }
+
+    /// Tile on headers: their faces, and their underside unless it's stone.
+    func soffitTileSqft(in room: ScannedRoom) -> Double {
+        soffits.reduce(0) { sum, s in
+            let stone = isStoneChoice("soffit:\(s.id.uuidString)")
+            return sum + soffitLines(s, in: room).reduce(0) { t, line in
+                t + hypot(line.b.x - line.a.x, line.b.y - line.a.y) * (2 * s.dropIn / 12 + (stone ? 0 : line.widthFt))
+            }
+        }
+    }
+
+    /// Headers as drawn in 3-D: where each runs, its width, bottom and top,
+    /// and its underside's stone key.
+    struct SoffitBox: Equatable {
+        var a: ScannedRoom.Point
+        var b: ScannedRoom.Point
+        var widthFt: Double
+        var bottomFt: Double
+        var topFt: Double
+        var key: String
+    }
+
+    func soffitBoxes(in room: ScannedRoom, curbWidthFt: Double = 4.5 / 12) -> [SoffitBox] {
+        soffits.flatMap { s in
+            soffitLines(s, in: room, curbWidthFt: curbWidthFt).map { l in
+                SoffitBox(a: l.a, b: l.b, widthFt: l.widthFt, bottomFt: room.ceilingFt - s.dropIn / 12,
+                          topFt: room.ceilingFt, key: "soffit:\(s.id.uuidString)")
+            }
+        }
+    }
+
+    /// The owner's stone choice for a piece by key (no measuring).
+    func isStoneChoice(_ key: String) -> Bool { trim.first { $0.key == key }?.stone ?? false }
+
+    /// The lowest header bottom over the entry (the curb): the jambs stop there.
+    func entryHeaderBottom(in room: ScannedRoom) -> Double? {
+        soffits.filter { $0.over == "curb" }.map { room.ceilingFt - $0.dropIn / 12 }.min()
+    }
+
     /// Whether the entry, at this corner, meets the wall's face rather than
     /// its end: the wall carries on past the corner (a half wall put on a
     /// corner shower's curb runs the curb's width past it), instead of ending
@@ -1668,7 +1774,8 @@ extension AreaTakeoff {
     func jambFaces(in room: ScannedRoom, curbHeightIn: Double, curbWidthFt: Double = 4.5 / 12) -> [JambFace] {
         guard floor == .drawn, let r = floorRect else { return [] }
         let curb = curbless ? 0 : (self.curbHeightIn ?? curbHeightIn) / 12
-        let top = pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? room.ceilingFt
+        let top = min(pieces.filter { room.wall($0.wallID)?.planned == false }.map { $0.heightIn / 12 }.max() ?? room.ceilingFt,
+                      entryHeaderBottom(in: room) ?? .infinity)
         let c = r.corners
         let center = ScannedRoom.Point(x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2)
         let curbRun = curbSides(in: room)
@@ -1789,7 +1896,8 @@ extension AreaTakeoff {
             let t = Self.drawnThicknessFt(w)
             let wallTop = pieces.filter { $0.wallID == w.id }.map { $0.heightIn / 12 }.max() ?? top
             let header = room.hasHeader(d)
-            let jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
+            var jambTop = header ? min(d.bottomFt + d.heightFt, wallTop) : wallTop
+            if let sf = soffits.first(where: { $0.over == "door:\(d.id.uuidString)" }) { jambTop = min(jambTop, room.ceilingFt - sf.dropIn / 12) }
             for (p, facing) in [(lo, u), (hi, ScannedRoom.Point(x: -u.x, y: -u.y))] {
                 let name = sideName(p, entry: (lo, hi), center: floorMid)
                 if jambTop - curb > 0.01 {
@@ -1803,7 +1911,8 @@ extension AreaTakeoff {
         }
         if floor == .drawn, floorRect != nil {
             let ceiling = room.ceilingFt
-            if !curbless {
+            let dropped = Set(soffits.map(\.over))
+            if !curbless, !dropped.contains("curb") {
                 for run in curbRuns(in: room, widthFt: curbWidthFt) where run.key == "curb" {
                     // Over the curb's middle.
                     let l = max(hypot(run.b.x - run.a.x, run.b.y - run.a.y), 1e-9)
@@ -1819,7 +1928,8 @@ extension AreaTakeoff {
                     headers.append(HeaderStrip(key: "header:ceiling", a: side.a, b: side.b, widthFt: curbWidthFt, heightFt: ceiling))
                 }
             }
-            for w in room.walls where room.isKneeWall(w) && pieces.contains(where: { $0.wallID == w.id }) {
+            for w in room.walls where room.isKneeWall(w) && pieces.contains(where: { $0.wallID == w.id })
+                && !dropped.contains("cap:\(w.id.uuidString)") {
                 headers.append(HeaderStrip(key: "header:ceiling:\(w.id)", a: w.start, b: w.end,
                                            widthFt: Self.drawnThicknessFt(w), heightFt: ceiling))
             }
@@ -2399,6 +2509,27 @@ extension AreaTakeoff {
     /// The scanned walls the shower floor stands against, tiled along the
     /// floor's sides: each keeps the height its tile had (else the top of the
     /// wall); walls drawn in and other walls' tile are left alone.
+    /// Wall tile that stops at the shower floor's corner where the entry
+    /// is runs on to the curb's outside edge (owner, 2026-10-13): for showers
+    /// placed before that rule, so opening one brings it up to date. A piece
+    /// already past the corner is left as it is.
+    mutating func extendTileToCurb(in room: ScannedRoom, curbWidthFt: Double = 4.5 / 12) {
+        guard !curbless, floor == .drawn, floorRect != nil else { return }
+        for side in openSides(in: room) {
+            for (corner, wall) in [(side.a, side.startWall), (side.b, side.endWall)] {
+                guard let wall, !wall.planned else { continue }
+                let along = room.along(corner, on: wall)
+                for i in pieces.indices where pieces[i].wallID == wall.id {
+                    if abs(pieces[i].fromFt - along) < 0.15, pieces[i].toFt > along {
+                        pieces[i].fromFt = max(0, along - curbWidthFt)
+                    } else if abs(pieces[i].toFt - along) < 0.15, pieces[i].fromFt < along {
+                        pieces[i].toFt = min(wall.lengthFt, along + curbWidthFt)
+                    }
+                }
+            }
+        }
+    }
+
     mutating func tileWallsAroundFloor(in room: ScannedRoom) {
         guard floor == .drawn, let r = floorRect else { return }
         let c = r.corners

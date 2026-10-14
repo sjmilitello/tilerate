@@ -1215,6 +1215,20 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
     var cutouts: [[ScannedRoom.Point]] = []
     /// Cabinets the scanner found were turned into "no tile" boxes, once.
     var scannedSkipsAdded: Bool = false
+    /// Headers dropped from the ceiling (soffits) over the curb, a half
+    /// wall's cap or a doorway (owner, 2026-10-13).
+    var soffits: [Soffit] = []
+
+    /// A header dropped from the ceiling, snapped over the curb, a half
+    /// wall's cap or a doorway: as wide as the curb (4½″), `dropIn` below the
+    /// ceiling. Its underside is the header (tile or stone); its inside and
+    /// outside faces are tile, and add to the walls.
+    struct Soffit: Identifiable, Codable, Hashable, Equatable {
+        var id = UUID()
+        /// What it's over: "curb", "cap:<wall id>" or "door:<opening id>".
+        var over: String = "curb"
+        var dropIn: Double = 6
+    }
 
     /// A shower drain: a 4″ square one, or a linear one. Kept in the floor's
     /// own terms, so it moves and turns with the floor.
@@ -1990,6 +2004,17 @@ extension AreaTakeoff {
         c.read(.floorOutline, into: &floorOutline)
         c.read(.cutouts, into: &cutouts)
         c.read(.scannedSkipsAdded, into: &scannedSkipsAdded)
+        c.read(.soffits, into: &soffits)
+    }
+}
+
+extension AreaTakeoff.Soffit {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.over, into: &over)
+        c.read(.dropIn, into: &dropIn)
     }
 }
 

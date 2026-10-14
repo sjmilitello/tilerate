@@ -61,6 +61,7 @@ extension Room3DContent {
                                    headers: other.area == .shower ? room.scan.map {
                                        t.doorAndHeaderFaces(in: $0, curbHeightIn: t.curbHeightIn ?? 4).headers
                                    } ?? [] : [],
+                                   soffits: other.area == .shower ? room.scan.map { t.soffitBoxes(in: $0) } ?? [] : [],
                                    curbHeightIn: t.curbHeightIn ?? 4,
                                    stoneParts: other.area == .shower ? room.scan.map { scan in
                                        Set(t.trimPieces(in: scan, area: other.area, curbHeightIn: t.curbHeightIn ?? 4).filter(\.stone).map(\.key))
@@ -628,6 +629,26 @@ enum Room3DScene {
             headerSets.append((doors.headers, c.stoneParts))
         }
         for o in c.others where !o.headers.isEmpty { headerSets.append((o.headers, o.stoneParts)) }
+        // Headers dropped from the ceiling (soffits): tile faces and ends, the
+        // underside tile or stone (owner, 2026-10-13).
+        var soffitSets: [(boxes: [AreaTakeoff.SoffitBox], stone: Set<String>, tile: TileChoice?)] = []
+        if c.area == .shower { soffitSets.append((c.takeoff.soffitBoxes(in: room, curbWidthFt: c.curbWidthFt), c.stoneParts, c.tile)) }
+        for o in c.others where !o.soffits.isEmpty { soffitSets.append((o.soffits, o.stoneParts, o.tile)) }
+        for set in soffitSets {
+            for b in set.boxes {
+                let len = hypot(b.b.x - b.a.x, b.b.y - b.a.y), h = b.topFt - b.bottomFt
+                guard len > 0.01, h > 0.01 else { continue }
+                let box = SCNBox(width: len, height: h, length: b.widthFt, chamferRadius: 0)
+                let face = tileMaterial(set.tile, widthFt: len, heightFt: h, x0: 0, y0: 0)
+                let end = tileMaterial(set.tile, widthFt: b.widthFt, heightFt: h, x0: 0, y0: 0)
+                let under = set.stone.contains(b.key) ? plain(stoneColor) : tileMaterial(set.tile, widthFt: len, heightFt: b.widthFt, x0: 0, y0: 0)
+                box.materials = [face, end, face, end, plain(UIColor(white: 0.9, alpha: 1)), under]
+                let n = SCNNode(geometry: box)
+                n.position = SCNVector3((b.a.x + b.b.x) / 2, (b.topFt + b.bottomFt) / 2, (b.a.y + b.b.y) / 2)
+                n.eulerAngles.y = Float(-atan2(b.b.y - b.a.y, b.b.x - b.a.x))
+                root.addChildNode(n)
+            }
+        }
         // Headers: a door's underside, and the ceiling headers, facing down.
         for set in headerSets {
             for h in set.strips where set.stone.contains(h.key) {

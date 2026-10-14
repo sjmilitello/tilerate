@@ -386,9 +386,21 @@ so a glass panel can later sit between): every open shower offers
 one over each half wall's cap (`header:ceiling:<id>`). Tile means none;
 stone is priced and lined as a door header (the cap & header price, "Stone
 header"/"Stone wall cap & header"). Drawn as a strip on the ceiling over
-the curb's middle (or the half wall), 4½″ wide. To come, after talking it
-through with the owner: drawing a header (a soffit) on the model, or one
-from a scan, with the stone on it.
+the curb's middle (or the half wall), 4½″ wide. **Dropped headers (soffits)** (owner's
+answers, 2026-10-13): Add a Wall → Header (drop from ceiling) → over the
+curb, a half wall or a doorway (`AreaTakeoff.soffits`, `Soffit`: `over` is
+"curb", "cap:<wall id>" or "door:<opening id>", `dropIn`, 6″ to start).
+Snapped over it: along the curb's middle — every curb run, so a corner
+shower's is L-shaped — or the half wall or the doorway, 4½″ wide
+(`soffitLines`). Its drop is set under Measure → Headers (chips or typed,
+Set when done). Tiled like a curb on all three sides — both faces and the
+underside add to the walls (`soffitTileSqft`); the underside can be stone
+(`soffit:<id>`, the Ceiling → Header part), and replaces the flat ceiling
+header over the same thing; the faces are tile (stone choices later, maybe).
+Jambs below stop at its underside (`entryHeaderBottom`, and per door), so
+glass can sit between it and the curb. Drawn in 3-D as a box down from the
+ceiling (`soffitBoxes`). RoomPlan doesn't find soffits, so a scanned one
+has to be added this way. `SoffitTests`.
 
 A half wall at the entry (owner's rules, 2026-10-13), told apart by
 whether it carries on past the entry's corner (`meetsFace`): a corner
@@ -639,8 +651,10 @@ back.
 Wall tile runs on past the shower floor to the curb's **outside edge**
 where the floor's edge at that corner is open (owner, 2026-10-13: "wall tile
 typically extends to the outside edge of the curb"; 4½″, none when
-curbless; `tileWallsAroundFloor`). Showers placed before keep their tile
-until the floor is moved or placed again.
+curbless; `tileWallsAroundFloor`). Showers placed before are brought up
+to date when the shower is opened (`extendTileToCurb`: a piece ending at
+the floor's corner where the entry is runs on by the curb's width; one
+already past it is left alone).
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width

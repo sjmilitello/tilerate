@@ -34,6 +34,7 @@ struct OtherAreaPieces: Equatable {
     /// Its entry jambs, drawn in stone when they are.
     var jambs: [AreaTakeoff.JambFace] = []
     var headers: [AreaTakeoff.HeaderStrip] = []
+    var soffits: [AreaTakeoff.SoffitBox] = []
     var curbHeightIn: Double = 4
     var stoneParts: Set<String> = []
 
@@ -334,7 +335,7 @@ struct ScanEditor: View {
                 return q
             }, floor: o.floor, curbless: o.curbless, tile: o.tile, floorTile: o.floorTile, wallTiles: o.wallTiles,
                roomFloor: o.roomFloor, floorOutline: o.floorOutline, floorHoles: o.floorHoles,
-               continuousFloors: o.continuousFloors, curbs: o.curbs, jambs: o.jambs, headers: o.headers, curbHeightIn: o.curbHeightIn,
+               continuousFloors: o.continuousFloors, curbs: o.curbs, jambs: o.jambs, headers: o.headers, soffits: o.soffits, curbHeightIn: o.curbHeightIn,
                stoneParts: o.stoneParts)
         }
     }
@@ -469,9 +470,10 @@ struct ScanEditor: View {
                             }
                             if editingWalls && mode == .measure {
                                 addWallMenu
+                                soffitPanel
                                 wallPanel.id("wall")
                             } else if usesWalls {
-                                if mode == .measure { addWallMenu }
+                                if mode == .measure { addWallMenu; soffitPanel }
                                 wallPanel.id("wall")
                             } else if let id = selectedWall, let w = room.wall(id), w.planned {
                                 // A floor: walls aren't tiled here, but one drawn in can be changed or deleted.
@@ -739,6 +741,7 @@ struct ScanEditor: View {
                     Button { show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
                     Button { show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
                     Button { show3D = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
+                    headerMenuItems
                 } label: {
                     Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
                         .font(.system(size: 16, weight: .semibold))
@@ -790,11 +793,76 @@ struct ScanEditor: View {
     }
 
     /// Add a Wall: full or half, then tap the curb or drag on the plan.
+    /// Add a header (soffit) over the curb, a half wall or a doorway (owner,
+    /// 2026-10-13): snapped over it, 6″ drop to start.
+    @ViewBuilder
+    private var headerMenuItems: some View {
+        if area == .shower {
+            let free = takeoff.soffitTargets(in: room).filter { t in !takeoff.soffits.contains { $0.over == t.over } }
+            if !free.isEmpty {
+                Menu {
+                    ForEach(free, id: \.over) { t in
+                        Button(t.name) {
+                            takeoff.soffits.append(.init(over: t.over, dropIn: 6))
+                            if wallsNext { wallAdded = true }
+                        }
+                    }
+                } label: { Label("Header (drop from ceiling)", systemImage: "rectangle.tophalf.filled") }
+            }
+        }
+    }
+
+    /// The shower's headers: how far each drops, its underside tile or stone,
+    /// and Remove.
+    @ViewBuilder
+    private var soffitPanel: some View {
+        if area == .shower, !takeoff.soffits.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Headers").font(.ndTitle(20))
+                ForEach(takeoff.soffits) { sf in
+                    let i = takeoff.soffits.firstIndex { $0.id == sf.id }!
+                    let name = takeoff.soffitTargets(in: room).first { $0.over == sf.over }?.name ?? "Header"
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(name).font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Button(role: .destructive) { takeoff.soffits.removeAll { $0.id == sf.id } } label: {
+                                Image(systemName: "trash")
+                            }
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach([4.0, 6, 8, 10, 12], id: \.self) { d in
+                                    let on = abs(sf.dropIn - d) < 0.01
+                                    Button { takeoff.soffits[i].dropIn = d } label: {
+                                        Text("\(Int(d))″ drop").font(.subheadline)
+                                            .padding(.horizontal, 12).padding(.vertical, 7)
+                                            .background(on ? Color.mint.opacity(0.3) : Color.white.opacity(0.08), in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        InchField(title: "Drop below the ceiling", inches: Binding(
+                            get: { takeoff.soffits.indices.contains(i) ? takeoff.soffits[i].dropIn : 6 },
+                            set: { v in if takeoff.soffits.indices.contains(i) { takeoff.soffits[i].dropIn = min(max(1, v), room.ceilingFt * 12 - 12) } }),
+                                  applyWhenDone: true)
+                            .frame(maxWidth: 200, alignment: .leading)
+                        Text("4½″ wide, tiled on its underside and both faces like a curb (the underside can be stone under Extras → Stone pieces → Ceiling). The jambs below stop at it.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+    }
+
     private var addWallMenu: some View {
         Menu {
             Button { show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
             Button { show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
-
+            headerMenuItems
         } label: {
             Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
         }

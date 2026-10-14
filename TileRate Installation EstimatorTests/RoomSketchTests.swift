@@ -321,3 +321,82 @@ struct StonePartPricingTests {
         #expect(!t.partStone(n, "dividers") && !t.partStone(n, "header"))
     }
 }
+
+/// A header dropped from the ceiling over the curb (owner, 2026-10-13).
+struct SoffitTests {
+    @Test func aHeaderOverTheCurbAddsTileStopsTheJambsAndPricesItsUnderside() throws {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let walls = t.wallsSqft(in: room)
+        let flat = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
+        #expect(flat.contains { $0.key == "header:ceiling" })
+        #expect(t.soffitTargets(in: room).contains { $0.over == "curb" })
+
+        t.soffits = [.init(over: "curb", dropIn: 6)]
+        let lines = t.soffitLines(t.soffits[0], in: room)
+        let len = t.soffitLengthFt(t.soffits[0], in: room)
+        // Over both curb runs of the corner shower (4′ + 4½″ and 4′), 4½″ wide.
+        #expect(lines.count == 2 && lines.allSatisfy { abs($0.widthFt - 4.5 / 12) < 1e-9 })
+        #expect(abs(len - (8 + 4.5 / 12)) < 1e-9)
+        // Tile: both 6″ faces and the 4½″ underside.
+        #expect(abs(t.wallsSqft(in: room) - walls - len * (1 + 4.5 / 12)) < 1e-9)
+        // Its underside replaces the flat ceiling header; the jambs stop at it.
+        let pieces = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
+        #expect(!pieces.contains { $0.key == "header:ceiling" })
+        let under = try #require(pieces.first { $0.key.hasPrefix("soffit:") })
+        #expect(under.part == .ceilingHeader && abs(under.lengthFt - len) < 1e-9)
+        for j in pieces where j.kind == .jamb { #expect(abs(j.lengthFt - (7.5 - 4.0 / 12)) < 1e-9) }
+        // Stone underside: off the tile, on the ceiling header line.
+        t.trim = [.init(key: under.key, stone: true)]
+        #expect(abs(t.wallsSqft(in: room) - walls - len) < 1e-9)
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
+        var prices = StonePrices()
+        prices.parts[.ceilingHeader] = StoneRate(perLinFt: 40)
+        t.apply(room, to: &s, prices: prices)
+        let header = try #require(s.additionsLabor.first { $0.activity == "Stone ceiling header" })
+        #expect(abs(header.amount - len * 40) < 0.25)   // quantity rounded to the hundredth
+    }
+
+    @Test func savedTakeoffsWithoutHeadersStillRead() throws {
+        var t = AreaTakeoff()
+        t.soffits = [.init(over: "curb", dropIn: 8)]
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(t)) as! [String: Any]
+        let back = try JSONDecoder().decode(AreaTakeoff.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(back.soffits.first?.dropIn == 8)
+        json.removeValue(forKey: "soffits")
+        let old = try JSONDecoder().decode(AreaTakeoff.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(old.soffits.isEmpty)
+    }
+}
+
+struct ExtendTileToCurbTests {
+    /// A shower placed before the rule has its wall tile brought out to the
+    /// curb's outside edge when opened, once (owner, 2026-10-13).
+    @Test func oldShowerTileReachesTheCurbOnce() {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let now = t.wallsSqft(in: room)
+        // As placed before: tile stops at the floor.
+        var old = t
+        for i in old.pieces.indices {
+            let len = old.pieces[i].toFt - old.pieces[i].fromFt - 4.5 / 12
+            if old.pieces[i].fromFt > 0 { old.pieces[i].fromFt += 4.5 / 12 } else { old.pieces[i].toFt = old.pieces[i].fromFt + len }
+        }
+        #expect(old.wallsSqft(in: room) < now)
+        old.extendTileToCurb(in: room)
+        #expect(abs(old.wallsSqft(in: room) - now) < 1e-9)
+        let once = old.pieces
+        old.extendTileToCurb(in: room)
+        #expect(old.pieces == once)
+        // Curbless: nothing changes.
+        var curbless = t
+        curbless.curbless = true
+        let before = curbless.pieces
+        curbless.extendTileToCurb(in: room)
+        #expect(curbless.pieces == before)
+    }
+}
