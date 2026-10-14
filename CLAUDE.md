@@ -1289,3 +1289,10 @@ The test target could not run from the March rename until 2026-09-26: its
 
 
 Stone is drawn as white marble everywhere (`StoneLook`, #E9E6E0; veined in 3-D; owner, 2026-10-14; a colour picker in Admin to talk about later).
+
+In 3-D a niche's stone parts are ¾″ slabs — back, jambs and header lining
+the opening, the sill lipping ½″ past the face, divider shelves ¾″ — so
+straight on their edges show as a frame (owner, 2026-10-14). A wall drawn
+as its face alone (the room's outside walls) has a grey footprint at the
+floor, so when it drops away the floor under its thickness doesn't show
+(it showed as a strip of floor tile behind a bench).

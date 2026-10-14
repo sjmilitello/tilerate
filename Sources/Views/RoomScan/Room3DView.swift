@@ -423,6 +423,17 @@ enum Room3DScene {
                     node.addChildNode(n)
                 }
             }
+            // Where a wall drawn as its face alone stands: its footprint, so
+            // with the wall dropped away (seen from outside) the floor under
+            // its thickness doesn't show — e.g. a strip behind a bench
+            // (owner, 2026-10-14).
+            if !solid {
+                let foot = SCNBox(width: x1 - x0, height: 0.03, length: t, chamferRadius: 0)
+                foot.firstMaterial = plain(UIColor(white: 0.62, alpha: 1))
+                let n = SCNNode(geometry: foot)
+                n.position = SCNVector3((x0 + x1) / 2, 0.015, 0)
+                node.addChildNode(n)
+            }
             // Behind each niche in a solid wall: the rest of the wall's thickness.
             if solid {
                 for n in niches {
@@ -519,33 +530,65 @@ enum Room3DScene {
                 let backStone = c.takeoff.partStone(item, "back")
                 let sides = c.takeoff.partStone(item, "jambs"), top = c.takeoff.partStone(item, "header"),
                     sill = c.takeoff.partStone(item, "shelf"), dividerStone = c.takeoff.partStone(item, "dividers")
+                // Stone parts are ¾″ slabs, so their edges show as a frame
+                // straight on (owner, 2026-10-14: only the divider showed); the
+                // sill sticks out ½″ past the face. Tile parts stay surfaces.
+                let st = 0.75 / 12, lip = 0.5 / 12
+                let mid = (face + inner) / 2
+                func slab(_ w: Double, _ hh: Double, _ l: Double, at p: SCNVector3) {
+                    let box = SCNBox(width: w, height: hh, length: l, chamferRadius: 0)
+                    box.firstMaterial = stoneMaterial()
+                    let n = SCNNode(geometry: box)
+                    n.position = p
+                    node.addChildNode(n)
+                }
                 // The back.
-                let back = SCNNode(geometry: surface(w0, h, stone: backStone, gx: x0, gy: y0))
-                back.position = SCNVector3(x0 + w0 / 2, y0 + h / 2, inner)
-                if side < 0 { back.eulerAngles.y = .pi }
-                node.addChildNode(back)
-                // Left and right sides, facing in.
-                for (x, turn) in [(x0, Float.pi / 2), (x0 + w0, -Float.pi / 2)] {
-                    let n = SCNNode(geometry: surface(d, h, stone: sides, gx: 0, gy: y0))
-                    n.position = SCNVector3(x, y0 + h / 2, (face + inner) / 2)
-                    n.eulerAngles.y = turn
+                if backStone {
+                    slab(w0, h, st, at: SCNVector3(x0 + w0 / 2, y0 + h / 2, inner + side * st / 2))
+                } else {
+                    let back = SCNNode(geometry: surface(w0, h, stone: false, gx: x0, gy: y0))
+                    back.position = SCNVector3(x0 + w0 / 2, y0 + h / 2, inner)
+                    if side < 0 { back.eulerAngles.y = .pi }
+                    node.addChildNode(back)
+                }
+                // The sill (base shelf): a slab with a lip past the face.
+                if sill {
+                    slab(w0, st, d + lip, at: SCNVector3(x0 + w0 / 2, y0 + st / 2, mid + side * lip / 2))
+                } else {
+                    let n = SCNNode(geometry: surface(w0, d, stone: false, gx: x0, gy: 0))
+                    n.position = SCNVector3(x0 + w0 / 2, y0, mid)
+                    n.eulerAngles.x = -Float.pi / 2
                     node.addChildNode(n)
                 }
-                // The top facing down, the sill facing up.
-                for (y, stone, turn) in [(y0 + h, top, Float.pi / 2), (y0, sill, -Float.pi / 2)] {
-                    let n = SCNNode(geometry: surface(w0, d, stone: stone, gx: x0, gy: 0))
-                    n.position = SCNVector3(x0 + w0 / 2, y, (face + inner) / 2)
-                    n.eulerAngles.x = turn
+                // The header (top).
+                if top {
+                    slab(w0, st, d, at: SCNVector3(x0 + w0 / 2, y0 + h - st / 2, mid))
+                } else {
+                    let n = SCNNode(geometry: surface(w0, d, stone: false, gx: x0, gy: 0))
+                    n.position = SCNVector3(x0 + w0 / 2, y0 + h, mid)
+                    n.eulerAngles.x = Float.pi / 2
                     node.addChildNode(n)
                 }
-                // Dividers.
+                // Left and right sides (jambs), between the sill and the header.
+                for (x, turn, inward) in [(x0, Float.pi / 2, 1.0), (x0 + w0, -Float.pi / 2, -1.0)] {
+                    if sides {
+                        let lo = y0 + (sill ? st : 0), hi = y0 + h - (top ? st : 0)
+                        slab(st, hi - lo, d, at: SCNVector3(x + inward * st / 2, (lo + hi) / 2, mid))
+                    } else {
+                        let n = SCNNode(geometry: surface(d, h, stone: false, gx: 0, gy: y0))
+                        n.position = SCNVector3(x, y0 + h / 2, mid)
+                        n.eulerAngles.y = turn
+                        node.addChildNode(n)
+                    }
+                }
+                // Dividers: ¾″ shelves.
                 if item.dividers > 0 {
                     for k in 1...item.dividers {
                         let y = y0 + h * Double(k) / Double(item.dividers + 1)
-                        let shelf = SCNBox(width: w0, height: 0.06, length: d, chamferRadius: 0)
+                        let shelf = SCNBox(width: w0, height: st, length: d, chamferRadius: 0)
                         shelf.firstMaterial = !dividerStone ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : stoneMaterial()
                         let n = SCNNode(geometry: shelf)
-                        n.position = SCNVector3(x0 + w0 / 2, y, (face + inner) / 2)
+                        n.position = SCNVector3(x0 + w0 / 2, y, mid)
                         node.addChildNode(n)
                     }
                 }
