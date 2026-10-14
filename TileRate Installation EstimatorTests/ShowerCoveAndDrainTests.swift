@@ -7,6 +7,10 @@ import Testing
 /// showers and drains (owner's calls, 2026-10-08).
 struct ShowerCoveAndDrainTests {
     private let curb = 4.5 / 12
+    /// The cove's sides end at walls across them (A and E): its corners are
+    /// out at those walls' far faces, half their 4½″ drywalled thickness past
+    /// the lines (owner, 2026-10-13: "the curb should go to the corner").
+    private let join = 2.25 / 12
 
     /// A 10′ × 8′ room with a 5′ × 3′ cove off its top wall, between x = 2 and 7.
     private func coveRoom() -> ScannedRoom {
@@ -35,11 +39,11 @@ struct ShowerCoveAndDrainTests {
         let (room, t) = placedInCove()
         let r = t.floorRect!
         #expect(abs(r.widthFt - 5) < 1e-9)
-        // The floor stops at the curb's inside face; the curb's outside face is on the corners (y = 0).
-        #expect(abs(r.depthFt - (3 - curb)) < 1e-9)
-        #expect(abs((t.coveDepthFt ?? 0) - 3) < 1e-9)
+        // The floor stops at the curb's inside face; the curb's outside face is on the corners (y = 2″).
+        #expect(abs(r.depthFt - (3 + join - curb)) < 1e-9)
+        #expect(abs((t.coveDepthFt ?? 0) - (3 + join)) < 1e-9)
         let corners = r.corners
-        #expect(abs(corners.map(\.y).max()! - (0 - curb)) < 1e-9)
+        #expect(abs(corners.map(\.y).max()! - (join - curb)) < 1e-9)
         #expect(abs(corners.map(\.y).min()! - (-3)) < 1e-9)
         // Its three walls tiled; one curb across the front.
         #expect(Set(t.pieces.map(\.wallID)) == Set([room.walls[1].id, room.walls[2].id, room.walls[3].id]))
@@ -56,7 +60,7 @@ struct ShowerCoveAndDrainTests {
     @Test func curblessFillsTheCoveAndPutsCurblessShowerOnTheEstimate() {
         var (room, t) = placedInCove()
         t.setCurbless(true, curbWidthFt: curb)
-        #expect(abs(t.floorRect!.depthFt - 3) < 1e-9)
+        #expect(abs(t.floorRect!.depthFt - (3 + join)) < 1e-9)
         // No curb; the jambs start at the floor.
         let pieces = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
         #expect(!pieces.contains { $0.kind == .curb })
@@ -71,13 +75,13 @@ struct ShowerCoveAndDrainTests {
         t.apply(room, to: &section, prices: prices)
         let line = section.additionsLabor.first { $0.activity == "Curbless Shower" }
         #expect(line != nil)
-        #expect(abs((line?.qty ?? 0) - 15) < 1e-9)          // 5′ × 3′ of shower floor
-        #expect(line?.amount == 300)                          // 15 × $12 = $180: the minimum
+        #expect(abs((line?.qty ?? 0) - 15.94) < 1e-9)       // 5′ × 3′ 2¼″ of shower floor
+        #expect(line?.amount == 300)                          // 15.94 × $12 = $191: the minimum
         #expect(line?.unit == "sq ft")
 
         // The curb back: the floor stops at it again, and the line goes.
         t.setCurbless(false, curbWidthFt: curb)
-        #expect(abs(t.floorRect!.depthFt - (3 - curb)) < 1e-9)
+        #expect(abs(t.floorRect!.depthFt - (3 + join - curb)) < 1e-9)
         t.apply(room, to: &section, prices: prices)
         #expect(!section.additionsLabor.contains { $0.activity == "Curbless Shower" })
     }
@@ -191,7 +195,7 @@ struct ShowerCoveAndDrainTests {
         let scene = Room3DScene.build(c)
         let node = try #require(scene.rootNode.childNode(withName: "wall|\(p.id.uuidString)", recursively: true))
         // The tile: planes standing just off the wall's face.
-        let tiles = node.childNodes.filter { $0.geometry is SCNPlane && abs(abs($0.position.z) - Float(4.0 / 12 / 2 + 0.006)) < 1e-4 }
+        let tiles = node.childNodes.filter { $0.geometry is SCNPlane && abs(abs($0.position.z) - Float(AreaTakeoff.scannedWallThicknessFt / 2 + 0.006)) < 1e-4 }
         #expect(!tiles.isEmpty)
         for tile in tiles {
             #expect(node.convertPosition(tile.position, to: nil).x < 4)     // on the shower's side

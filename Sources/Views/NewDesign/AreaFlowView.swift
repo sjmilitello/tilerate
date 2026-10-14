@@ -630,7 +630,11 @@ struct AreaFlowView: View {
         }
         // Wall tile out to the curb's outside edge, for showers placed before
         // that rule (owner, 2026-10-13).
-        if section.area == .shower { t.extendTileToCurb(in: scan, curbWidthFt: StonePrices(rates: store.pricingRates).curbWidthFt) }
+        if section.area == .shower {
+            let curb = StonePrices(rates: store.pricingRates).curbWidthFt
+            t.fitCove(in: scan, curbWidthFt: curb)
+            t.extendTileToCurb(in: scan, curbWidthFt: curb)
+        }
         // A Floor area on the scanned floor: the other areas' floors as they
         // are now, and the cabinets the scanner found left untiled (once).
         if section.area == .floor, t.floor == .room, section.roomScan == nil {

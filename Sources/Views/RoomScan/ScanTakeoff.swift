@@ -1747,8 +1747,11 @@ extension AreaTakeoff {
         return along > reach && along < l - reach
     }
 
-    /// How thick a wall is drawn: a wall drawn in as built, a scanned one 4″.
-    static func drawnThicknessFt(_ w: ScannedRoom.Wall) -> Double { w.planned ? max(w.thicknessIn, 1) / 12 : 4.0 / 12 }
+    /// How thick a wall is drawn: a wall drawn in as built; a scanned one as a
+    /// drywalled 2×4 wall, 4½″ (owner, 2026-10-13: 3½″ framed, 4½″ with
+    /// drywall both sides; a shower's curb snaps flush to the drywalled corner).
+    static let scannedWallThicknessFt = 4.5 / 12
+    static func drawnThicknessFt(_ w: ScannedRoom.Wall) -> Double { w.planned ? max(w.thicknessIn, 1) / 12 : scannedWallThicknessFt }
 
     /// Where each entry jamb (and half wall end) is, for drawing (owner,
     /// 2026-10-13): a rectangle standing on the plan — its middle, the way it
@@ -2251,6 +2254,23 @@ extension ScannedRoom {
     /// Looked for along the room's square directions; 2–10′ each way. The
     /// floor's corner at the back, `u` across to the other side, `v` out of
     /// the cove; the smallest when there's a choice.
+    /// How far a wall's end reaches past its line's end into the wall it
+    /// meets there: half that wall's drawn thickness when a wall runs across
+    /// its end (its line through the end), else 0. A scanned wall's corner
+    /// is that far out (owner, 2026-10-13: "the curb should go to the
+    /// corner").
+    func endJoinFt(_ w: Wall, start: Bool) -> Double {
+        guard !w.planned, w.lengthFt > 0 else { return 0 }
+        let p = start ? w.start : w.end
+        let ux = (w.end.x - w.start.x) / w.lengthFt, uy = (w.end.y - w.start.y) / w.lengthFt
+        let across = walls.filter { o in
+            guard o.id != w.id, !o.planned, o.lengthFt > 0 else { return false }
+            let dot = abs(((o.end.x - o.start.x) * ux + (o.end.y - o.start.y) * uy) / o.lengthFt)
+            return dot < 0.5 && distanceToWall(p, o) < 0.1
+        }
+        return across.isEmpty ? 0 : AreaTakeoff.drawnThicknessFt(across[0]) / 2
+    }
+
     func cove(around p: Point) -> (origin: Point, u: Point, v: Point, widthFt: Double, depthFt: Double)? {
         let a = squaringAngle
         let dirs = [Point(x: cos(a), y: sin(a)), Point(x: -sin(a), y: cos(a)),
@@ -2286,9 +2306,10 @@ extension ScannedRoom {
             let b = Point(x: p.x + back.x * hb.t, y: p.y + back.y * hb.t)
             // How far each side wall runs out from the back wall: the cove's depth is the shorter.
             // (over every section of it: a divider partway along a side doesn't end it)
+            // Out to the wall's corner: past its line's end into a wall across it.
             func reach(_ w: Wall) -> Double {
-                sections(of: w.id).map { w in max(dot(Point(x: w.start.x - b.x, y: w.start.y - b.y), out),
-                                                  dot(Point(x: w.end.x - b.x, y: w.end.y - b.y), out)) }.max() ?? 0
+                sections(of: w.id).map { w in max(dot(Point(x: w.start.x - b.x, y: w.start.y - b.y), out) + endJoinFt(w, start: true),
+                                                  dot(Point(x: w.end.x - b.x, y: w.end.y - b.y), out) + endJoinFt(w, start: false)) }.max() ?? 0
             }
             let depth = min(reach(h1.wall), reach(h2.wall))
             let width = h1.t + h2.t
@@ -2521,13 +2542,24 @@ extension AreaTakeoff {
                 let along = room.along(corner, on: wall)
                 for i in pieces.indices where pieces[i].wallID == wall.id {
                     if abs(pieces[i].fromFt - along) < 0.15, pieces[i].toFt > along {
-                        pieces[i].fromFt = max(0, along - curbWidthFt)
+                        pieces[i].fromFt = max(-room.endJoinFt(wall, start: true), along - curbWidthFt)
                     } else if abs(pieces[i].toFt - along) < 0.15, pieces[i].fromFt < along {
-                        pieces[i].toFt = min(wall.lengthFt, along + curbWidthFt)
+                        pieces[i].toFt = min(wall.lengthFt + room.endJoinFt(wall, start: false), along + curbWidthFt)
                     }
                 }
             }
         }
+    }
+
+    /// A shower filling a cove, placed before the cove reached the walls'
+    /// corners: its floor deepened to reach them (owner, 2026-10-13: "the
+    /// curb should go to the corner"), its walls tiled again.
+    mutating func fitCove(in room: ScannedRoom, curbWidthFt: Double = 4.5 / 12) {
+        guard floor == .drawn, let r = floorRect, let old = coveDepthFt,
+              let cove = room.cove(around: r.center), abs(cove.depthFt - old) > 0.01, abs(cove.widthFt - r.widthFt) < 0.1 else { return }
+        floorRect?.depthFt = max(1, r.depthFt + cove.depthFt - old)
+        coveDepthFt = cove.depthFt
+        tileWallsAroundFloor(in: room)
     }
 
     mutating func tileWallsAroundFloor(in room: ScannedRoom) {
@@ -2562,8 +2594,8 @@ extension AreaTakeoff {
             let extA = curbAt(a, along: u), extB = curbAt(b, along: u)
             for w in room.sections(of: w.id) {
                 let ta = room.along(a, on: w), tb = room.along(b, on: w)
-                let lo = max(0, ta < tb ? ta - extA : tb - extB)
-                let hi = min(w.lengthFt, ta < tb ? tb + extB : ta + extA)
+                let lo = max(-room.endJoinFt(w, start: true), ta < tb ? ta - extA : tb - extB)
+                let hi = min(w.lengthFt + room.endJoinFt(w, start: false), ta < tb ? tb + extB : ta + extA)
                 guard hi - lo > 0.1 else { continue }
                 let height = pieces.first { $0.wallID == w.id }?.heightIn ?? Self.startingHeight(for: .shower, wall: w)
                 let id = used.contains(w.id) ? UUID() : (pieces.first { $0.wallID == w.id }?.id ?? UUID())

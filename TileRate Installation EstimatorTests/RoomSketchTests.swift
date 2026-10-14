@@ -400,3 +400,31 @@ struct ExtendTileToCurbTests {
         #expect(curbless.pieces == before)
     }
 }
+
+struct CoveToWallCornerTests {
+    /// A shower filled into a cove before the rule is deepened to the walls'
+    /// corners when opened, once (owner, 2026-10-13).
+    @Test func olderCoveShowerReachesTheCornerOnce() {
+        var room = ScannedRoom()
+        func wall(_ a: (Double, Double), _ b: (Double, Double)) -> ScannedRoom.Wall {
+            ScannedRoom.Wall(lengthFt: hypot(b.0 - a.0, b.1 - a.1), heightFt: 8, start: .init(x: a.0, y: a.1), end: .init(x: b.0, y: b.1))
+        }
+        room.walls = [wall((0, 0), (2, 0)), wall((2, 0), (2, -3)), wall((2, -3), (7, -3)),
+                      wall((7, -3), (7, 0)), wall((7, 0), (10, 0)), wall((10, 0), (10, 8)),
+                      wall((10, 8), (0, 8)), wall((0, 8), (0, 0))]
+        room.reletter()
+        var t = AreaTakeoff()
+        _ = t.placeShower(near: .init(x: 4, y: -1.5), in: room, curbWidthFt: 4.5 / 12)
+        let now = t
+        // As placed before: 2″ shallower.
+        var old = t
+        old.floorRect?.depthFt -= 2.25 / 12
+        old.coveDepthFt = 3
+        old.fitCove(in: room)
+        #expect(abs(old.floorRect!.depthFt - now.floorRect!.depthFt) < 1e-9)
+        #expect(old.coveDepthFt == now.coveDepthFt)
+        let once = old
+        old.fitCove(in: room)
+        #expect(old == once)
+    }
+}

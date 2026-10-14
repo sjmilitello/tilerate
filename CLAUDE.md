@@ -868,7 +868,14 @@ sit on another wall's letter. `WallLetteringTests`.
   room's square directions, the open side free of walls) fills the cove;
   the curb's outside face is flush with the cove's outside corners, so the
   floor stops at the curb's inside face (`coveDepthFt` keeps the cove's
-  depth). A tub in the cove doesn't matter (a conversion). Anywhere else,
+  depth). A side wall that ends at a wall running across it reaches that
+  wall's far face — half its drawn thickness past the line (scanned walls
+  are drawn 4½″, a drywalled 2×4 wall, `scannedWallThicknessFt`; owner:
+  3½″ framed, 4½″ with drywall, the curb flush to the drywalled corner)
+  (`ScannedRoom.endJoinFt`; owner, 2026-10-13: "the curb should go to the
+  corner"); 3-D draws scanned walls out to there too, and wall tile may run
+  that far past a wall's line. Showers filled into a cove before are
+  deepened to match when opened (`fitCove`). A tub in the cove doesn't matter (a conversion). Anywhere else,
   48″ × 48″ in the nearest inside corner (no longer the last size, or 60″ × 36″).
 - **The curb** is drawn (plan and 3-D) just outside the floor's open sides,
   always 4½″ wide (`StonePrices.curbWidthFt`; Admin's stone curb width is the

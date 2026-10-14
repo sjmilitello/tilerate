@@ -405,7 +405,9 @@ enum Room3DScene {
             // The room's own walls are seen from inside only, like a doll's
             // house: whichever way it's turned, the near walls drop away.
             let inside = faceSign(w, face: 0, room: room)
-            for cell in cells(Rect(x0: 0, x1: w.lengthFt, y0: 0, y1: w.heightFt), minus: bodyHoles) {
+            // Out to its corners: into a wall across each end (owner, 2026-10-13).
+            let x0 = -room.endJoinFt(w, start: true), x1 = w.lengthFt + room.endJoinFt(w, start: false)
+            for cell in cells(Rect(x0: x0, x1: x1, y0: 0, y1: w.heightFt), minus: bodyHoles) {
                 if solid {
                     let box = SCNBox(width: cell.w, height: cell.h, length: t, chamferRadius: 0)
                     box.firstMaterial = plain(wallColor)
@@ -836,7 +838,7 @@ enum Room3DScene {
     static let nicheDepthFt = AreaTakeoff.nicheDepthIn / 12
 
     private static func thickness(_ w: ScannedRoom.Wall) -> Double {
-        w.planned ? max(w.thicknessIn, 1) / 12 : 4.0 / 12
+        AreaTakeoff.drawnThicknessFt(w)
     }
 
     /// Which side of the wall (+1 its first face, −1 the other) a piece's tile is on:
