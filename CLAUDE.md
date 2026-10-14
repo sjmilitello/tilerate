@@ -1286,3 +1286,6 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -projec
 
 The test target could not run from the March rename until 2026-09-26: its
 `TEST_HOST` still named `Integrity Tile Estimator.app`.
+
+
+Stone is drawn as white marble everywhere (`StoneLook`, #E9E6E0; veined in 3-D; owner, 2026-10-14; a colour picker in Admin to talk about later).

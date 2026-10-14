@@ -1503,7 +1503,7 @@ struct ScanEditor: View {
                             .fixedSize()
                     }
                     .buttonStyle(.bordered)
-                    .tint(Color(red: 0.85, green: 0.78, blue: 0.62))
+                    .tint(StoneLook.color)
                     .font(.subheadline)
                 }
 
@@ -1820,7 +1820,7 @@ struct ScanEditor: View {
                             Text(group.title).font(.headline)
                             Spacer()
                             Text(stoneCount == 0 ? "Tile" : stoneCount == these.count ? "All stone" : "\(stoneCount) of \(these.count) stone")
-                                .font(.subheadline).foregroundStyle(stoneCount > 0 ? Color(red: 0.85, green: 0.78, blue: 0.62) : .secondary)
+                                .font(.subheadline).foregroundStyle(stoneCount > 0 ? StoneLook.color : .secondary)
                         }
                     }
                     .padding(12)
@@ -1869,7 +1869,7 @@ struct ScanEditor: View {
             }
         }
         .padding(12)
-        .background(piece.stone ? Color(red: 0.55, green: 0.5, blue: 0.42).opacity(0.18) : Color.white.opacity(0.05),
+        .background(piece.stone ? StoneLook.color.opacity(0.18) : Color.white.opacity(0.05),
                     in: RoundedRectangle(cornerRadius: 12))
     }
 
@@ -2000,7 +2000,7 @@ struct ScanEditor: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(12)
-            .background(Color(red: 0.55, green: 0.5, blue: 0.42).opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
+            .background(StoneLook.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
@@ -3489,7 +3489,7 @@ struct PlanCanvas: View {
             ctx.stroke(slots, with: .color(Color(white: 0.6)), lineWidth: 1)
         }
         // Benches and corner pieces, out from their wall; windows and niches on it.
-        let stoneColor = Color(red: 0.85, green: 0.78, blue: 0.62)
+        let stoneColor = StoneLook.color
         for item in items {
             guard let w = room.wall(item.wallID) else { continue }
             let n = inward(w, face: item.face)
@@ -3558,7 +3558,7 @@ struct PlanCanvas: View {
                 band.addLines([f.at(r.a), f.at(r.b), f.at(.init(x: r.b.x + n.x * w, y: r.b.y + n.y * w)),
                                f.at(.init(x: r.a.x + n.x * w, y: r.a.y + n.y * w))])
                 band.closeSubpath()
-                ctx.fill(band, with: .color(Color(red: 0.85, green: 0.78, blue: 0.62).opacity(0.55)))
+                ctx.fill(band, with: .color(StoneLook.color.opacity(0.55)))
             }
         }
         // The curb.
@@ -3573,12 +3573,12 @@ struct PlanCanvas: View {
             band.addLines([f.at(a), f.at(b), f.at(.init(x: b.x + n.x * w, y: b.y + n.y * w)), f.at(.init(x: a.x + n.x * w, y: a.y + n.y * w))])
             band.closeSubpath()
             let lit = curbHeld && floorHeld
-            ctx.fill(band, with: .color(lit ? Color.green.opacity(0.85) : Color(red: 0.85, green: 0.78, blue: 0.62)))
+            ctx.fill(band, with: .color(lit ? Color.green.opacity(0.85) : StoneLook.color))
             if lit { ctx.stroke(band, with: .color(.white), lineWidth: 1.5) }
             let m = CGPoint(x: (f.at(a).x + f.at(b).x) / 2, y: (f.at(a).y + f.at(b).y) / 2)
             if interactive, !showDimensions {
                 ctx.draw(Text("Curb").font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(Color(red: 0.85, green: 0.78, blue: 0.62)), at: CGPoint(x: m.x, y: m.y + 11))
+                            .foregroundColor(StoneLook.color), at: CGPoint(x: m.x, y: m.y + 11))
             }
         }
         // The chosen wall that can move: its ends; what's held, lit.
@@ -3705,7 +3705,7 @@ struct WallElevation: View {
     var selectedOpening: Binding<UUID?> = .constant(nil)
 
     private let inset: CGFloat = 14
-    private static let stone = Color(red: 0.85, green: 0.78, blue: 0.62)
+    private static let stone = StoneLook.color
 
     /// What a drag steers (owner's call, 2026-10-08): tap a thing to choose
     /// it, tap one of its edges (or its middle, to move it), then drag
@@ -4217,7 +4217,7 @@ struct WallElevation: View {
         let a = at(r.from, r.top), b = at(r.to, r.bottom)
         let rect = CGRect(x: a.x, y: a.y, width: max(b.x - a.x, 2), height: max(b.y - a.y, 3))
         let selected = selectedItem.wrappedValue == item.id
-        let stoneColor = Color(red: 0.85, green: 0.78, blue: 0.62)
+        let stoneColor = StoneLook.color
         let color: Color = item.kind == .window ? .cyan : item.kind.isCorner || takeoff.anyStone(item) ? stoneColor : .mint
         ZStack {
             Rectangle().fill(item.kind == .window ? Color.cyan.opacity(0.15) : item.kind == .niche ? Color(white: 0.05) : color.opacity(0.35))

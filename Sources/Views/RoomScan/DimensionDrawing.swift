@@ -11,7 +11,7 @@ enum DimensionDrawing {
         switch i {
         case .wall: Color(red: 1, green: 0.8, blue: 0.3)
         case .floor: Color(red: 0.45, green: 0.9, blue: 0.5)
-        case .curb: Color(red: 0.85, green: 0.78, blue: 0.62)
+        case .curb: StoneLook.color
         case .bench: .mint
         case .opening: .cyan
         }

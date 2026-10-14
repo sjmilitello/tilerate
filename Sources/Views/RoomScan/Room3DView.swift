@@ -464,7 +464,7 @@ enum Room3DScene {
             // A half wall's cap.
             if room.isKneeWall(w) {
                 let cap = SCNBox(width: w.lengthFt, height: 0.06, length: t + 0.04, chamferRadius: 0)
-                cap.firstMaterial = c.stoneParts.contains("cap:\(w.id)") ? plain(stoneColor) : tileMaterial(c.tile, widthFt: w.lengthFt, heightFt: t, x0: 0, y0: 0)
+                cap.firstMaterial = c.stoneParts.contains("cap:\(w.id)") ? stoneMaterial() : tileMaterial(c.tile, widthFt: w.lengthFt, heightFt: t, x0: 0, y0: 0)
                 let n = SCNNode(geometry: cap)
                 n.position = SCNVector3(w.lengthFt / 2, w.heightFt + 0.03, 0)
                 node.addChildNode(n)
@@ -489,12 +489,12 @@ enum Room3DScene {
                 let stoneTop = c.stoneParts.contains("benchTop:\(item.id)")
                 let material = tileMaterial(c.tile, widthFt: item.widthFt, heightFt: slab, x0: item.fromFt, y0: 0)
                 box.materials = [material, material, material, material,
-                                 stoneTop ? plain(stoneColor) : tileMaterial(c.tile, widthFt: item.widthFt, heightFt: depth, x0: item.fromFt, y0: 0),
+                                 stoneTop ? stoneMaterial() : tileMaterial(c.tile, widthFt: item.widthFt, heightFt: depth, x0: item.fromFt, y0: 0),
                                  plain(.darkGray)]
-                if c.stoneParts.contains("benchFront:\(item.id)") { box.materials[0] = plain(stoneColor) }
+                if c.stoneParts.contains("benchFront:\(item.id)") { box.materials[0] = stoneMaterial() }
                 // Its outside end, showing at the entry where the curb stops at it
                 // (the other end is against a wall, out of sight).
-                if c.stoneParts.contains("benchSide:\(item.id)") { box.materials[1] = plain(stoneColor); box.materials[3] = plain(stoneColor) }
+                if c.stoneParts.contains("benchSide:\(item.id)") { box.materials[1] = stoneMaterial(); box.materials[3] = stoneMaterial() }
                 let n = SCNNode(geometry: box)
                 n.position = SCNVector3((item.fromFt + item.toFt) / 2, top - slab / 2, side * (t / 2 + depth / 2))
                 if side < 0 { n.eulerAngles.y = .pi }
@@ -513,7 +513,7 @@ enum Room3DScene {
                     let p = SCNPlane(width: width, height: height)
                     // Seen from inside the recess only, so it doesn't show
                     // behind the wall from outside the room.
-                    p.firstMaterial = stone ? plain(stoneColor) : tileMaterial(nicheTile, widthFt: width, heightFt: height, x0: gx, y0: gy)
+                    p.firstMaterial = stone ? stoneMaterial() : tileMaterial(nicheTile, widthFt: width, heightFt: height, x0: gx, y0: gy)
                     return p
                 }
                 let backStone = c.takeoff.partStone(item, "back")
@@ -543,7 +543,7 @@ enum Room3DScene {
                     for k in 1...item.dividers {
                         let y = y0 + h * Double(k) / Double(item.dividers + 1)
                         let shelf = SCNBox(width: w0, height: 0.06, length: d, chamferRadius: 0)
-                        shelf.firstMaterial = !dividerStone ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : plain(stoneColor)
+                        shelf.firstMaterial = !dividerStone ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : stoneMaterial()
                         let n = SCNNode(geometry: shelf)
                         n.position = SCNVector3(x0 + w0 / 2, y, (face + inner) / 2)
                         node.addChildNode(n)
@@ -559,7 +559,7 @@ enum Room3DScene {
                 path.addLine(to: CGPoint(x: x, y: -side * size))
                 path.close()
                 let shape = SCNShape(path: path, extrusionDepth: 1.5 / 12)
-                shape.firstMaterial = plain(stoneColor)
+                shape.firstMaterial = stoneMaterial()
                 let n = SCNNode(geometry: shape)
                 n.eulerAngles.x = -.pi / 2
                 n.position = SCNVector3(0, item.bottomIn / 12 - 0.75 / 12, side * t / 2)
@@ -611,7 +611,7 @@ enum Room3DScene {
                 if let m = mid, ((a.x + b.x) / 2 - m.x) * nx + ((a.y + b.y) / 2 - m.y) * ny < 0 { nx = -nx; ny = -ny; flipped = true }
                 let box = SCNBox(width: len, height: h, length: w, chamferRadius: 0.01)
                 func face(_ k: String, _ width: Double) -> SCNMaterial {
-                    set.stone.contains(k) ? plain(stoneColor) : tileMaterial(set.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
+                    set.stone.contains(k) ? stoneMaterial() : tileMaterial(set.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
                 }
                 let top = face(key, len), inside = face(key + ":inside", len), outside = face(key + ":outside", len)
                 // The box's front (+z) is the side its left hand faces: outside unless turned.
@@ -644,7 +644,7 @@ enum Room3DScene {
                 let box = SCNBox(width: len, height: h, length: b.widthFt, chamferRadius: 0)
                 let face = tileMaterial(set.tile, widthFt: len, heightFt: h, x0: 0, y0: 0)
                 let end = tileMaterial(set.tile, widthFt: b.widthFt, heightFt: h, x0: 0, y0: 0)
-                let under = set.stone.contains(b.key) ? plain(stoneColor) : tileMaterial(set.tile, widthFt: len, heightFt: b.widthFt, x0: 0, y0: 0)
+                let under = set.stone.contains(b.key) ? stoneMaterial() : tileMaterial(set.tile, widthFt: len, heightFt: b.widthFt, x0: 0, y0: 0)
                 box.materials = [face, end, face, end, plain(UIColor(white: 0.9, alpha: 1)), under]
                 let n = SCNNode(geometry: box)
                 n.position = SCNVector3((b.a.x + b.b.x) / 2, (b.topFt + b.bottomFt) / 2, (b.a.y + b.b.y) / 2)
@@ -658,7 +658,7 @@ enum Room3DScene {
                 let len = hypot(h.b.x - h.a.x, h.b.y - h.a.y)
                 guard len > 0.01 else { continue }
                 let plane = SCNPlane(width: len, height: h.widthFt)
-                plane.firstMaterial = plain(stoneColor)
+                plane.firstMaterial = stoneMaterial()
                 let n = SCNNode(geometry: plane)
                 n.position = SCNVector3((h.a.x + h.b.x) / 2, h.heightFt - 0.008, (h.a.y + h.b.y) / 2)
                 n.eulerAngles = SCNVector3(Float.pi / 2, Float(-atan2(h.b.y - h.a.y, h.b.x - h.a.x)), 0)
@@ -670,7 +670,7 @@ enum Room3DScene {
             for f in set.faces where set.stone.contains(f.key) {
                 let plane = SCNPlane(width: f.widthFt, height: f.topFt - f.bottomFt)
                 // One-sided, like the walls: seen from behind its wall, it's gone too.
-                plane.firstMaterial = plain(stoneColor)
+                plane.firstMaterial = stoneMaterial()
                 let n = SCNNode(geometry: plane)
                 n.position = SCNVector3(f.center.x + f.facing.x * 0.008, (f.bottomFt + f.topFt) / 2,
                                         f.center.y + f.facing.y * 0.008)
@@ -904,7 +904,44 @@ enum Room3DScene {
     // MARK: Materials
 
     /// Stone: the tan the plan uses, so it reads apart from light tile.
-    static let stoneColor = UIColor(red: 0.80, green: 0.70, blue: 0.53, alpha: 1)
+    static let stoneColor = StoneLook.uiColor
+
+    /// Stone as white marble: the colour with faint grey veins (owner,
+    /// 2026-10-14), so it reads apart from plain light tile.
+    private static let stoneMaterialImage: UIImage = {
+        let size = CGSize(width: 256, height: 256)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            StoneLook.uiColor.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            let g = ctx.cgContext
+            var seed: UInt64 = 0x9E3779B97F4A7C15
+            func rnd() -> CGFloat { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return CGFloat(seed >> 33) / CGFloat(1 << 31) }
+            for k in 0..<7 {
+                let path = UIBezierPath()
+                var p = CGPoint(x: rnd() * size.width, y: -10)
+                path.move(to: p)
+                while p.y < size.height + 10 {
+                    let q = CGPoint(x: p.x + (rnd() - 0.5) * 60, y: p.y + 20 + rnd() * 30)
+                    path.addQuadCurve(to: q, controlPoint: CGPoint(x: (p.x + q.x) / 2 + (rnd() - 0.5) * 30, y: (p.y + q.y) / 2))
+                    p = q
+                }
+                g.setStrokeColor(UIColor(white: 0.55, alpha: k % 3 == 0 ? 0.35 : 0.18).cgColor)
+                g.setLineWidth(k % 3 == 0 ? 1.6 : 0.8)
+                g.addPath(path.cgPath)
+                g.strokePath()
+            }
+        }
+    }()
+
+    private static func stoneMaterial() -> SCNMaterial {
+        let m = SCNMaterial()
+        m.diffuse.contents = stoneMaterialImage
+        m.diffuse.wrapS = .repeat
+        m.diffuse.wrapT = .repeat
+        m.diffuse.contentsTransform = SCNMatrix4MakeScale(0.6, 0.6, 1)
+        m.lightingModel = .lambert
+        return m
+    }
 
     private static func plain(_ c: UIColor) -> SCNMaterial {
         let m = SCNMaterial()
@@ -1574,4 +1611,12 @@ extension EstimateSection {
         }
         return out
     }
+}
+
+
+/// How stone looks on the plan, the wall views and in 3-D: white marble for
+/// now (owner, 2026-10-14; a colour picker in Admin to talk about later).
+enum StoneLook {
+    static let uiColor = UIColor(red: 0.914, green: 0.902, blue: 0.878, alpha: 1)   // #E9E6E0
+    static let color = Color(uiColor: uiColor)
 }
