@@ -1296,3 +1296,7 @@ straight on their edges show as a frame (owner, 2026-10-14). A wall drawn
 as its face alone (the room's outside walls) has a grey footprint at the
 floor, so when it drops away the floor under its thickness doesn't show
 (it showed as a strip of floor tile behind a bench).
+A bench's back (against its wall) is never tiled in 3-D, and wall tile
+running into an inside corner stops at the other wall's face, not its line
+(`insideCornerInset`), so a dropped-away wall leaves no strip of tile.
+Drawing only: square feet still run to the lines.

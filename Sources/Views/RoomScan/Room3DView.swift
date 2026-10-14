@@ -462,7 +462,13 @@ enum Room3DScene {
                     // partition is on its far side from the room's middle).
                     let side = faceSign(w, face: p.face, room: room, toward: a.floor?.center)
                     let cut = holes + niches.filter { $0.side == side }.map(\.rect)
-                    for cell in cells(Rect(x0: p.fromFt, x1: p.toFt, y0: 0, y1: p.heightIn / 12), minus: cut) {
+                    // Into an inside corner the tile stops at the other wall's
+                    // face, not its line (owner, 2026-10-14: a strip showed where
+                    // the dropped-away wall stood).
+                    let lo = max(p.fromFt, insideCornerInset(w, side: side, atStart: true, room: room))
+                    let hi = min(p.toFt, w.lengthFt - insideCornerInset(w, side: side, atStart: false, room: room))
+                    guard hi - lo > 0.01 else { continue }
+                    for cell in cells(Rect(x0: lo, x1: hi, y0: 0, y1: p.heightIn / 12), minus: cut) {
                         let plane = SCNPlane(width: cell.w, height: cell.h)
                         plane.firstMaterial = tileMaterial(a.wallTiles[w.id] ?? a.tile, widthFt: cell.w, heightFt: cell.h, x0: cell.x0, y0: cell.y0)
                         let n = SCNNode(geometry: plane)
@@ -503,6 +509,8 @@ enum Room3DScene {
                                  stoneTop ? stoneMaterial() : tileMaterial(c.tile, widthFt: item.widthFt, heightFt: depth, x0: item.fromFt, y0: 0),
                                  plain(.darkGray)]
                 if c.stoneParts.contains("benchFront:\(item.id)") { box.materials[0] = stoneMaterial() }
+                // Its back is against the wall: never tiled (owner, 2026-10-14).
+                box.materials[2] = plain(UIColor(white: 0.62, alpha: 1))
                 // Its outside end, showing at the entry where the curb stops at it
                 // (the other end is against a wall, out of sight).
                 if c.stoneParts.contains("benchSide:\(item.id)") { box.materials[1] = stoneMaterial(); box.materials[3] = stoneMaterial() }
@@ -880,6 +888,26 @@ enum Room3DScene {
 
     /// How deep a niche goes into the wall (`AreaTakeoff.nicheDepthIn`).
     static let nicheDepthFt = AreaTakeoff.nicheDepthIn / 12
+
+    /// How far a wall's face on `side` stops short of its line's end at an
+    /// inside corner: half the thickness of a wall across that end that runs
+    /// off into this side (0 at an outside corner or a free end).
+    private static func insideCornerInset(_ w: ScannedRoom.Wall, side: Float, atStart: Bool, room: ScannedRoom) -> Double {
+        guard w.lengthFt > 0 else { return 0 }
+        let p = atStart ? w.start : w.end
+        let ux = (w.end.x - w.start.x) / w.lengthFt, uy = (w.end.y - w.start.y) / w.lengthFt
+        let nx = -uy * Double(side), ny = ux * Double(side)
+        var inset = 0.0
+        for o in room.walls where o.id != w.id && o.lengthFt > 0 {
+            let dot = abs(((o.end.x - o.start.x) * ux + (o.end.y - o.start.y) * uy) / o.lengthFt)
+            guard dot < 0.5, room.distanceToWall(p, o) < 0.1 else { continue }
+            let a: Double = (o.start.x - p.x) * nx + (o.start.y - p.y) * ny
+            let b: Double = (o.end.x - p.x) * nx + (o.end.y - p.y) * ny
+            let into = max(a, b)
+            if into > 0.1 { inset = max(inset, thickness(o) / 2) }
+        }
+        return inset
+    }
 
     private static func thickness(_ w: ScannedRoom.Wall) -> Double {
         AreaTakeoff.drawnThicknessFt(w)
