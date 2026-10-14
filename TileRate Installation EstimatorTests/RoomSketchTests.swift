@@ -428,3 +428,27 @@ struct CoveToWallCornerTests {
         #expect(old == once)
     }
 }
+
+struct NicheBackStoneTests {
+    /// A niche's back can be stone, priced by its own area (owner, 2026-10-13).
+    @Test func aStoneNicheBackIsPricedByItsArea() {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let wall = room.walls.first { w in t.pieces.contains { $0.wallID == w.id } }!
+        t.items = [.init(kind: .niche, wallID: wall.id, fromFt: 0.5, toFt: 1.5, bottomIn: 48, heightIn: 24)]
+        t.itemsPlaced = true
+        let n = t.items[0]
+        let tileBefore = t.nicheTileSqft(n)
+        #expect(!t.partStone(n, "back"))                       // tile to start
+        t.setPartStone(n, "back", true)
+        #expect(abs(tileBefore - t.nicheTileSqft(n) - 2) < 0.01)   // 1′ × 2′ off the tile
+        var prices = StonePrices()
+        prices.parts[.nicheBack] = StoneRate(bySqft: true, perSqft: 60)
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
+        t.apply(room, to: &s, prices: prices)
+        let line = s.additionsLabor.first { $0.activity == "Stone niche" }
+        #expect(line?.unit == "sq ft" && line?.qty == 2 && line?.rate == 60)
+    }
+}

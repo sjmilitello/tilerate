@@ -1143,7 +1143,7 @@ struct ScanEditor: View {
                         .buttonStyle(.bordered)
                         .font(.subheadline)
                     }
-                    itemStoneParts(item, [("shelf", "Base shelf"), ("jambs", "Jambs"), ("header", "Header")]
+                    itemStoneParts(item, [("back", "Back"), ("shelf", "Base shelf"), ("jambs", "Jambs"), ("header", "Header")]
                                    + (item.dividers > 0 ? [("dividers", "Divider shelves")] : []))
                 } else {
                     itemStoneParts(item, [("sill", "Sill"), ("jambs", "Jambs"), ("header", "Header")])

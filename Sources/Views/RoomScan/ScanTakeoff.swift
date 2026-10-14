@@ -754,10 +754,17 @@ extension AreaTakeoff {
             let id = Self.stoneLineID(section.id, group)
             let stone = pieces.filter { $0.part.group == group && $0.stone && $0.lengthFt > 0 }
             var total = 0.0
+            // A panel (a niche's back) by its own area; the rest by length,
+            // or by length × the usual width.
+            func bySqft(_ p: TrimPiece) -> Bool { p.areaSqft != nil ? prices.rate(p.part).bySqft : prices.rate(p.part).usesSqft }
+            func sqftOf(_ p: TrimPiece) -> Double {
+                let r = prices.rate(p.part)
+                return p.areaSqft ?? (r.widthIn > 0 ? p.lengthFt * r.widthIn / 12 : 0)
+            }
             for p in stone {
                 let rate = prices.rate(p.part)
-                total += rate.amount(linFt: p.lengthFt)
-                let sqft = rate.widthIn > 0 ? p.lengthFt * rate.widthIn / 12 : 0
+                total += bySqft(p) ? sqftOf(p) * rate.perSqft : p.lengthFt * rate.perLinFt
+                let sqft = sqftOf(p)
                 materialSqft += sqft
                 if !prices.materialSeparate { total += sqft * prices.materialPerSqft }
             }
@@ -769,12 +776,13 @@ extension AreaTakeoff {
             // One price throughout: length (or square feet) at that price;
             // else the group's total as one.
             let rates = Set(stone.map { prices.rate($0.part) })
+            let modes = Set(stone.map(bySqft)), panels = Set(stone.map { $0.areaSqft != nil })
             let qty: Double, rate: Double, unit: String
-            if rates.count == 1, let r = rates.first {
+            if rates.count == 1, modes.count == 1, panels.count == 1 || modes.first == true, let r = rates.first {
                 let feet = stone.reduce(0) { $0 + $1.lengthFt }
                 let material = prices.materialSeparate ? 0 : prices.materialPerSqft
-                if r.usesSqft {
-                    qty = (r.sqft(linFt: feet) * 100).rounded() / 100
+                if modes.first == true {
+                    qty = (stone.reduce(0) { $0 + sqftOf($1) } * 100).rounded() / 100
                     rate = r.perSqft + material
                     unit = "sq ft"
                 } else {
@@ -875,7 +883,7 @@ extension AreaTakeoff {
     /// sill where they aren't stone.
     func nicheTileSqft(_ n: Item) -> Double {
         let w = n.widthFt, h = n.heightIn / 12, d = Self.nicheDepthIn / 12
-        var sqft = w * h
+        var sqft = partStone(n, "back") ? 0 : w * h        // back
         if !partStone(n, "jambs") { sqft += 2 * d * h }   // sides
         if !partStone(n, "header") { sqft += w * d }      // top
         if !partStone(n, "shelf") { sqft += w * d }       // sill
@@ -1211,6 +1219,8 @@ extension StonePrices {
 struct TrimPiece: Identifiable, Equatable {
     let key: String
     let kind: TrimKind
+    /// A panel's own square feet (a niche's back), else nil.
+    var areaSqft: Double? = nil
     /// Which priced part it is (owner, 2026-10-13).
     var part: StonePart = .curbTop
     let name: String
@@ -1358,7 +1368,7 @@ extension AreaTakeoff {
             let w = i.widthFt, h = i.heightIn / 12
             let label = "\(i.kind.name) \(Int((w * 12).rounded()))″ × \(Int(i.heightIn.rounded()))″"
             let parts: [(String, String, Double)] = i.kind == .niche
-                ? [("shelf", "base shelf", w), ("jambs", "jambs", 2 * h), ("header", "header", w),
+                ? [("back", "back", w), ("shelf", "base shelf", w), ("jambs", "jambs", 2 * h), ("header", "header", w),
                    ("dividers", "divider shelves", Double(i.dividers) * w)]
                 : [("sill", "sill", w), ("jambs", "jambs", 2 * h), ("header", "header", w)]
             for (part, name, ft) in parts where ft > 0.01 {
@@ -1370,7 +1380,8 @@ extension AreaTakeoff {
         let doorIDs = Set(showerDoors(in: room).map(\.id.uuidString))
         return out.map { key, kind, name, ft in
             let choice = trim.first { $0.key == key }
-            return TrimPiece(key: key, kind: kind, part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
+            let area: Double? = key.hasSuffix(":back") ? items.first { key.contains($0.id.uuidString) }.map { $0.widthFt * $0.heightIn / 12 } : nil
+            return TrimPiece(key: key, kind: kind, areaSqft: area, part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
                              name: name, measuredFt: ft,
                              lengthFt: choice?.lengthFt ?? ft, stone: choice?.stone ?? defaults[key] ?? false)
         }
@@ -1385,6 +1396,7 @@ extension AreaTakeoff {
     func partStone(_ i: Item, _ part: String) -> Bool {
         if let c = trim.first(where: { $0.key == Self.partKey(i, part) }) { return c.stone }
         if i.kind == .window { return i.stone != .tile }
+        if part == "back" { return false }
         return part == "shelf" || part == "dividers" ? i.stone != .tile : i.stone == .all
     }
 
@@ -1395,7 +1407,7 @@ extension AreaTakeoff {
 
     /// Whether any part of a niche or window is stone.
     func anyStone(_ i: Item) -> Bool {
-        (i.kind == .niche ? ["shelf", "jambs", "header", "dividers"] : ["sill", "jambs", "header"]).contains { partStone(i, $0) }
+        (i.kind == .niche ? ["back", "shelf", "jambs", "header", "dividers"] : ["sill", "jambs", "header"]).contains { partStone(i, $0) }
     }
 
     /// Which priced part a stone piece is, from its key.
@@ -1416,7 +1428,7 @@ extension AreaTakeoff {
         case .benchFront:
             return key.hasPrefix("benchSide:") ? .framedBenchSide : .framedBenchFront
         case .niche:
-            switch parts.last { case "jambs": return .nicheJamb; case "header": return .nicheHeader
+            switch parts.last { case "back": return .nicheBack; case "jambs": return .nicheJamb; case "header": return .nicheHeader
                                 case "dividers": return .nicheDivider; default: return .nicheShelf }
         case .window:
             switch parts.last { case "jambs": return .windowJamb; case "header": return .windowHeader; default: return .windowSill }

@@ -516,10 +516,11 @@ enum Room3DScene {
                     p.firstMaterial = stone ? plain(stoneColor) : tileMaterial(nicheTile, widthFt: width, heightFt: height, x0: gx, y0: gy)
                     return p
                 }
+                let backStone = c.takeoff.partStone(item, "back")
                 let sides = c.takeoff.partStone(item, "jambs"), top = c.takeoff.partStone(item, "header"),
                     sill = c.takeoff.partStone(item, "shelf"), dividerStone = c.takeoff.partStone(item, "dividers")
                 // The back.
-                let back = SCNNode(geometry: surface(w0, h, stone: false, gx: x0, gy: y0))
+                let back = SCNNode(geometry: surface(w0, h, stone: backStone, gx: x0, gy: y0))
                 back.position = SCNVector3(x0 + w0 / 2, y0 + h / 2, inner)
                 if side < 0 { back.eulerAngles.y = .pi }
                 node.addChildNode(back)

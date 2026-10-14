@@ -320,8 +320,10 @@ length can be typed; it can be deleted.
 
 **Stone pieces by part (owner, 2026-10-13).** Admin → Stone pieces lists
 groups — Curb (Top, Inside, Outside), Wall (Cap, Jambs), Door (Jambs,
-Header), Window (Sill, Jambs, Header), Niche (Base shelf, Jambs, Header,
-Divider shelves), Ceiling (Header), Wall to wall floating bench (Top),
+Header), Window (Sill, Jambs, Header), Niche (Back, Base shelf, Jambs,
+Header, Divider shelves — the back added 2026-10-13, a panel priced by
+the niche's width × height when by the square foot, `isPanel`,
+`TrimPiece.areaSqft`; tile until chosen), Ceiling (Header), Wall to wall floating bench (Top),
 Framed bench (Top, Front, Sides) — each opening to its parts, each with its
 own install price (`StonePart`, `StoneGroup`, `Rates.stoneRate(_: StonePart)`;
 per linear foot, or per square foot once a width is set). A part with no

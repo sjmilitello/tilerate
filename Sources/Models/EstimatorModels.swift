@@ -751,7 +751,7 @@ enum StoneGroup: String, CaseIterable, Identifiable {
 /// Every stone part with its own install price in Admin (owner, 2026-10-13).
 enum StonePart: String, CaseIterable, Codable, Identifiable {
     case curbTop, curbInside, curbOutside, wallCap, wallJamb, doorJamb, doorHeader,
-         windowSill, windowJamb, windowHeader, nicheShelf, nicheJamb, nicheHeader, nicheDivider,
+         windowSill, windowJamb, windowHeader, nicheBack, nicheShelf, nicheJamb, nicheHeader, nicheDivider,
          ceilingHeader, floatingBenchTop, framedBenchTop, framedBenchFront, framedBenchSide
     var id: String { rawValue }
     var group: StoneGroup {
@@ -760,7 +760,7 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .wallCap, .wallJamb: .wall
         case .doorJamb, .doorHeader: .door
         case .windowSill, .windowJamb, .windowHeader: .window
-        case .nicheShelf, .nicheJamb, .nicheHeader, .nicheDivider: .niche
+        case .nicheBack, .nicheShelf, .nicheJamb, .nicheHeader, .nicheDivider: .niche
         case .ceilingHeader: .ceiling
         case .floatingBenchTop: .floatingBench
         case .framedBenchTop, .framedBenchFront, .framedBenchSide: .framedBench
@@ -775,6 +775,7 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .wallJamb, .doorJamb, .windowJamb, .nicheJamb: "Jambs"
         case .doorHeader, .windowHeader, .nicheHeader, .ceilingHeader: "Header"
         case .windowSill: "Sill"
+        case .nicheBack: "Back"
         case .nicheShelf: "Base shelf"
         case .nicheDivider: "Divider shelves"
         case .floatingBenchTop, .framedBenchTop: "Top"
@@ -782,6 +783,10 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .framedBenchSide: "Sides"
         }
     }
+    /// A panel priced by its own area (width × height) when by the square
+    /// foot, not by a usual width (owner, 2026-10-13: a niche's back).
+    var isPanel: Bool { self == .nicheBack }
+
     /// The price it starts from: the one it was part of before.
     var legacy: StoneItem {
         switch self {
@@ -789,7 +794,7 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .wallCap, .doorHeader, .ceilingHeader: .cap
         case .wallJamb, .doorJamb: .jamb
         case .windowSill, .windowJamb, .windowHeader: .window
-        case .nicheShelf, .nicheJamb, .nicheHeader, .nicheDivider: .niche
+        case .nicheBack, .nicheShelf, .nicheJamb, .nicheHeader, .nicheDivider: .niche
         case .floatingBenchTop, .framedBenchTop: .benchTop
         case .framedBenchFront, .framedBenchSide: .benchFront
         }

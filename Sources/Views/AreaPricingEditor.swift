@@ -164,11 +164,14 @@ struct StoneGroupEditor: View {
                 ForEach(group.parts) { part in
                     NavigationLink {
                         StoneRateEditor(title: "\(group.title) \(part.title.lowercased())",
-                                        rate: Binding(get: { rates.stoneRate(part) }, set: { rates.setStoneRate($0, for: part) }))
+                                        rate: Binding(get: { rates.stoneRate(part) }, set: { rates.setStoneRate($0, for: part) }),
+                                        panel: part.isPanel)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(part.title)
-                            Text(stoneSummary(rates.stoneRate(part))).font(.caption).foregroundStyle(.secondary)
+                            Text(part.isPanel && rates.stoneRate(part).bySqft
+                                 ? "\(rates.stoneRate(part).perSqft.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD").precision(.fractionLength(0...2))))/sq ft"
+                                 : stoneSummary(rates.stoneRate(part))).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -192,9 +195,23 @@ func stoneSummary(_ r: StoneRate) -> String {
 struct StoneRateEditor: View {
     let title: String
     @Binding var rate: StoneRate
+    /// A panel (a niche's back): by the square foot of its own area.
+    var panel: Bool = false
 
     var body: some View {
         Form {
+            if panel {
+                Section {
+                    Toggle("Price by the square foot", isOn: $rate.bySqft)
+                    if rate.bySqft {
+                        AmountRow(title: "Per sq ft", value: $rate.perSqft, prefix: "$")
+                    } else {
+                        AmountRow(title: "Per linear ft (of its width)", value: $rate.perLinFt, prefix: "$")
+                    }
+                } footer: {
+                    Text("Square feet are the niche's width × its height.")
+                }
+            } else {
             Section {
                 AmountRow(title: "Per linear ft", value: $rate.perLinFt, prefix: "$")
                 AmountRow(title: "Usual width", value: $rate.widthIn, suffix: "in")
@@ -208,6 +225,7 @@ struct StoneRateEditor: View {
                 Text(rate.widthIn > 0
                      ? "Square feet are the length × \(inchText(rate.widthIn / 12))."
                      : "Enter its usual width to be able to price it by the square foot.")
+            }
             }
         }
         .navigationTitle(title)
