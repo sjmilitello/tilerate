@@ -660,10 +660,26 @@ struct ScanEditor: View {
 
     // MARK: Walls
 
-    private func tapWall(_ id: UUID) {
+    /// The side of a wall drawn in or a scanned divider a tap beside it is on
+    /// (its face); nil for a wall with one side, or a tap on the wall itself.
+    private func sideTapped(_ id: UUID, at p: ScannedRoom.Point) -> Int? {
+        guard let w = room.wall(id), w.planned || isDivider(w) else { return nil }
+        let mid = ScannedRoom.Point(x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2)
+        let n = w.planned ? ScannedRoom.Point(x: -(w.end.y - w.start.y), y: w.end.x - w.start.x) : inward(w, face: 0)
+        let l = max(hypot(n.x, n.y), 1e-9)
+        let off = ((p.x - mid.x) * n.x + (p.y - mid.y) * n.y) / l
+        guard abs(off) > AreaTakeoff.drawnThicknessFt(w) / 2 else { return nil }
+        return off > 0 ? 0 : 1
+    }
+
+    /// A wall tapped: chosen, and on Tile walls tiled on the side tapped
+    /// (`side`, for a wall with two) if that side has no tile yet — so either
+    /// side or both can be tiled by tapping (owner, 2026-10-14).
+    private func tapWall(_ id: UUID, side: Int? = nil) {
         guard let wall = room.wall(id) else { return }
         if editingWalls && mode == .measure {
             if selectedWall != id { face = 0; selectedOpening = nil }
+            if let side { face = side }
             selectedWall = id
             splitAtIn = (wall.lengthFt * 12 / 2).rounded()
             return
@@ -681,13 +697,15 @@ struct ScanEditor: View {
         // Adding extras doesn't tile walls: just choose it.
         if mode == .extras {
             if selectedWall != id { face = 0 }
+            if let side { face = side }
             selectedWall = id
             return
         }
         if selectedWall != id { face = 0 }
+        if let side { face = side }
         selectedWall = id
         if let mine = takeoff.pieces.first(where: { $0.wallID == id && $0.face == face })
-            ?? takeoff.pieces.first(where: { $0.wallID == id }) {
+            ?? (side == nil ? takeoff.pieces.first(where: { $0.wallID == id }) : nil) {
             face = mine.face
             selectedPiece = mine.id
         } else if let new = takeoff.addPiece(on: wall, area: area, others: otherPieces, face: face) {
@@ -708,6 +726,7 @@ struct ScanEditor: View {
             return min(d1, d2) < 0.05
         }
         let w = placeWall(from: a, to: b, heightIn: height, door: addingFullWall && onOpening && area == .shower)
+        tileNewWall(w)
         if usesWalls { tapWall(w.id) } else { selectedWall = w.id }
         if wallsNext { wallAdded = true }
     }
@@ -896,8 +915,17 @@ struct ScanEditor: View {
         let w = placeWall(from: a, to: b, heightIn: full ? ceiling : min(42, ceiling), door: false)
         if curb > 0, let i = room.walls.firstIndex(where: { $0.id == w.id }) { room.walls[i].thicknessIn = curb * 12 }
         face = 0
+        tileNewWall(w)
         tapWall(w.id)
         if wallsNext { wallAdded = true }
+    }
+
+    /// A wall just added is tiled on its first side, whichever of Tile walls
+    /// and Edit walls is on (owner, 2026-10-14: a half wall added under Edit
+    /// walls had no tile and no way to add it there).
+    private func tileNewWall(_ w: ScannedRoom.Wall) {
+        guard usesWalls, mode == .measure, !takeoff.pieces.contains(where: { $0.wallID == w.id }) else { return }
+        _ = takeoff.addPiece(on: w, area: area, others: otherPieces, face: 0)
     }
 
     // MARK: Benches, niches, windows and corner pieces
@@ -972,11 +1000,7 @@ struct ScanEditor: View {
                 side = Double(hit.normal.x) * own.x + Double(hit.normal.z) * own.y >= 0 ? 0 : 1
             }
             guard let p = placing3D else {
-                tapWall(id)
-                if wall.planned || isDivider(wall) {
-                    face = side
-                    selectedPiece = takeoff.pieces.first { $0.wallID == id && $0.face == side }?.id
-                }
+                tapWall(id, side: wall.planned || isDivider(wall) ? side : nil)
                 return
             }
             placing3D = nil
@@ -1291,8 +1315,8 @@ struct ScanEditor: View {
                } : nil,
                snapNewWall: { a, b in
                    area == .shower ? takeoff.snappedNewWall(a, b, in: room, thicknessIn: kneeWallThicknessIn) : (a, b)
-               }) { wallID in
-        tapWall(wallID)
+               }) { wallID, p in
+        tapWall(wallID, side: sideTapped(wallID, at: p))
     }
     // Taller with dimensions on: at 250 pt many numbers outgrow their walls.
     .frame(height: showDimensions ? 340 : 250)
@@ -1563,6 +1587,18 @@ struct ScanEditor: View {
                 Text("\(inchText(wall.lengthFt)) long · \(inchText(wall.heightFt)) high")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
+            }
+            // Its tile is on Tile walls: one tap there, with this wall chosen.
+            if usesWalls {
+                Button {
+                    editingWalls = false
+                    selectedOpening = nil
+                    tapWall(wall.id)
+                } label: {
+                    Label(takeoff.pieces.contains { $0.wallID == wall.id } ? "Change its tile" : "Tile this wall",
+                          systemImage: "square.grid.3x3.fill")
+                }
+                .buttonStyle(.borderedProminent)
             }
             // The wall face-on, to move and resize its doors, windows and openings.
             Text(wall.planned ? "Seen from the \(room.faceName(of: wall, face: face).replacingOccurrences(of: "Side", with: "side"))"
@@ -2404,7 +2440,8 @@ struct PlanCanvas: View {
     var onPickTile: ((Pick) -> Void)? = nil
     /// Where a wall being drawn lands (e.g. on the shower's curb).
     var snapNewWall: (ScannedRoom.Point, ScannedRoom.Point) -> (ScannedRoom.Point, ScannedRoom.Point) = { ($0, $1) }
-    var onTapWall: (UUID) -> Void = { _ in }
+    /// A wall tapped, and where (in plan feet), for which side of it.
+    var onTapWall: (UUID, ScannedRoom.Point) -> Void = { _, _ in }
 
     /// What a drag steers, chosen with a tap (owner's call, 2026-10-08: the
     /// thumb covers what it drags, so tap it, then drag anywhere).
@@ -2779,7 +2816,7 @@ struct PlanCanvas: View {
             return
         }
         if let id = wall(at: location, f) {
-            onTapWall(id)
+            onTapWall(id, f.point(at: location))
             if let w = room.wall(id), editable(w) { hold = .wall(id) } else { hold = nil }
             return
         }

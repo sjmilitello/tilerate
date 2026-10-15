@@ -319,7 +319,16 @@ nearly touches. Its ends drag on the plan; height, thickness and
 length can be typed; it can be deleted. Its tile follows a dragged end
 both ways, worked out from the wall as the drag began
 (`Array<Piece>.followingEnd`; owner, 2026-10-14: tile was only ever
-clipped, so a half wall shortened on the way kept a 6″ strip).
+clipped, so a half wall shortened on the way kept a 6″ strip). A wall added
+is tiled on its first side under Tile walls and Edit walls alike
+(`tileNewWall`), and a wall chosen under Edit walls has **Tile this wall** /
+**Change its tile**, which switches to Tile walls with it chosen (owner,
+2026-10-14: a half wall added under Edit walls had no tile and no way to
+add it there). A tap just beside a wall drawn in or a scanned divider — off its
+drawn thickness — chooses that side and tiles it if it has no tile yet, on
+the plan and in 3-D (`sideTapped`, `tapWall(_:side:)`; owner, 2026-10-14:
+"I should be able to tile both sides by tapping"); a tap on the wall
+itself chooses it as before, and the Side switch stays.
 
 **Stone pieces by part (owner, 2026-10-13).** Admin → Stone pieces lists
 groups — Curb (Top, Inside, Outside), Wall (Cap, Jambs), Door (Jambs,
