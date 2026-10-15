@@ -216,7 +216,8 @@ struct NDPicturesSheet: View {
             let caption = [room.name, section.area?.rawValue, p.name].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
             return PDFPicture(caption: caption) { size in
                 guard let c = Room3DContent.of(room: room, section: section, rates: rates, fixtures: p.fixtures) else { return nil }
-                return Room3DScene.picture(c, eye: p.eye, target: p.target, size: size)
+                let cam = camera(p.name, saved: (p.eye, p.target), section: section, content: c)
+                return Room3DScene.picture(c, eye: cam.eye, target: cam.target, size: size)
             }
         }
     }
@@ -263,8 +264,20 @@ struct NDPicturesSheet: View {
         }
     }
 
-    private func standard(_ s: EstimateSection) -> [String] {
+    private func standard(_ s: EstimateSection) -> [String] { Self.standardNames(s) }
+
+    /// The two standard views of an area: into it, and the whole room.
+    static func standardNames(_ s: EstimateSection) -> [String] {
         [s.area == .shower ? "Shower" : (s.area?.rawValue ?? "This area"), "Whole room"]
+    }
+
+    /// A view's camera: a standard view is framed afresh each time it's drawn
+    /// (owner, 2026-10-15: the whole room view was improved, and it follows
+    /// the room as walls move); one added from the 3-D view keeps its own.
+    static func camera(_ name: String, saved: ([Double], [Double]), section: EstimateSection,
+                       content c: Room3DContent) -> (eye: [Double], target: [Double]) {
+        guard standardNames(section).contains(name) else { return (saved.0, saved.1) }
+        return Room3DScene.standard(name == "Whole room" ? .room : .area, content: c)
     }
 
     private func row(name: String, section: EstimateSection, room: EstimateRoom) -> some View {
@@ -309,9 +322,9 @@ private struct PictureThumb: View {
         .task {
             guard image == nil, let c = Room3DContent.of(room: room, section: section, rates: rates,
                                                          fixtures: picture?.fixtures ?? true) else { return }
-            let cam = picture.map { ($0.eye, $0.target) }
-                ?? { let s = Room3DScene.standard(standardName == "Whole room" ? .room : .area, content: c); return (s.eye, s.target) }()
-            image = Room3DScene.picture(c, eye: cam.0, target: cam.1, size: CGSize(width: 288, height: 192))
+            let cam = NDPicturesSheet.camera(picture?.name ?? standardName, saved: (picture?.eye ?? [], picture?.target ?? []),
+                                             section: section, content: c)
+            image = Room3DScene.picture(c, eye: cam.eye, target: cam.target, size: CGSize(width: 288, height: 192))
         }
     }
 }

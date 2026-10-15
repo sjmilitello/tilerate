@@ -541,7 +541,12 @@ extension AreaTakeoff {
         case .size:
             return floorWidthFt * floorDepthFt
         case .drawn:
-            return floorRect.map { $0.widthFt * $0.depthFt } ?? 0
+            // Less each framed bench's footprint where it stands on the floor
+            // (owner, 2026-10-15: the floor under a bench isn't tiled).
+            guard let r = floorRect else { return 0 }
+            let benches = items.filter { $0.kind == .framedBench }.compactMap { footprint($0, in: room) }
+            let under = benches.reduce(0) { $0 + FloorGeometry.area(FloorGeometry.clip($1, to: r.corners)) }
+            return max(0, r.widthFt * r.depthFt - under)
         case .none:
             return 0
         }

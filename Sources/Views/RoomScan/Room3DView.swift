@@ -821,6 +821,10 @@ enum Room3DScene {
 
         var target = SCNVector3(center.x, 2.5, center.y)
         var eye = SCNVector3(center.x - 0.35 * size, 0.95 * size + 4, center.y + 0.75 * size)
+        if preset == .room, let v = wholeRoomView(c) {
+            target = v.target
+            eye = v.eye
+        }
         if preset == .area, let focus = focusPoint(c) {
             target = SCNVector3(focus.center.x, 3.5, focus.center.y)
             let out = focus.out
@@ -830,6 +834,43 @@ enum Room3DScene {
         cam.position = eye
         cam.look(at: target)
         return (cam, target)
+    }
+
+    /// The whole room as a doll's house (owner, 2026-10-15: it looked down
+    /// steeply from a fixed side, with walls in the way): from above the
+    /// corner farthest from this area, square to the room's walls, looking
+    /// across it at about 40° down, far enough back that the whole room fits.
+    /// The two walls nearest the camera are seen from outside, so they don't
+    /// show and the room is open to view.
+    private static func wholeRoomView(_ c: Room3DContent) -> (eye: SCNVector3, target: SCNVector3)? {
+        let room = c.room
+        let pts = room.floorOutline.isEmpty ? room.walls.flatMap { [$0.start, $0.end] } : room.floorOutline
+        guard pts.count > 2 else { return nil }
+        // The room's own square directions.
+        let t = room.squaringAngle
+        let ux = ScannedRoom.Point(x: cos(t), y: sin(t)), uy = ScannedRoom.Point(x: -sin(t), y: cos(t))
+        func along(_ p: ScannedRoom.Point, _ u: ScannedRoom.Point) -> Double { p.x * u.x + p.y * u.y }
+        let xs = pts.map { along($0, ux) }, ys = pts.map { along($0, uy) }
+        let x0 = xs.min()!, x1 = xs.max()!, y0 = ys.min()!, y1 = ys.max()!
+        let cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+        func plan(_ a: Double, _ b: Double) -> ScannedRoom.Point { .init(x: ux.x * a + uy.x * b, y: ux.y * a + uy.y * b) }
+        // The corner farthest from this area, so the area is in view.
+        let focus = focusPoint(c)?.center
+        let fx = focus.map { along($0, ux) } ?? cx, fy = focus.map { along($0, uy) } ?? cy
+        let sx: Double = fx > cx ? -1 : 1, sy: Double = fy > cy ? -1 : 1
+        var d = ScannedRoom.Point(x: ux.x * sx * (x1 - x0) + uy.x * sy * (y1 - y0), y: ux.y * sx * (x1 - x0) + uy.y * sy * (y1 - y0))
+        let dl = max(hypot(d.x, d.y), 0.01)
+        d = .init(x: d.x / dl, y: d.y / dl)
+        let ceiling = room.ceilingFt
+        let middle = plan(cx, cy)
+        let targetY = ceiling * 0.38
+        // Far enough back for the room's half-diagonal and height to fit the
+        // 60° view, with a margin.
+        let radius = hypot(x1 - x0, y1 - y0) / 2
+        let reach = (radius + ceiling * 0.12) / sin(Double.pi / 6)
+        let down = 40.0 * Double.pi / 180
+        let eye = SCNVector3(middle.x + d.x * reach * cos(down), targetY + reach * sin(down), middle.y + d.y * reach * cos(down))
+        return (eye, SCNVector3(middle.x, targetY, middle.y))
     }
 
     /// The middle of this area and the way out of it (toward its open side,

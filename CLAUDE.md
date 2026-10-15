@@ -277,7 +277,10 @@ dragged on the wall face-on. Starting sizes are Admin settings
 (`Rates.scanDefaults`, `ScanItemDefaults`): benches 20″ high and 15″ deep;
 niche 13″ × 24″, 48″ up; window 36″ × 24″, 48″ up; corner shelf 9″ at 48″
 (another in the same corner 12″ higher; the Add corner menu has a section per corner, named by the wall meeting it), footrest 10″ at 18″, seat 18″ at
-20″. A bench runs along the shower floor's side against its wall
+20″. A framed bench's footprint (length × depth, where it stands on the
+drawn shower floor) comes off the shower floor's square feet, and so off
+everything priced from them (owner, 2026-10-15; `floorSqft`); a floating
+bench takes nothing off. A bench runs along the shower floor's side against its wall
 (`benchSpan`): wall to wall, or a framed bench to flush with the outside of
 the curb (the curb stone's width past the floor); a floating bench needs a
 wall at each end and has no front. Tile benches add their top (and a framed
@@ -516,7 +519,12 @@ preview's **3-D views** button lists each scanned area's standard views
 starter) and pictures per page (1, 2 or 4; 2 to start): when on, pages headed
 "Your project" follow the estimate (`EstimatePDF.picturePages`, appended
 with PDFKit so the layouts themselves — Classic's pixel check — are
-untouched). The layout preview doesn't show them.
+untouched). The layout preview doesn't show them. The two standard
+views are framed afresh whenever drawn (`NDPicturesSheet.camera`), so they
+follow the room; views added from the 3-D view keep their saved camera.
+"Whole room" (`wholeRoomView`, owner 2026-10-15) is a doll's house: from
+above the corner farthest from the area, square to the room's walls, 40°
+down, back far enough for the room and its height to fit.
 
 Dimensions (owner's call, 2026-10-07): the 2-D plan's ruler button shows
 the room's perimeter — each scanned wall's length to the quarter inch

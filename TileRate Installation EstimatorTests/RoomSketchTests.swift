@@ -453,6 +453,30 @@ struct NicheBackStoneTests {
     }
 }
 
+struct BenchOffShowerFloorTests {
+    /// A framed bench's footprint comes off the shower floor's square feet; a
+    /// floating bench's doesn't (owner, 2026-10-15).
+    @Test func framedBenchFootprintComesOffTheFloor() {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let r = t.floorRect!
+        let full = r.widthFt * r.depthFt
+        #expect(abs(t.floorSqft(in: room) - full) < 1e-9)
+        let wall = room.walls.first { w in t.pieces.contains { $0.wallID == w.id } }!
+        let span = t.benchSpan(on: wall, in: room, floating: false)!
+        var bench = AreaTakeoff.Item(kind: .framedBench, wallID: wall.id, fromFt: span.lowerBound, toFt: span.upperBound, heightIn: 18)
+        bench.depthIn = 15
+        t.items = [bench]
+        let onFloor = FloorGeometry.area(FloorGeometry.clip(t.footprint(bench, in: room)!, to: r.corners))
+        #expect(onFloor > 1)
+        #expect(abs(t.floorSqft(in: room) - (full - onFloor)) < 1e-9)
+        t.items[0].kind = .floatingBench
+        #expect(abs(t.floorSqft(in: room) - full) < 1e-9)
+    }
+}
+
 struct HalfWallEndDragTests {
     /// Tile reaching a dragged end follows it both ways, worked out from the
     /// wall as the drag began (owner, 2026-10-14: a half wall shortened on
