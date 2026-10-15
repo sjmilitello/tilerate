@@ -453,6 +453,37 @@ struct NicheBackStoneTests {
     }
 }
 
+struct BenchStoneByItsSizeTests {
+    /// A framed bench's stone is priced by the square foot of the bench as
+    /// placed, not a usual width (owner, 2026-10-14: it's dragged every way).
+    @Test func framedBenchTopAndFrontByTheBenchsOwnSize() {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let wall = room.walls.first { w in t.pieces.contains { $0.wallID == w.id } }!
+        var bench = AreaTakeoff.Item(kind: .framedBench, wallID: wall.id, fromFt: 0, toFt: 4, bottomIn: 0, heightIn: 18)
+        bench.depthIn = 16
+        t.items = [bench]
+        t.itemsPlaced = true
+        let id = t.items[0].id
+        t.trim = [.init(key: "benchTop:\(id)", stone: true), .init(key: "benchFront:\(id)", stone: true)]
+        let top = t.trimPieces(in: room, area: .shower, curbHeightIn: 4).first { $0.key == "benchTop:\(id)" }!
+        let length = top.lengthFt
+        var prices = StonePrices()
+        prices.parts[.framedBenchTop] = StoneRate(widthIn: 0, bySqft: true, perSqft: 50)    // no usual width set
+        prices.parts[.framedBenchFront] = StoneRate(widthIn: 0, bySqft: true, perSqft: 50)
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
+        t.apply(room, to: &s, prices: prices)
+        let line = s.additionsLabor.first { $0.activity == "Stone framed bench" }
+        let sqft = length * 16 / 12 + length * 18 / 12               // top + front
+        #expect(line?.unit == "sq ft")
+        #expect(abs((line?.qty ?? 0) - (sqft * 100).rounded() / 100) < 0.011)
+        #expect(abs((line?.amount ?? 0) - sqft * 50) < 0.6)
+        #expect(StonePart.framedBenchSide.isPanel && StonePart.framedBenchTop.isPanel)
+    }
+}
+
 struct RoomEndShowerTests {
     /// A shower across the end of a narrow room goes wall to wall (owner,
     /// 2026-10-14: it came out as a corner shower).

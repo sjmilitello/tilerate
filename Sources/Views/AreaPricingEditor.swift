@@ -165,7 +165,7 @@ struct StoneGroupEditor: View {
                     NavigationLink {
                         StoneRateEditor(title: "\(group.title) \(part.title.lowercased())",
                                         rate: Binding(get: { rates.stoneRate(part) }, set: { rates.setStoneRate($0, for: part) }),
-                                        panel: part.isPanel)
+                                        panel: part.isPanel, panelArea: part.panelArea)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(part.title)
@@ -197,6 +197,7 @@ struct StoneRateEditor: View {
     @Binding var rate: StoneRate
     /// A panel (a niche's back): by the square foot of its own area.
     var panel: Bool = false
+    var panelArea = "the niche's width × its height"
 
     var body: some View {
         Form {
@@ -206,10 +207,10 @@ struct StoneRateEditor: View {
                     if rate.bySqft {
                         AmountRow(title: "Per sq ft", value: $rate.perSqft, prefix: "$")
                     } else {
-                        AmountRow(title: "Per linear ft (of its width)", value: $rate.perLinFt, prefix: "$")
+                        AmountRow(title: "Per linear ft", value: $rate.perLinFt, prefix: "$")
                     }
                 } footer: {
-                    Text("Square feet are the niche's width × its height.")
+                    Text("Square feet are \(panelArea), as placed on the model — no usual width to set.")
                 }
             } else {
             Section {

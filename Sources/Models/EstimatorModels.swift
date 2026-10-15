@@ -783,9 +783,25 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .framedBenchSide: "Sides"
         }
     }
-    /// A panel priced by its own area (width × height) when by the square
-    /// foot, not by a usual width (owner, 2026-10-13: a niche's back).
-    var isPanel: Bool { self == .nicheBack }
+    /// A panel priced by its own area when by the square foot, not by a
+    /// usual width (owner, 2026-10-13: a niche's back; 2026-10-14: a bench's
+    /// top, front and sides, which are dragged to any size).
+    var isPanel: Bool {
+        switch self {
+        case .nicheBack, .floatingBenchTop, .framedBenchTop, .framedBenchFront, .framedBenchSide: true
+        default: false
+        }
+    }
+    /// How a panel's square feet are measured, for Admin.
+    var panelArea: String {
+        switch self {
+        case .nicheBack: "the niche's width × its height"
+        case .floatingBenchTop, .framedBenchTop: "the bench's length × its depth"
+        case .framedBenchFront: "the bench's length × its height"
+        case .framedBenchSide: "the bench's depth × its height"
+        default: ""
+        }
+    }
 
     /// The price it starts from: the one it was part of before.
     var legacy: StoneItem {

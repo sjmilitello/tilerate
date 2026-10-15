@@ -324,7 +324,10 @@ Header), Window (Sill, Jambs, Header), Niche (Back, Base shelf, Jambs,
 Header, Divider shelves — the back added 2026-10-13, a panel priced by
 the niche's width × height when by the square foot, `isPanel`,
 `TrimPiece.areaSqft`; tile until chosen), Ceiling (Header), Wall to wall floating bench (Top),
-Framed bench (Top, Front, Sides) — each opening to its parts, each with its
+Framed bench (Top, Front, Sides) — bench parts are panels too (owner,
+2026-10-14: a bench is dragged every way, so a usual width makes no sense):
+by the square foot they're the bench as placed, top length × depth, front
+length × height, outside end depth × height, with no width to set — each opening to its parts, each with its
 own install price (`StonePart`, `StoneGroup`, `Rates.stoneRate(_: StonePart)`;
 per linear foot, or per square foot once a width is set). A part with no
 price of its own uses the one it was part of before (`StonePart.legacy`),

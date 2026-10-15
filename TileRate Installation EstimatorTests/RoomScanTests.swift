@@ -563,7 +563,8 @@ struct RoomScanTests {
         #expect(abs(t.sqft(of: t.pieces[2], in: r) - (24 - 4)) < 1e-9)
         // The bench's top and front are tile: 9 × 15″ + 9 × 20″.
         #expect(abs(t.benchTileSqft(in: r) - (9 * 1.25 + 9 * 20.0 / 12)) < 1e-9)
-        // Stone top: off the tile, onto a line by the square foot (12″ wide).
+        // Stone top: off the tile, onto a line by the square foot — the bench's
+        // own 15″ depth, not the usual width (owner, 2026-10-14).
         t.trim = [.init(key: "benchTop:\(t.items[0].id)", stone: true)]
         #expect(abs(t.benchTileSqft(in: r) - 9 * 20.0 / 12) < 1e-9)
         var prices = StonePrices()
@@ -572,7 +573,7 @@ struct RoomScanTests {
         s.features.shelves = 5   // typed earlier: placed items override it
         t.apply(r, to: &s, prices: prices)
         let top = s.additionsLabor.first { $0.activity == "Stone framed bench" }
-        #expect(top?.qty == 9 && top?.unit == "sq ft" && top?.rate == 35)
+        #expect(top?.qty == 11.25 && top?.unit == "sq ft" && top?.rate == 35)
         #expect(s.features.benches == 1 && s.features.niches == 1 && s.features.windows == 1)
         #expect(s.features.shelves == 1 && s.features.seats == 1 && s.features.footrests == 0)
         // Stone shelves only: the base shelf and one divider, 13″ each, on the

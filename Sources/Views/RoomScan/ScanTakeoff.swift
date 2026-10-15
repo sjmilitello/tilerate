@@ -1380,7 +1380,17 @@ extension AreaTakeoff {
         let doorIDs = Set(showerDoors(in: room).map(\.id.uuidString))
         return out.map { key, kind, name, ft in
             let choice = trim.first { $0.key == key }
-            let area: Double? = key.hasSuffix(":back") ? items.first { key.contains($0.id.uuidString) }.map { $0.widthFt * $0.heightIn / 12 } : nil
+            let length = choice?.lengthFt ?? ft
+            let item = items.first { key.contains($0.id.uuidString) }
+            // A panel's own area: a niche's back, and a bench's top, front and
+            // outside end at the bench's real size (owner, 2026-10-14).
+            let area: Double? = item.flatMap { i -> Double? in
+                if key.hasSuffix(":back") { return i.widthFt * i.heightIn / 12 }
+                if key.hasPrefix("benchTop:") { return length * i.depthIn / 12 }
+                if key.hasPrefix("benchFront:") { return length * i.heightIn / 12 }
+                if key.hasPrefix("benchSide:") { return length * i.heightIn / 12 }
+                return nil
+            }
             return TrimPiece(key: key, kind: kind, areaSqft: area, part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
                              name: name, measuredFt: ft,
                              lengthFt: choice?.lengthFt ?? ft, stone: choice?.stone ?? defaults[key] ?? false)
