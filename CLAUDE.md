@@ -316,7 +316,10 @@ and jambs. A selected planned wall has a move
 handle in its middle (`movePlannedWall`): whole inches, its line snapping
 within 1½″ to those lines and to other walls' ends, an end onto a wall it
 nearly touches. Its ends drag on the plan; height, thickness and
-length can be typed; it can be deleted.
+length can be typed; it can be deleted. Its tile follows a dragged end
+both ways, worked out from the wall as the drag began
+(`Array<Piece>.followingEnd`; owner, 2026-10-14: tile was only ever
+clipped, so a half wall shortened on the way kept a 6″ strip).
 
 **Stone pieces by part (owner, 2026-10-13).** Admin → Stone pieces lists
 groups — Curb (Top, Inside, Outside), Wall (Cap, Jambs), Door (Jambs,

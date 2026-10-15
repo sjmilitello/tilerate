@@ -3250,3 +3250,27 @@ extension EstimateRoom {
         }
     }
 }
+
+
+extension Array where Element == AreaTakeoff.Piece {
+    /// The pieces on a wall after one of its ends moves, its length going
+    /// from `old` to `new`: tile reaching the moved end runs to it, the rest
+    /// stays where it is on the wall (measured from the end that stayed).
+    func followingEnd(of wallID: UUID, start: Bool, from old: Double, to new: Double) -> [AreaTakeoff.Piece] {
+        let tol = 1.0 / 16 / 12
+        let shift = start ? old - new : 0     // along-wall positions move when the start does
+        return compactMap { p in
+            guard p.wallID == wallID else { return p }
+            var q = p
+            if start {
+                q.fromFt = p.fromFt <= tol ? 0 : p.fromFt - shift
+                q.toFt = p.toFt - shift
+            } else if p.toFt >= old - tol {
+                q.toFt = new
+            }
+            q.fromFt = Swift.min(Swift.max(0, q.fromFt), new)
+            q.toFt = Swift.min(Swift.max(0, q.toFt), new)
+            return q.toFt - q.fromFt < 1.0 / 24 ? nil : q
+        }
+    }
+}

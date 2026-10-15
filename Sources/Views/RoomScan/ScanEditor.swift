@@ -1249,7 +1249,15 @@ struct ScanEditor: View {
                addingWall: addingWall,
                onAddWall: { a, b in addDrawnWall(from: a, to: b) },
                onMovePlannedEnd: { id, start, p in
+                   // From the wall and its tile as the drag began, so tile
+                   // reaching the end follows it both ways (owner, 2026-10-14:
+                   // a half wall shortened on the way kept a 6″ strip).
+                   if dragBase == nil { dragBase = (room, takeoff) }
+                   guard let base = dragBase, let old = base.room.wall(id) else { return }
                    room.movePlannedEnd(id, start: start, to: p)
+                   guard let new = room.wall(id) else { return }
+                   takeoff.pieces = base.takeoff.pieces.followingEnd(of: id, start: start,
+                                                                     from: old.lengthFt, to: new.lengthFt)
                    clampPieces(on: id)
                },
                onMovePlannedWall: { original, d, reach in

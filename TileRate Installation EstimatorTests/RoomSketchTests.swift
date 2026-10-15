@@ -453,6 +453,30 @@ struct NicheBackStoneTests {
     }
 }
 
+struct HalfWallEndDragTests {
+    /// Tile reaching a dragged end follows it both ways, worked out from the
+    /// wall as the drag began (owner, 2026-10-14: a half wall shortened on
+    /// the way kept only a 6″ strip of tile).
+    @Test func tileFollowsAMovedEndBothWays() {
+        let wall = UUID(), other = UUID()
+        let pieces = [AreaTakeoff.Piece(wallID: wall, fromFt: 0, toFt: 5, heightIn: 42),
+                      AreaTakeoff.Piece(wallID: other, fromFt: 1, toFt: 2, heightIn: 96)]
+        // The end dragged in to 6″, then out to 32″.
+        let shortened = pieces.followingEnd(of: wall, start: false, from: 5, to: 0.5)
+        #expect(shortened[0].toFt == 0.5)
+        let back = pieces.followingEnd(of: wall, start: false, from: 5, to: 32.0 / 12)
+        #expect(back[0].fromFt == 0 && abs(back[0].toFt - 32.0 / 12) < 1e-9)
+        #expect(back[1] == pieces[1])
+        // The start dragged in by 2′: tile from the start stays at the start.
+        let fromStart = pieces.followingEnd(of: wall, start: true, from: 5, to: 3)
+        #expect(fromStart[0].fromFt == 0 && fromStart[0].toFt == 3)
+        // A piece partway along stays put on the wall.
+        let partway = [AreaTakeoff.Piece(wallID: wall, fromFt: 3, toFt: 4, heightIn: 42)]
+            .followingEnd(of: wall, start: true, from: 5, to: 3)
+        #expect(partway[0].fromFt == 1 && partway[0].toFt == 2)
+    }
+}
+
 struct BenchStoneByItsSizeTests {
     /// A framed bench's stone is priced by the square foot of the bench as
     /// placed, not a usual width (owner, 2026-10-14: it's dragged every way).
