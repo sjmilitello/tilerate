@@ -1169,8 +1169,10 @@ struct ScanEditor: View {
                         .buttonStyle(.bordered)
                         .font(.subheadline)
                     }
-                    itemStoneParts(item, [("back", "Back"), ("shelf", "Base shelf"), ("jambs", "Jambs"), ("header", "Header")]
-                                   + (item.dividers > 0 ? [("dividers", "Divider shelves")] : []))
+                    // Divider shelves always offered (owner, 2026-10-14): stone on
+                    // with none yet adds one.
+                    itemStoneParts(item, [("back", "Back"), ("shelf", "Base shelf"), ("jambs", "Jambs"), ("header", "Header"),
+                                          ("dividers", "Divider shelves")])
                 } else {
                     itemStoneParts(item, [("sill", "Sill"), ("jambs", "Jambs"), ("header", "Header")])
                     Text("The window isn't tiled; it comes off the wall.").font(.caption).foregroundStyle(.secondary)
@@ -1367,8 +1369,14 @@ struct ScanEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Stone").font(.subheadline.weight(.semibold))
             ForEach(parts, id: \.0) { part, title in
-                Toggle(title, isOn: Binding(get: { takeoff.partStone(item, part) },
-                                            set: { takeoff.setPartStone(item, part, $0) }))
+                Toggle(title, isOn: Binding(get: { takeoff.partStone(item, part) && (part != "dividers" || item.dividers > 0) },
+                                            set: { on in
+                                                if on, part == "dividers", item.dividers == 0,
+                                                   let i = takeoff.items.firstIndex(where: { $0.id == item.id }) {
+                                                    takeoff.items[i].dividers = 1
+                                                }
+                                                takeoff.setPartStone(item, part, on)
+                                            }))
                     .font(.subheadline)
             }
         }
@@ -1859,6 +1867,21 @@ struct ScanEditor: View {
                                                         set: { if $0 { openStoneGroups.insert(group) } else { openStoneGroups.remove(group) } })) {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(these) { piece in trimRow(piece) }
+                            // A niche with no divider shelf yet can have one added here.
+                            if group == .niche {
+                                ForEach(takeoff.items.filter { $0.kind == .niche && $0.dividers == 0 }) { n in
+                                    HStack {
+                                        Text("\(n.kind.name) \(Int((n.widthFt * 12).rounded()))″ × \(Int(n.heightIn.rounded()))″ divider shelves: none")
+                                            .font(.subheadline).foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button("Add one") {
+                                            if let i = takeoff.items.firstIndex(where: { $0.id == n.id }) { takeoff.items[i].dividers = 1 }
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .font(.subheadline)
+                                    }
+                                }
+                            }
                         }
                         .padding(.top, 6)
                     } label: {

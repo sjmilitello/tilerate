@@ -358,7 +358,10 @@ group's line (it used to be the higher of the two). On the model the
 Extras panel lists the groups ("Tile", "All stone", "2 of 3 stone"), each
 opening to its pieces; a niche's or window's panel has a Tile/Stone switch
 per part (`partStone`/`setPartStone`, keys `niche:<id>:shelf` etc.; an
-item saved before starts from its old choice). `StonePartPricingTests`.
+item saved before starts from its old choice). A niche always lists
+Divider shelves; switching it to stone with none yet adds one, and the
+Extras panel's Niche group offers "Add one" for a niche with none (owner,
+2026-10-14: it only showed once the stepper had added a shelf). `StonePartPricingTests`.
 
 Shower entry trim (owner's rules, 2026-10-07): curbs, wall caps, jambs and
 headers (`TrimPiece`, from `AreaTakeoff.trimPieces`) are tile by default —
