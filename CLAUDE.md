@@ -466,7 +466,11 @@ Tile has to read as tile at phone size (owner, 2026-10-09: a 24×48 wall
 looked painted): `TilePattern` draws several tiles to the image (to about
 8′ each way), each a slightly different shade (more for zellige and
 terracotta), grout at least 2½ pixels wide in a colour that stands out
-from the tile (light on darker tile), filtered anisotropically. Each tile
+from the tile (light on darker tile), filtered anisotropically. Wall tile
+is laid from the floor (`tileMaterial`: a plane's texture runs down from its
+top, so its top edge sets the offset), so courses are at the same heights on
+every wall — a half wall's grout lines meet the full walls' (owner,
+2026-10-14; they were half a tile off). Each tile
 is drawn in its real shape (owner: "the patterns should be accurate";
 every pattern checked by the owner on a sheet, three rounds, 2026-10-09):
 `TilePattern.shape`. Square and rectangle by layout — stacked, running

@@ -1047,7 +1047,11 @@ enum Room3DScene {
         // Grout lines stay sharp on walls seen at an angle.
         m.diffuse.maxAnisotropy = 16
         let sx = widthFt * 12 / pattern.periodIn.width, sy = heightFt * 12 / pattern.periodIn.height
-        let tx = x0 * 12 / pattern.periodIn.width, ty = y0 * 12 / pattern.periodIn.height
+        // Laid from the floor (and the wall's start), so courses run at the
+        // same heights on every wall, whatever its height (owner, 2026-10-14:
+        // a half wall's grout lines didn't meet the shower walls'). A plane's
+        // texture runs down from its top, so its top edge sets the start.
+        let tx = x0 * 12 / pattern.periodIn.width, ty = -(y0 + heightFt) * 12 / pattern.periodIn.height
         m.diffuse.contentsTransform = SCNMatrix4Translate(SCNMatrix4MakeScale(Float(sx), Float(sy), 1), Float(tx), Float(ty), 0)
         m.lightingModel = .lambert
         return m
