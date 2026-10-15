@@ -443,7 +443,9 @@ all show: walls with doors and windows cut out (`Room3DScene.cells`), each
 area's tile with grout lines at its real size and layout (`TilePattern`:
 stacked, running bond, diagonal, herringbone; long side across; sizes from
 the tile, else usual for its shape), benches, niches, corner pieces, the
-curb, stone in a stone colour, and the fixtures the scanner found
+curb, stone in a stone colour — every area's, whichever area is open
+(`OtherAreaPieces.takeoff`; owner, 2026-10-14: the Floor tab hid the
+shower's bench, niches and drain) — and the fixtures the scanner found
 (`ScannedRoom.fixtures`, kept from 2026-10-07 scans on; switchable).
 Tile has to read as tile at phone size (owner, 2026-10-09: a 24×48 wall
 looked painted): `TilePattern` draws several tiles to the image (to about

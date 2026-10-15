@@ -37,6 +37,8 @@ struct OtherAreaPieces: Equatable {
     var soffits: [AreaTakeoff.SoffitBox] = []
     var curbHeightIn: Double = 4
     var stoneParts: Set<String> = []
+    /// Its takeoff, for its benches, niches, corner pieces and drain in 3-D.
+    var takeoff: AreaTakeoff? = nil
 
     struct CurbRun: Equatable { var a: ScannedRoom.Point; var b: ScannedRoom.Point; var key: String }
 }
@@ -336,7 +338,7 @@ struct ScanEditor: View {
             }, floor: o.floor, curbless: o.curbless, tile: o.tile, floorTile: o.floorTile, wallTiles: o.wallTiles,
                roomFloor: o.roomFloor, floorOutline: o.floorOutline, floorHoles: o.floorHoles,
                continuousFloors: o.continuousFloors, curbs: o.curbs, jambs: o.jambs, headers: o.headers, soffits: o.soffits, curbHeightIn: o.curbHeightIn,
-               stoneParts: o.stoneParts)
+               stoneParts: o.stoneParts, takeoff: o.takeoff)
         }
     }
 
