@@ -1867,19 +1867,11 @@ struct ScanEditor: View {
                                                         set: { if $0 { openStoneGroups.insert(group) } else { openStoneGroups.remove(group) } })) {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(these) { piece in trimRow(piece) }
-                            // A niche with no divider shelf yet can have one added here.
+                            // Each niche's divider shelves, as many as it needs (owner,
+                            // 2026-10-14), with their stone choice in the rows above.
                             if group == .niche {
-                                ForEach(takeoff.items.filter { $0.kind == .niche && $0.dividers == 0 }) { n in
-                                    HStack {
-                                        Text("\(n.kind.name) \(Int((n.widthFt * 12).rounded()))″ × \(Int(n.heightIn.rounded()))″ divider shelves: none")
-                                            .font(.subheadline).foregroundStyle(.secondary)
-                                        Spacer()
-                                        Button("Add one") {
-                                            if let i = takeoff.items.firstIndex(where: { $0.id == n.id }) { takeoff.items[i].dividers = 1 }
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .font(.subheadline)
-                                    }
+                                ForEach(takeoff.items.filter { $0.kind == .niche }) { n in
+                                    dividerStepper(n)
                                 }
                             }
                         }
@@ -1898,6 +1890,20 @@ struct ScanEditor: View {
                 Text("Tile is part of the wall square feet. Stone goes on one line per group, each piece at its own price (Admin → Stone pieces).")
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// How many divider shelves a niche has, in the Stone pieces list.
+    @ViewBuilder
+    private func dividerStepper(_ n: AreaTakeoff.Item) -> some View {
+        if let i = takeoff.items.firstIndex(where: { $0.id == n.id }) {
+            let wallName: String = room.wall(n.wallID).map { room.name(of: $0).lowercased() } ?? ""
+            let count = n.dividers
+            let title = "Niche on \(wallName): \(count) divider " + (count == 1 ? "shelf" : "shelves")
+            Stepper(title, value: $takeoff.items[i].dividers, in: 0...6)
+                .font(.subheadline)
+                .padding(12)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 

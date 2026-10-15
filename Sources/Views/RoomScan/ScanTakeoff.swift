@@ -1366,15 +1366,21 @@ extension AreaTakeoff {
         var defaults: [String: Bool] = [:]
         for i in items where i.kind == .niche || i.kind == .window {
             let w = i.widthFt, h = i.heightIn / 12
-            let label = "\(i.kind.name) \(Int((w * 12).rounded()))″ × \(Int(i.heightIn.rounded()))″"
+            // Each piece named by what it is and its own size (owner, 2026-10-14:
+            // every piece read "Niche 13″ × 24″", as if each were that size).
+            let wallName = room.wall(i.wallID).map { room.name(of: $0) } ?? ""
+            let label = "\(i.kind.name)" + (wallName.isEmpty ? "" : " on \(wallName.prefix(1).lowercased() + wallName.dropFirst())")
+            let width = inchText(w), height = inchText(h)
             let parts: [(String, String, Double)] = i.kind == .niche
-                ? [("back", "back", w), ("shelf", "base shelf", w), ("jambs", "jambs", 2 * h), ("header", "header", w),
-                   ("dividers", "divider shelves", Double(i.dividers) * w)]
-                : [("sill", "sill", w), ("jambs", "jambs", 2 * h), ("header", "header", w)]
+                ? [("back", "back \(width) × \(height)", w), ("shelf", "base shelf \(width)", w),
+                   ("jambs", "jambs 2 × \(height)", 2 * h), ("header", "header \(width)", w),
+                   ("dividers", i.dividers == 1 ? "divider shelf \(width)" : "divider shelves \(i.dividers) × \(width)",
+                    Double(i.dividers) * w)]
+                : [("sill", "sill \(width)", w), ("jambs", "jambs 2 × \(height)", 2 * h), ("header", "header \(width)", w)]
             for (part, name, ft) in parts where ft > 0.01 {
                 let key = Self.partKey(i, part)
                 defaults[key] = partStone(i, part)
-                out.append((key, i.kind == .niche ? .niche : .window, "\(label) \(name)", ft))
+                out.append((key, i.kind == .niche ? .niche : .window, "\(label): \(name)", ft))
             }
         }
         let doorIDs = Set(showerDoors(in: room).map(\.id.uuidString))
