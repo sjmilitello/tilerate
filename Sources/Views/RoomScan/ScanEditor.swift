@@ -917,10 +917,23 @@ struct ScanEditor: View {
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
+                    // Walls done: tile is the next step (owner, 2026-10-15), so
+                    // it leads; walls stay a tap away.
+                    if embedding != nil {
+                        Button { withAnimation { goTab(.tile) } } label: {
+                            Label("Add/Edit Tile", systemImage: "square.grid.3x3.fill").lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .layoutPriority(1)
+                    }
                     Button { openWallsMode() } label: {
-                        Label("Add/Edit Walls", systemImage: "plus.rectangle.on.rectangle").frame(maxWidth: .infinity)
+                        Label(embedding != nil ? "Walls" : "Add/Edit Walls", systemImage: "plus.rectangle.on.rectangle")
+                            .lineLimit(1)
+                            .frame(maxWidth: embedding != nil ? nil : .infinity)
                     }
                     .buttonStyle(.bordered)
+                    .fixedSize(horizontal: embedding != nil, vertical: false)
                     if shower {
                         Button { show3D = false; editingWalls = false; placingShower = true } label: {
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
@@ -1375,11 +1388,11 @@ struct ScanEditor: View {
 
     private var planHint: String? {
         if addingWall || placingShower { return nil }
-        if pickingTile { return "Tap a wall or floor to choose its tile" }
+        if pickingTile { return "Tap a wall or floor to add or change its tile" }
         if editingWalls && mode == .measure { return nil }   // the row under the plan says it
         if !usesWalls { return "Pinch to zoom" }
         if mode == .measure, area == .shower, takeoff.floorRect != nil {
-            return "Add or edit walls, then tap a wall to tile it"
+            return "Walls first, then Add/Edit Tile"
         }
         return mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"
     }
