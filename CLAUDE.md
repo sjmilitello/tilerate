@@ -677,14 +677,19 @@ banners and "Next: the walls" card of 2026-10-12/13: "nudge the user… put
 the options the user needs under their fingers when they need it. there
 should be no redundant buttons"): one row just under the drawing
 (`ScanEditor.stageRow`) on the Measure tab. A shower not placed yet shows
-only **Choose Shower Area**; once placed, **Add Walls** (full, half, framed
-bench, header) · **Edit Walls** (Done while editing), with a small Move and
-Remove. Other areas get Add Walls · Edit Walls. While the plan waits for a
-tap the row becomes one plain line saying what to tap ("Tap the plan where
-the shower goes", "Tap the curb, or drag to draw the wall", "Tap the wall
-the bench goes against") with Cancel (`waitingFor`). Hints are in blue
-(the plan's hint and that line, owner 2026-10-15); with the shower placed
-the plan's hint says "Add or edit walls, then tap a wall to tile it". Nothing covers the
+only **Choose Shower Area**; once placed, **Add/Edit Walls** with a small
+Move and Remove. Add/Edit Walls opens the **walls mode** (owner,
+2026-10-15: adding and editing walls felt awkward; `openWallsMode`,
+`wallsModeRow`): chips **Half · Full · Bench** and **Done**, with a blue
+line saying what to tap. A picked chip stays picked (solid blue) — each tap
+on a curb adds that wall (or drag to draw one), so a corner shower's two
+half walls are two taps — and a tap on a wall or its end ring holds it to
+drag, so the entry can be opened at the curb end or the wall end. New
+walls get tile on their shower side as they're added (the area's tile).
+Done leaves the mode and lets go of anything held; tapping a wall then
+tiles it. Header (drop from ceiling) is in the ⋯ beside the line. While
+the plan waits for a tap outside the walls mode (placing the shower) the
+row becomes one blue line with Cancel (`waitingFor`). Nothing covers the
 plan, and the tab below no longer repeats these (no Move/Remove buttons,
 Tile walls | Edit walls switch or Add a Wall menu there). **Undo**
 also steps back out of a step with nothing changed yet (adding a wall or

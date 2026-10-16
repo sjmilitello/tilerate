@@ -589,14 +589,15 @@ struct ScanEditor: View {
 
     /// A guide step Undo can leave (adding a wall, placing, editing walls).
     private var guideStepToUndo: Bool {
-        addingWall || placingBench || placing3D != nil || (placingShower && takeoff.floorRect != nil) || (wallsNext && editingWalls)
+        (addingWall && !editingWalls) || (placingBench && !editingWalls) || placing3D != nil
+            || (placingShower && takeoff.floorRect != nil) || (wallsNext && editingWalls)
     }
 
     private func undo() {
         // A step of the guide with nothing changed yet: Undo goes back a step
         // (owner, 2026-10-13: Undo didn't get them back to the choice).
-        if addingWall { addingWall = false; return }
-        if placingBench { placingBench = false; return }
+        if addingWall, !editingWalls { addingWall = false; return }
+        if placingBench, !editingWalls { placingBench = false; return }
         if placing3D != nil { placing3D = nil; return }
         if placingShower, takeoff.floorRect != nil { placingShower = false; return }
         if wallsNext, editingWalls { editingWalls = false; selectedOpening = nil; return }
@@ -642,17 +643,17 @@ struct ScanEditor: View {
     /// side or both can be tiled by tapping (owner, 2026-10-14).
     private func tapWall(_ id: UUID, side: Int? = nil) {
         guard let wall = room.wall(id) else { return }
+        if placingBench {
+            placingBench = false
+            addBench(on: wall, floating: false)
+            if wallsNext { wallAdded = true }
+            return
+        }
         if editingWalls && mode == .measure {
             if selectedWall != id { face = 0; selectedOpening = nil }
             if let side { face = side }
             selectedWall = id
             splitAtIn = (wall.lengthFt * 12 / 2).rounded()
-            return
-        }
-        if placingBench {
-            placingBench = false
-            addBench(on: wall, floating: false)
-            if wallsNext { wallAdded = true }
             return
         }
         guard usesWalls else {
@@ -682,7 +683,7 @@ struct ScanEditor: View {
     /// A wall drawn on the plan: added to the room, chosen, and tiled on
     /// its first side. A full wall drawn onto the shower opening gets a door.
     private func addDrawnWall(from a: ScannedRoom.Point, to b: ScannedRoom.Point) {
-        addingWall = false
+        if !editingWalls { addingWall = false }
         let ceiling = room.ceilingFt * 12
         let height = addingFullWall ? ceiling : min(42, ceiling)
         let onOpening = openSides.contains { s in
@@ -798,26 +799,89 @@ struct ScanEditor: View {
         }
     }
 
-    private var addWallMenu: some View {
-        Menu {
-            Button { show3D = false; editingWalls = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
-            Button { show3D = false; editingWalls = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
-            if area == .shower, takeoff.floorRect != nil {
-                Button { show3D = false; editingWalls = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
-            }
-            headerMenuItems
-        } label: {
-            Label("Add Walls", systemImage: "plus.rectangle.on.rectangle")
-                .frame(maxWidth: .infinity)
+    /// The walls mode (owner, 2026-10-15): add and edit walls in one place
+    /// until Done. A wall type picked stays picked: each tap on a curb adds
+    /// one (or drag to draw one); tap either end of a wall to drag it and
+    /// open the entry where it's wanted.
+    private func openWallsMode() {
+        show3D = false
+        editingWalls = true
+        addingWall = false
+        placingBench = false
+        selectedOpening = nil
+    }
+
+    private func closeWallsMode() {
+        selectedWall = nil      // lets go of a held wall or end on the plan
+        editingWalls = false
+        addingWall = false
+        placingBench = false
+        selectedOpening = nil
+    }
+
+    @ViewBuilder
+    private func wallChip(_ title: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        let label = Label(title, systemImage: symbol).font(.subheadline.weight(.semibold)).lineLimit(1)
+            .frame(maxWidth: .infinity)
+        if on {
+            Button(action: action) { label }.buttonStyle(.borderedProminent).tint(ND.link)
+        } else {
+            Button(action: action) { label }.buttonStyle(.bordered)
         }
-        .buttonStyle(.bordered)
+    }
+
+    private var wallsModeRow: some View {
+        let half = addingWall && !addingFullWall, full = addingWall && addingFullWall
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                wallChip("Half", symbol: "rectangle.bottomhalf.filled", on: half) {
+                    placingBench = false
+                    if half { addingWall = false } else { addingFullWall = false; addingWall = true }
+                }
+                wallChip("Full", symbol: "rectangle.portrait", on: full) {
+                    placingBench = false
+                    if full { addingWall = false } else { addingFullWall = true; addingWall = true }
+                }
+                if area == .shower, takeoff.floorRect != nil {
+                    wallChip("Bench", symbol: "square.bottomhalf.filled", on: placingBench) {
+                        addingWall = false
+                        placingBench.toggle()
+                    }
+                }
+                Button { closeWallsMode() } label: {
+                    Label("Done", systemImage: "checkmark").font(.caption.weight(.semibold)).lineLimit(1)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "hand.tap")
+                Text(addingWall
+                     ? (openSides.isEmpty ? "Drag on the plan to draw the wall · tap a wall's end to drag it"
+                                          : "Tap the curb to add the wall, or drag to draw it · tap a wall's end to drag it")
+                     : placingBench ? "Tap the wall the bench goes against"
+                     : "Pick a wall to add, or tap a wall to move or resize it")
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if area == .shower { headerMenu }
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(ND.link)
+        }
+    }
+
+    /// A header dropped from the ceiling, in the walls mode.
+    @ViewBuilder
+    private var headerMenu: some View {
+        Menu { headerMenuItems } label: { Image(systemName: "ellipsis.circle").font(.title3) }
+            .accessibilityLabel("More: header")
     }
 
     /// What the plan is waiting for a tap on, if anything.
     private var waitingFor: String? {
         if placingShower { return "Tap the plan where the shower goes" }
-        if addingWall { return openSides.isEmpty ? "Drag on the plan to draw the wall" : "Tap the curb, or drag to draw the wall" }
-        if placingBench { return "Tap the wall the bench goes against" }
+        if addingWall, !editingWalls { return openSides.isEmpty ? "Drag on the plan to draw the wall" : "Tap the curb, or drag to draw the wall" }
+        if placingBench, !editingWalls { return "Tap the wall the bench goes against" }
         if let p = placing3D { return "Tap the wall where the \(p.title.lowercased()) goes" }
         return nil
     }
@@ -842,6 +906,9 @@ struct ScanEditor: View {
                 .font(.subheadline.weight(.semibold))
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
+        } else if mode == .measure, editingWalls, embedding?.tab.wrappedValue ?? .measure == .measure {
+            wallsModeRow
+                .padding(.horizontal, 16).padding(.vertical, 10)
         } else if mode == .measure, embedding?.tab.wrappedValue ?? .measure == .measure {
             HStack(spacing: 8) {
                 if shower, takeoff.floorRect == nil {
@@ -850,17 +917,10 @@ struct ScanEditor: View {
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
-                    addWallMenu
-                    Button {
-                        show3D = false
-                        editingWalls.toggle()
-                        selectedOpening = nil
-                    } label: {
-                        Label(editingWalls ? "Done" : "Edit Walls", systemImage: editingWalls ? "checkmark" : "pencil")
-                            .frame(maxWidth: .infinity)
+                    Button { openWallsMode() } label: {
+                        Label("Add/Edit Walls", systemImage: "plus.rectangle.on.rectangle").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .tint(editingWalls ? .green : nil)
                     if shower {
                         Button { show3D = false; editingWalls = false; placingShower = true } label: {
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
@@ -1289,7 +1349,8 @@ struct ScanEditor: View {
                openSides: openSides.map { ($0.a, $0.b) },
                onTapOpenSide: { i in
                    // Adding a wall: it goes on the curb, filling the opening.
-                   addingWall = false
+                   // In the walls mode the wall type stays picked for the next curb.
+                   if !editingWalls { addingWall = false }
                    closeSide(openSides[i], full: addingFullWall)
                },
                onTapOtherArea: embedding.map { e in { id in e.onSwitchArea(id) } },
@@ -1315,7 +1376,7 @@ struct ScanEditor: View {
     private var planHint: String? {
         if addingWall || placingShower { return nil }
         if pickingTile { return "Tap a wall or floor to choose its tile" }
-        if editingWalls && mode == .measure { return "Tap a wall to change it · pinch to zoom" }
+        if editingWalls && mode == .measure { return nil }   // the row under the plan says it
         if !usesWalls { return "Pinch to zoom" }
         if mode == .measure, area == .shower, takeoff.floorRect != nil {
             return "Add or edit walls, then tap a wall to tile it"
@@ -2553,6 +2614,11 @@ struct PlanCanvas: View {
             default: break
             }
         }
+        .onChange(of: editAnyWall) { _, on in
+            // Done with walls: let go of a scanned wall or end held while editing.
+            if !on, case .wallEnd? = hold { hold = nil }
+            if !on, case .wall? = hold { hold = nil }
+        }
     }
 
     private var plan: some View {
@@ -2563,9 +2629,9 @@ struct PlanCanvas: View {
                     .onAppear { planSize = geo.size }
                     .onChange(of: geo.size) { _, s in planSize = s }
                     .contentShape(Rectangle())
-                    .gesture(addingWall ? nil : zoomPanSteer(geo.size, f))
+                    .gesture(addingWall && hold == nil ? nil : zoomPanSteer(geo.size, f))
                     .overlay {
-                        if addingWall {
+                        if addingWall && hold == nil {
                             Color.clear.contentShape(Rectangle())
                                 .gesture(DragGesture(minimumDistance: 4).onChanged { v in
                                     // A direct touch: it catches within the touch reach (catch test).
