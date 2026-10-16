@@ -165,6 +165,10 @@ struct ScanEditor: View {
     /// Tapping a wall chooses it to change its shape (any wall, scanned or
     /// drawn in), rather than tiling it.
     @State private var editingWalls = false
+    /// The walls step is done (Done in the walls mode, or on to the tile):
+    /// until then Walls leads under the drawing, after it Add/Edit Tile
+    /// (owner, 2026-10-16).
+    @State private var wallsDone = false
     /// The room and this area as a drag began: each step of the drag is
     /// worked out from them.
     @State private var dragBase: (room: ScannedRoom, takeoff: AreaTakeoff)? = nil
@@ -812,6 +816,7 @@ struct ScanEditor: View {
     }
 
     private func closeWallsMode() {
+        wallsDone = true
         selectedWall = nil      // lets go of a held wall or end on the plan
         editingWalls = false
         addingWall = false
@@ -877,6 +882,24 @@ struct ScanEditor: View {
             .accessibilityLabel("More: header")
     }
 
+    private func tileButton(lead: Bool) -> some View {
+        Button { wallsDone = true; withAnimation { goTab(.tile) } } label: {
+            Label(lead ? "Add/Edit Tile" : "Tile", systemImage: "square.grid.3x3.fill").lineLimit(1)
+                .frame(maxWidth: lead ? .infinity : nil)
+        }
+        .modifier(LeadStyle(lead: lead))
+        .fixedSize(horizontal: !lead, vertical: false)
+        .layoutPriority(lead ? 1 : 0)
+    }
+
+    /// The next step's button in solid blue; the rest plain.
+    private struct LeadStyle: ViewModifier {
+        let lead: Bool
+        func body(content: Content) -> some View {
+            if lead { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
+        }
+    }
+
     /// What the plan is waiting for a tap on, if anything.
     private var waitingFor: String? {
         if placingShower { return "Tap the plan where the shower goes" }
@@ -917,23 +940,19 @@ struct ScanEditor: View {
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
-                    // Walls done: tile is the next step (owner, 2026-10-15), so
-                    // it leads; walls stay a tap away.
-                    if embedding != nil {
-                        Button { withAnimation { goTab(.tile) } } label: {
-                            Label("Add/Edit Tile", systemImage: "square.grid.3x3.fill").lineLimit(1)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .layoutPriority(1)
-                    }
+                    // Walls first, then tile (owner, 2026-10-16): the next step
+                    // leads in solid blue, the other stays a tap away.
+                    let tileNext = embedding != nil && (wallsDone || !shower)
+                    if tileNext { tileButton(lead: true) }
                     Button { openWallsMode() } label: {
-                        Label(embedding != nil ? "Walls" : "Add/Edit Walls", systemImage: "plus.rectangle.on.rectangle")
+                        Label(tileNext ? "Walls" : "Add/Edit Walls", systemImage: "plus.rectangle.on.rectangle")
                             .lineLimit(1)
-                            .frame(maxWidth: embedding != nil ? nil : .infinity)
+                            .frame(maxWidth: tileNext ? nil : .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .fixedSize(horizontal: embedding != nil, vertical: false)
+                    .modifier(LeadStyle(lead: !tileNext))
+                    .fixedSize(horizontal: tileNext, vertical: false)
+                    .layoutPriority(tileNext ? 0 : 1)
+                    if !tileNext, embedding != nil { tileButton(lead: false) }
                     if shower {
                         Button { show3D = false; editingWalls = false; placingShower = true } label: {
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
@@ -1316,6 +1335,7 @@ struct ScanEditor: View {
                onTapPoint: placingShower ? { p in
                    placingShower = false
                    if takeoff.placeShower(near: p, in: room, curbWidthFt: stone.curbWidthFt) {
+                       wallsDone = false
                        wallsNext = true
                        wallAdded = false
                    } else {
@@ -1392,7 +1412,7 @@ struct ScanEditor: View {
         if editingWalls && mode == .measure { return nil }   // the row under the plan says it
         if !usesWalls { return "Pinch to zoom" }
         if mode == .measure, area == .shower, takeoff.floorRect != nil {
-            return "Walls first, then Add/Edit Tile"
+            return wallsDone ? "Next: Add/Edit Tile" : "Next: Add/Edit Walls"
         }
         return mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"
     }
@@ -2216,12 +2236,7 @@ struct ScanEditor: View {
                 if takeoff.floor == .drawn {
                     if let r = takeoff.floorRect {
                         HStack(spacing: 10) {
-                            Button {
-                                show3D = false
-                                placingShower = true
-                            } label: {
-                                Label("Put the shower here", systemImage: "hand.tap")
-                            }
+                            // Moving it is the Move button under the drawing.
                             Button {
                                 takeoff.floorRect = r.turned
                                 takeoff.coveDepthFt = nil
@@ -2241,14 +2256,7 @@ struct ScanEditor: View {
                         }
                         showerCurbAndDrain
                     } else {
-                        Button {
-                            show3D = false
-                            placingShower = true
-                        } label: {
-                            Label("Put the shower here", systemImage: "hand.tap")
-                        }
-                        .buttonStyle(.bordered)
-                        .font(.subheadline)
+                        // Placing it is Choose Shower Area under the drawing.
                         Text("Tap the corner the shower goes in, or choose its walls on the plan and the floor goes in their corner.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
@@ -2357,12 +2365,18 @@ struct ScanEditor: View {
                 Spacer()
                 // Always forward: the next tab, then the next area (or Done).
                 let next = e.tab.wrappedValue.next
+                // The shower placed and its walls not done yet: walls are next
+                // (owner, 2026-10-16), here as under the drawing.
+                let wallsNextUp = e.tab.wrappedValue == .measure && mode == .measure && area == .shower
+                    && takeoff.floorRect != nil && !wallsDone && !editingWalls
                 Button {
                     onUse(takeoff, room)
+                    if wallsNextUp { openWallsMode(); return }
+                    if editingWalls { closeWallsMode() }
                     if let next { withAnimation { goTab(next) } } else { e.onDone() }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(next.map { "Next: \($0.rawValue)" } ?? e.doneTitle).lineLimit(1).fixedSize()
+                        Text(wallsNextUp ? "Next: Walls" : next.map { "Next: \($0.rawValue)" } ?? e.doneTitle).lineLimit(1).fixedSize()
                         if next != nil || e.doneTitle != "Done" { Image(systemName: "chevron.right") }
                     }
                     .padding(.horizontal, 6).frame(minWidth: 90)

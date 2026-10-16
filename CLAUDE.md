@@ -677,10 +677,15 @@ banners and "Next: the walls" card of 2026-10-12/13: "nudge the user… put
 the options the user needs under their fingers when they need it. there
 should be no redundant buttons"): one row just under the drawing
 (`ScanEditor.stageRow`) on the Measure tab. A shower not placed yet shows
-only **Choose Shower Area**; once placed, **Add/Edit Tile** (leading, solid
-blue: tile is the step after the walls, owner 2026-10-15; it opens the Tile
-tab, where a tap on a wall or floor adds or changes its tile), **Walls**,
-and a small Move and Remove. Add/Edit Walls opens the **walls mode** (owner,
+only **Choose Shower Area**; once placed, **Add/Edit Walls** leads (solid
+blue, with Tile beside it) until the walls step is done — Done in the walls
+mode, or on to the tile (`wallsDone`; placing or moving the shower starts
+it again) — then **Add/Edit Tile** leads, with Walls beside it (owner,
+2026-10-15/16: walls first, then tile). Add/Edit Tile opens the Tile tab,
+where a tap on a wall or floor adds or changes its tile. A small Move and
+Remove sit at the end; the floor panel no longer repeats them. The bottom
+button follows the same order: "Next: Walls" (opens the walls mode) until
+the walls are done, then "Next: Tile". Add/Edit Walls opens the **walls mode** (owner,
 2026-10-15: adding and editing walls felt awkward; `openWallsMode`,
 `wallsModeRow`): chips **Half · Full · Bench** and **Done**, with a blue
 line saying what to tap. A picked chip stays picked (solid blue) — each tap
