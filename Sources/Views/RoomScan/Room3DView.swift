@@ -488,6 +488,19 @@ enum Room3DScene {
                     }
                 }
             }
+            // A wall drawn in: its free ends tiled like its faces, by the area
+            // that tiles it (owner, 2026-10-15: they showed bare grey). Stone
+            // on an end is drawn just in front of this.
+            if w.planned, let a = areas.first(where: { a in a.pieces.contains { $0.wallID == w.id } }) {
+                for atStart in [true, false] where room.isFreeEnd(of: w, start: atStart) {
+                    let plane = SCNPlane(width: t, height: w.heightFt)
+                    plane.firstMaterial = tileMaterial(a.wallTiles[w.id] ?? a.tile, widthFt: t, heightFt: w.heightFt, x0: 0, y0: 0)
+                    let n = SCNNode(geometry: plane)
+                    n.position = SCNVector3(atStart ? -0.004 : w.lengthFt + 0.004, w.heightFt / 2, 0)
+                    n.eulerAngles.y = atStart ? -.pi / 2 : .pi / 2
+                    node.addChildNode(n)
+                }
+            }
             // A half wall's cap.
             if room.isKneeWall(w) {
                 let cap = SCNBox(width: w.lengthFt, height: 0.06, length: t + 0.04, chamferRadius: 0)

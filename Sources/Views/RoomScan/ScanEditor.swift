@@ -696,6 +696,29 @@ struct ScanEditor: View {
         if wallsNext { wallAdded = true }
     }
 
+    /// A wall drawn in made shorter at one end by `by` feet, everything on it
+    /// (this area's tile and built-ins, its doors) keeping its place; the
+    /// curb fills the gap it leaves (owner, 2026-10-15).
+    private func shortenPlanned(_ id: UUID, atStart: Bool, by: Double) {
+        guard let w = room.wall(id), by > 0, by < w.lengthFt - 1.0 / 12 else { return }
+        let old = w.lengthFt
+        let p = room.point(on: w, along: atStart ? by : old - by)
+        room.movePlannedEnd(id, start: atStart, to: p)
+        guard let new = room.wall(id)?.lengthFt else { return }
+        takeoff.pieces = takeoff.pieces.followingEnd(of: id, start: atStart, from: old, to: new)
+        if atStart {
+            for i in takeoff.items.indices where takeoff.items[i].wallID == id {
+                takeoff.items[i].fromFt = max(0, takeoff.items[i].fromFt - by)
+                takeoff.items[i].toFt = max(takeoff.items[i].fromFt, takeoff.items[i].toFt - by)
+            }
+            for i in room.openings.indices where room.openings[i].wallID == id {
+                if let a = room.openings[i].alongFt { room.openings[i].alongFt = a - by }
+            }
+        }
+        clampPieces(on: id)
+        if area == .shower { takeoff.tileWallsAroundFloor(in: room) }
+    }
+
     /// Takes the shower off the plan: its floor, curb, drain, tiled walls and
     /// built-ins (owner, 2026-10-13). Walls drawn in stay — they're the
     /// room's. Undo puts it back.
@@ -810,7 +833,8 @@ struct ScanEditor: View {
         if let waiting = waitingFor {
             HStack(spacing: 10) {
                 Image(systemName: "hand.tap").foregroundStyle(ND.link)
-                Text(waiting).font(.subheadline.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+                Text(waiting).font(.subheadline.weight(.semibold)).foregroundStyle(ND.link)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 4)
                 Button("Cancel") {
                     placingShower = false; addingWall = false; placingBench = false; placing3D = nil
@@ -1293,6 +1317,9 @@ struct ScanEditor: View {
         if pickingTile { return "Tap a wall or floor to choose its tile" }
         if editingWalls && mode == .measure { return "Tap a wall to change it · pinch to zoom" }
         if !usesWalls { return "Pinch to zoom" }
+        if mode == .measure, area == .shower, takeoff.floorRect != nil {
+            return "Add or edit walls, then tap a wall to tile it"
+        }
         return mode == .extras ? "Tap a wall to add to it · pinch to zoom" : "Tap a wall to tile it · pinch to zoom"
     }
 
@@ -1416,7 +1443,8 @@ struct ScanEditor: View {
                               onDoor: { d in
                                   if let i = room.openings.firstIndex(where: { $0.id == d.id }) { room.openings[i] = d }
                               },
-                              selectedItem: $selectedItem)
+                              selectedItem: $selectedItem,
+                              onShortenPlanned: { atStart, by in shortenPlanned(wallID, atStart: atStart, by: by) })
                     .frame(height: 330)
 
                 if mode == .measure {
@@ -2497,7 +2525,8 @@ struct PlanCanvas: View {
             plan
                 .overlay(alignment: .bottomLeading) {
                     if let text = hold == nil ? hint : "Drag anywhere to move it · tap empty space to let go" {
-                        Text(text).font(.caption2).foregroundStyle(hold == nil ? .secondary : .primary).padding(8)
+                        // In blue so it's noticed (owner, 2026-10-15).
+                        Text(text).font(.caption.weight(.semibold)).foregroundStyle(ND.link).padding(8)
                             .allowsHitTesting(false)
                     }
                 }
@@ -3690,6 +3719,9 @@ struct WallElevation: View {
     /// move and resize (instead of taking it off the tile).
     var editOpenings = false
     var selectedOpening: Binding<UUID?> = .constant(nil)
+    /// A wall drawn in whose tile was dragged back from an end: that end
+    /// moves in to where the tile now stops (start?, feet in from it).
+    var onShortenPlanned: ((Bool, Double) -> Void)? = nil
 
     private let inset: CGFloat = 14
     private static let stone = StoneLook.color
@@ -3862,6 +3894,7 @@ struct WallElevation: View {
                     lastTranslation = .zero
                     steeredFt = .zero
                     caught = false
+                    shortenIfTileLeftAnEnd()
                     holdPiece = nil; holdItem = nil; holdOpening = nil
                 })
         }
@@ -4119,6 +4152,25 @@ struct WallElevation: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    /// Dragging a wall drawn in's tile back from its end opens the wall there
+    /// (owner, 2026-10-15: a half wall's tile was dragged back to make an
+    /// entry, but the wall stayed full length). Not at an end on a scanned
+    /// wall — that end stays attached.
+    private func shortenIfTileLeftAnEnd() {
+        guard wall.planned, let onShortenPlanned, case .piece(let id, let part)? = hold,
+              let start = holdPiece, let now = takeoff.pieces.first(where: { $0.id == id }) else { return }
+        let tol = 1.0 / 96
+        func onScanned(_ atStart: Bool) -> Bool {
+            let p = atStart ? wall.start : wall.end
+            return room.walls.contains { !$0.planned && $0.id != wall.id && room.distanceToWall(p, $0) < 0.3 }
+        }
+        if part == .left, start.fromFt < tol, now.fromFt > 1.0 / 12, !onScanned(true) {
+            onShortenPlanned(true, now.fromFt)
+        } else if part == .right, start.toFt > wall.lengthFt - tol, wall.lengthFt - now.toFt > 1.0 / 12, !onScanned(false) {
+            onShortenPlanned(false, wall.lengthFt - now.toFt)
+        }
     }
 
     /// What's held moved a sixteenth, catching nothing.

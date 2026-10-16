@@ -322,7 +322,14 @@ nearly touches. Its ends drag on the plan; height, thickness and
 length can be typed; it can be deleted. Its tile follows a dragged end
 both ways, worked out from the wall as the drag began
 (`Array<Piece>.followingEnd`; owner, 2026-10-14: tile was only ever
-clipped, so a half wall shortened on the way kept a 6″ strip). A wall added
+clipped, so a half wall shortened on the way kept a 6″ strip). Dragging a wall drawn in's tile back from one of its ends (on the
+face-on view) and letting go moves that end of the wall in too, opening
+it there — tile, built-ins and doors keep their places and the curb fills
+the gap — unless that end is on a scanned wall (`shortenIfTileLeftAnEnd`,
+`shortenPlanned`; owner, 2026-10-15: the half wall stayed full length,
+part tile and part bare, in 3-D). In 3-D a wall drawn in's free ends are tiled in the tile of the
+area that tiles it (owner, 2026-10-15: they showed bare grey); stone on an
+end draws in front. A wall added
 is tiled on its first side under Tile walls and Edit walls alike
 (`tileNewWall`), and a wall chosen under Edit walls has **Tile this wall** /
 **Change its tile**, which switches to Tile walls with it chosen (owner,
@@ -675,7 +682,9 @@ bench, header) · **Edit Walls** (Done while editing), with a small Move and
 Remove. Other areas get Add Walls · Edit Walls. While the plan waits for a
 tap the row becomes one plain line saying what to tap ("Tap the plan where
 the shower goes", "Tap the curb, or drag to draw the wall", "Tap the wall
-the bench goes against") with Cancel (`waitingFor`). Nothing covers the
+the bench goes against") with Cancel (`waitingFor`). Hints are in blue
+(the plan's hint and that line, owner 2026-10-15); with the shower placed
+the plan's hint says "Add or edit walls, then tap a wall to tile it". Nothing covers the
 plan, and the tab below no longer repeats these (no Move/Remove buttons,
 Tile walls | Edit walls switch or Add a Wall menu there). **Undo**
 also steps back out of a step with nothing changed yet (adding a wall or
