@@ -373,7 +373,14 @@ Divider shelves; switching it to stone with none yet adds one, and the
 Extras panel's Niche group has a divider shelves stepper per niche (owner,
 2026-10-14). Each niche or window piece is named by what it is and its
 own size — "Niche on wall F: jambs 2 × 24″", "…: divider shelves 3 × 13″"
-— not the niche's size on every row. `StonePartPricingTests`.
+— not the niche's size on every row. `StonePartPricingTests`. The room's own doors, windows and openings
+(scanned, or added under Edit walls) in a wall an area tiles, where its tile
+meets them, have stone parts too (owner, 2026-10-16; `stoneOpenings`): a
+window's sill, jambs and header (keys `win:<id>:sill|jambs|header`, the
+Window group), a door's or opening's left and right jamb and header
+(`jamb:<id>:left|right`, `header:<id>`, the Door group; no header when it
+reaches the ceiling). Any area, not only showers; drawn in 3-D as stone on
+the opening's sides, underside and (a window's) sill. `RoomOpeningStoneTests`.
 
 Shower entry trim (owner's rules, 2026-10-07): curbs, wall caps, jambs and
 headers (`TrimPiece`, from `AreaTakeoff.trimPieces`) are tile by default —

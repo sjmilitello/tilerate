@@ -477,6 +477,38 @@ struct BenchOffShowerFloorTests {
     }
 }
 
+struct RoomOpeningStoneTests {
+    /// A window or door in the room's own walls, where this area's tile meets
+    /// it, can have stone: a window's sill, jambs and header; a door's jambs
+    /// and header — priced on the Window and Door lines (owner, 2026-10-16).
+    @Test func roomWindowsAndDoorsGetStoneParts() {
+        var room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        let wall = room.walls[0]
+        room.openings.append(.init(kind: .window, wallID: wall.id, widthFt: 3, heightFt: 2, bottomFt: 4, alongFt: 5))
+        room.openings.append(.init(kind: .door, wallID: room.walls[1].id, widthFt: 2.5, heightFt: 6.75, bottomFt: 0, alongFt: 5))
+        var t = AreaTakeoff()
+        t.pieces = [.init(wallID: wall.id, fromFt: 0, toFt: 10, heightIn: 96),
+                    .init(wallID: room.walls[1].id, fromFt: 0, toFt: 10, heightIn: 96)]
+        let w = room.openings[0], d = room.openings[1]
+        let parts = t.trimPieces(in: room, area: .wall, curbHeightIn: 4)
+        #expect(parts.first { $0.key == "win:\(w.id):sill" }?.part == .windowSill)
+        #expect(parts.first { $0.key == "win:\(w.id):jambs" }.map { abs($0.lengthFt - 4) < 1e-9 && $0.part == .windowJamb } == true)
+        #expect(parts.first { $0.key == "win:\(w.id):header" }?.part == .windowHeader)
+        #expect(parts.first { $0.key == "jamb:\(d.id):left" }?.part == .doorJamb)
+        #expect(parts.first { $0.key == "header:\(d.id)" }?.part == .doorHeader)
+        // Stone on the sill: one "Stone window trim" line at the sill price.
+        t.trim = [.init(key: "win:\(w.id):sill", stone: true)]
+        var prices = StonePrices()
+        prices.parts[.windowSill] = StoneRate(perLinFt: 30)
+        var s = PricingCases.section(.wall, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
+        t.apply(room, to: &s, prices: prices)
+        #expect(abs((s.additionsLabor.first { $0.activity == "Stone window trim" }?.amount ?? 0) - 90) < 0.01)
+        // Not in a wall this area tiles: nothing.
+        t.pieces = [t.pieces[1]]
+        #expect(!t.trimPieces(in: room, area: .wall, curbHeightIn: 4).contains { $0.key.hasPrefix("win:") })
+    }
+}
+
 struct TileToHalfWallOutsideTests {
     /// The back wall's tile runs out to the outside face of a half wall
     /// standing on the curb at its corner, not its inside (owner, 2026-10-16);

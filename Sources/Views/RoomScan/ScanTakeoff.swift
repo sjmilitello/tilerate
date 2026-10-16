@@ -1398,7 +1398,27 @@ extension AreaTakeoff {
                 out.append((key, i.kind == .niche ? .niche : .window, "\(label): \(name)", ft))
             }
         }
-        let doorIDs = Set(showerDoors(in: room).map(\.id.uuidString))
+        // The room's doors, windows and openings in this area's tile.
+        for o in stoneOpenings(in: room) {
+            guard let w = o.wallID.flatMap({ room.wall($0) }) else { continue }
+            let s = room.span(of: o)
+            let width = s.upperBound - s.lowerBound, h = o.heightFt
+            let wallName = room.name(of: w)
+            let label = "\(o.kind.rawValue) in \(wallName.prefix(1).lowercased() + wallName.dropFirst())"
+            if o.kind == .window {
+                out.append(("win:\(o.id):sill", .window, "\(label): sill \(inchText(width))", width))
+                out.append(("win:\(o.id):jambs", .window, "\(label): jambs 2 × \(inchText(h))", 2 * h))
+                out.append(("win:\(o.id):header", .window, "\(label): header \(inchText(width))", width))
+            } else {
+                for side in ["left", "right"] {
+                    out.append(("jamb:\(o.id):\(side)", .jamb, "\(label): \(side) jamb \(inchText(h))", h))
+                }
+                if o.bottomFt + o.heightFt < room.ceilingFt - 0.05 {
+                    out.append(("header:\(o.id)", .cap, "\(label): header \(inchText(width))", width))
+                }
+            }
+        }
+        let doorIDs = Set((showerDoors(in: room) + stoneOpenings(in: room)).map(\.id.uuidString))
         return out.map { key, kind, name, ft in
             let choice = trim.first { $0.key == key }
             let length = choice?.lengthFt ?? ft
@@ -1562,6 +1582,18 @@ extension AreaTakeoff {
     }
 
     /// Shower door openings in walls this area tiles.
+    /// The room's own doors, windows and openings (scanned, or added under
+    /// Edit walls) in a wall this area tiles, where its tile meets them: each
+    /// can have stone (owner, 2026-10-16) — a window its sill, jambs and
+    /// header; a door or opening its jambs and header.
+    func stoneOpenings(in room: ScannedRoom) -> [ScannedRoom.Opening] {
+        room.openings.filter { o in
+            guard o.kind != .showerDoor, let id = o.wallID else { return false }
+            let s = room.span(of: o)
+            return pieces.contains { $0.wallID == id && $0.fromFt < s.upperBound && $0.toFt > s.lowerBound }
+        }
+    }
+
     func showerDoors(in room: ScannedRoom) -> [ScannedRoom.Opening] {
         room.openings.filter { o in o.kind == .showerDoor && pieces.contains { $0.wallID == o.wallID } }
     }
@@ -1919,6 +1951,8 @@ extension AreaTakeoff {
         var b: ScannedRoom.Point
         var widthFt: Double
         var heightFt: Double
+        /// Facing up (a window's sill), not down.
+        var up = false
     }
 
     /// Each shower door's jambs (the sides of the doorway, as deep as the
@@ -1953,6 +1987,26 @@ extension AreaTakeoff {
             }
             if header {
                 headers.append(HeaderStrip(key: "header:\(d.id)", a: lo, b: hi, widthFt: t, heightFt: d.bottomFt + d.heightFt))
+            }
+        }
+        // The room's doors, windows and openings in this area's tile: the
+        // sides of the opening as deep as the wall, the underside of its
+        // top, and a window's sill (facing up).
+        for o in stoneOpenings(in: room) {
+            guard let w = o.wallID.flatMap({ room.wall($0) }), w.lengthFt > 0 else { continue }
+            let u = ScannedRoom.Point(x: (w.end.x - w.start.x) / w.lengthFt, y: (w.end.y - w.start.y) / w.lengthFt)
+            let s = room.span(of: o)
+            let lo = room.point(on: w, along: s.lowerBound), hi = room.point(on: w, along: s.upperBound)
+            let t = Self.drawnThicknessFt(w)
+            let top = o.bottomFt + o.heightFt
+            for (p, facing) in [(lo, u), (hi, ScannedRoom.Point(x: -u.x, y: -u.y))] {
+                let key = o.kind == .window ? "win:\(o.id):jambs" : "jamb:\(o.id):\(sideName(p, entry: (lo, hi), center: floorMid))"
+                jambs.append(JambFace(key: key, center: p, facing: facing, widthFt: t, bottomFt: o.bottomFt, topFt: top))
+            }
+            headers.append(HeaderStrip(key: o.kind == .window ? "win:\(o.id):header" : "header:\(o.id)",
+                                       a: lo, b: hi, widthFt: t, heightFt: top))
+            if o.kind == .window {
+                headers.append(HeaderStrip(key: "win:\(o.id):sill", a: lo, b: hi, widthFt: t, heightFt: o.bottomFt, up: true))
             }
         }
         if floor == .drawn, floorRect != nil {

@@ -54,13 +54,13 @@ extension Room3DContent {
                                    curbs: other.area == .shower ? room.scan.map { scan in
                                        t.curbRuns(in: scan, widthFt: 4.5 / 12).map { OtherAreaPieces.CurbRun(a: $0.a, b: $0.b, key: $0.key) }
                                    } ?? [] : [],
-                                   jambs: other.area == .shower ? room.scan.map { scan in
-                                       t.jambFaces(in: scan, curbHeightIn: t.curbHeightIn ?? 4)
+                                   jambs: room.scan.map { scan in
+                                       (other.area == .shower ? t.jambFaces(in: scan, curbHeightIn: t.curbHeightIn ?? 4) : [])
                                            + t.doorAndHeaderFaces(in: scan, curbHeightIn: t.curbHeightIn ?? 4).jambs
-                                   } ?? [] : [],
-                                   headers: other.area == .shower ? room.scan.map {
+                                   } ?? [],
+                                   headers: room.scan.map {
                                        t.doorAndHeaderFaces(in: $0, curbHeightIn: t.curbHeightIn ?? 4).headers
-                                   } ?? [] : [],
+                                   } ?? [],
                                    soffits: other.area == .shower ? room.scan.map { t.soffitBoxes(in: $0) } ?? [] : [],
                                    curbHeightIn: t.curbHeightIn ?? 4,
                                    stoneParts: room.scan.map { scan in
@@ -702,9 +702,12 @@ enum Room3DScene {
         // as the curb (owner, 2026-10-13: stone jambs didn't show).
         var jambSets: [(faces: [AreaTakeoff.JambFace], stone: Set<String>)] = []
         var headerSets: [(strips: [AreaTakeoff.HeaderStrip], stone: Set<String>)] = []
-        if c.area == .shower {
+        // Doors, windows and openings with stone in any area; the entry's
+        // jambs in a shower.
+        do {
             let doors = c.takeoff.doorAndHeaderFaces(in: room, curbHeightIn: c.curbHeightIn, curbWidthFt: c.curbWidthFt)
-            jambSets.append((c.takeoff.jambFaces(in: room, curbHeightIn: c.curbHeightIn, curbWidthFt: c.curbWidthFt) + doors.jambs, c.stoneParts))
+            let entry = c.area == .shower ? c.takeoff.jambFaces(in: room, curbHeightIn: c.curbHeightIn, curbWidthFt: c.curbWidthFt) : []
+            jambSets.append((entry + doors.jambs, c.stoneParts))
             headerSets.append((doors.headers, c.stoneParts))
         }
         for o in c.others where !o.headers.isEmpty { headerSets.append((o.headers, o.stoneParts)) }
@@ -736,8 +739,8 @@ enum Room3DScene {
                 let plane = SCNPlane(width: len, height: h.widthFt)
                 plane.firstMaterial = stoneMaterial()
                 let n = SCNNode(geometry: plane)
-                n.position = SCNVector3((h.a.x + h.b.x) / 2, h.heightFt - 0.008, (h.a.y + h.b.y) / 2)
-                n.eulerAngles = SCNVector3(Float.pi / 2, Float(-atan2(h.b.y - h.a.y, h.b.x - h.a.x)), 0)
+                n.position = SCNVector3((h.a.x + h.b.x) / 2, h.heightFt + (h.up ? 0.008 : -0.008), (h.a.y + h.b.y) / 2)
+                n.eulerAngles = SCNVector3(h.up ? -Float.pi / 2 : Float.pi / 2, Float(-atan2(h.b.y - h.a.y, h.b.x - h.a.x)), 0)
                 root.addChildNode(n)
             }
         }

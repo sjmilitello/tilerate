@@ -1883,7 +1883,7 @@ struct ScanEditor: View {
         let pieces = takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn)
         if area == .shower || !pieces.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text(area == .shower ? "Stone pieces" : "Wall cap & jambs").font(.ndTitle(20))
+                Text("Stone pieces").font(.ndTitle(20))
                 if area == .shower, !takeoff.curbless {
                     InchField(title: "Curb height", inches: Binding(
                         get: { takeoff.curbHeightIn ?? stone.curbHeightIn },
