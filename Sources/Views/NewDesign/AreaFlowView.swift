@@ -30,6 +30,7 @@ struct AreaFlowView: View {
     @State private var showersPlaced: Set<UUID> = []
     @State private var camera3D = Room3DCameraMemory()
     @State private var scanning: ScanTarget? = nil
+    @State private var sketchingRoom = false
     /// The model open from the Measure or Extras step.
     @State private var editorMode: ScanEditor.Mode? = nil
     /// The model opened by itself on arriving at Measure (once).
@@ -818,13 +819,35 @@ struct AreaFlowView: View {
                 .padding(14)
                 .background(ND.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ND.border))
-            } else if RoomScanner.isAvailable {
-                Button { scanning = .room } label: {
-                    Label("Scan this room instead", systemImage: "viewfinder").font(.system(size: 14, weight: .medium))
-                }
-                .foregroundStyle(ND.link)
             } else {
-                sampleScanButton
+                // No model of the room yet (e.g. a sketch cancelled when the
+                // room was added; owner, 2026-10-15): sketch or scan it from here.
+                HStack(spacing: 10) {
+                    Button { sketchingRoom = true } label: {
+                        Label("Sketch this room", systemImage: "pencil.and.ruler").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(NDSecondaryButtonStyle())
+                    if RoomScanner.isAvailable {
+                        Button { scanning = .room } label: {
+                            Label("Scan this room", systemImage: "viewfinder").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(NDSecondaryButtonStyle())
+                    }
+                }
+                if !RoomScanner.isAvailable { sampleScanButton }
+            }
+        }
+        .sheet(isPresented: $sketchingRoom) {
+            NDSketchRoomSheet(roomName: roomIndex.map { store.doc.rooms[$0].name } ?? "Room") { sketch in
+                guard let r = roomIndex else { return }
+                store.doc.rooms[r].scan = sketch
+                // The room's areas with nothing typed yet go on the model, this one too.
+                let blank = store.doc.rooms[r].sections.filter {
+                    $0.area != nil && ($0.id == section.id || ($0.measurements == Measurements() && $0.walls.isEmpty))
+                }.map(\.id)
+                store.doc.rooms[r].placeAreas(blank, prices: StonePrices(rates: store.pricingRates))
+                sec.wrappedValue.measuredByHand = false
+                finishScan(sketch, target: .room)
             }
         }
     }

@@ -642,7 +642,10 @@ screen — opens the same sheet without name or measuring (`addingTo`) and
 adds every ticked area at once (`EstimateRoom.addAreas`, placed on the model
 when the room has one). A room with no model can get one from its menu:
 **Sketch this room** (its areas with nothing typed yet are placed on it;
-typed ones stay typed).
+typed ones stay typed). An area in a room with no model (a sketch cancelled when the room was
+added, say) shows **Sketch this room** / **Scan this room** at the top of
+its Measure step (owner, 2026-10-15); sketching there places that area and
+the room's other blank ones on the model and opens it.
 
 **Guided through the areas** (owner, 2026-10-12): the areas just added
 (a new room's, or several added at once) are walked one at a time —
