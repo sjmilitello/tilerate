@@ -498,6 +498,16 @@ extension AreaTakeoff {
             let tall = max(0, min(o.bottomFt + o.heightFt, height) - max(o.bottomFt, 0))
             area -= width * tall
         }
+        // Behind the end of a half wall standing against this wall: not tiled.
+        if let wall = room.wall(piece.wallID), !wall.planned {
+            for k in room.walls where k.planned && room.isKneeWall(k) {
+                for end in [k.start, k.end] where room.distanceToWall(end, wall) < 0.3 {
+                    let at = room.along(end, on: wall), half = Self.drawnThicknessFt(k) / 2
+                    let width = max(0, min(at + half, piece.toFt) - max(at - half, piece.fromFt))
+                    area -= width * min(k.heightFt, height)
+                }
+            }
+        }
         // A window placed here: never tiled.
         for w in items where w.kind == .window && w.wallID == piece.wallID {
             let width = max(0, min(w.toFt, piece.toFt) - max(w.fromFt, piece.fromFt))
@@ -2624,8 +2634,42 @@ extension AreaTakeoff {
     /// is runs on to the curb's outside edge (owner, 2026-10-13): for showers
     /// placed before that rule, so opening one brings it up to date. A piece
     /// already past the corner is left as it is.
+    /// How far past a corner of the shower floor, going `outward`, the
+    /// outside face of a half wall standing across it is (nil: none there).
+    static func kneeWallReach(at p: ScannedRoom.Point, outward o: ScannedRoom.Point,
+                              floor r: FloorRect, in room: ScannedRoom) -> Double? {
+        guard r.corners.contains(where: { hypot($0.x - p.x, $0.y - p.y) < 0.05 }) else { return nil }
+        var best: Double? = nil
+        for w in room.walls where w.planned && room.isKneeWall(w) {
+            let wl = max(w.lengthFt, 1e-9)
+            let d = ScannedRoom.Point(x: (w.end.x - w.start.x) / wl, y: (w.end.y - w.start.y) / wl)
+            guard abs(d.x * o.x + d.y * o.y) < 0.3 else { continue }        // runs across the wall
+            let k = (w.start.x - p.x) * o.x + (w.start.y - p.y) * o.y          // its line, outward of the corner
+            guard k > -0.05, k < 1 else { continue }
+            let q = ScannedRoom.Point(x: p.x + o.x * k, y: p.y + o.y * k)
+            guard room.distanceToWall(q, w) < 0.1 else { continue }            // and it reaches there
+            let reach = k + drawnThicknessFt(w) / 2
+            if reach > (best ?? 0) { best = reach }
+        }
+        return best
+    }
+
     mutating func extendTileToCurb(in room: ScannedRoom, curbWidthFt: Double = 4.5 / 12) {
-        guard !curbless, floor == .drawn, floorRect != nil else { return }
+        guard floor == .drawn, let r = floorRect else { return }
+        // Out to the outside face of a half wall across the floor's corner.
+        for i in pieces.indices {
+            guard let wall = room.wall(pieces[i].wallID), !wall.planned else { continue }
+            let wl = max(wall.lengthFt, 1e-9)
+            let u = ScannedRoom.Point(x: (wall.end.x - wall.start.x) / wl, y: (wall.end.y - wall.start.y) / wl)
+            let from = room.point(on: wall, along: pieces[i].fromFt), to = room.point(on: wall, along: pieces[i].toFt)
+            if let k = Self.kneeWallReach(at: to, outward: u, floor: r, in: room) {
+                pieces[i].toFt = min(wall.lengthFt + room.endJoinFt(wall, start: false), pieces[i].toFt + k)
+            }
+            if let k = Self.kneeWallReach(at: from, outward: .init(x: -u.x, y: -u.y), floor: r, in: room) {
+                pieces[i].fromFt = max(-room.endJoinFt(wall, start: true), pieces[i].fromFt - k)
+            }
+        }
+        guard !curbless else { return }
         for side in openSides(in: room) {
             for (corner, wall) in [(side.a, side.startWall), (side.b, side.endWall)] {
                 guard let wall, !wall.planned else { continue }
@@ -2701,6 +2745,7 @@ extension AreaTakeoff {
         // tile typically extends to the outside edge of the curb").
         let curb = curbless ? 0 : 4.5 / 12
         let open = openSides(in: room)
+        let r0 = r
         func curbAt(_ p: ScannedRoom.Point, along u: ScannedRoom.Point) -> Double {
             open.contains { side in
                 let touches = hypot(side.a.x - p.x, side.a.y - p.y) < 0.05 || hypot(side.b.x - p.x, side.b.y - p.y) < 0.05
@@ -2720,7 +2765,11 @@ extension AreaTakeoff {
             }) else { continue }
             // Each section of that wall the side runs along (a divider partway along it).
             let u = ScannedRoom.Point(x: dx / l, y: dy / l)
-            let extA = curbAt(a, along: u), extB = curbAt(b, along: u)
+            // …or out to the outside face of a half wall standing across that
+            // corner (owner, 2026-10-16: it stopped at the half wall's inside).
+            let minusU = ScannedRoom.Point(x: -u.x, y: -u.y)
+            let extA = max(curbAt(a, along: u), Self.kneeWallReach(at: a, outward: minusU, floor: r0, in: room) ?? 0)
+            let extB = max(curbAt(b, along: u), Self.kneeWallReach(at: b, outward: u, floor: r0, in: room) ?? 0)
             for w in room.sections(of: w.id) {
                 let ta = room.along(a, on: w), tb = room.along(b, on: w)
                 let lo = max(-room.endJoinFt(w, start: true), ta < tb ? ta - extA : tb - extB)

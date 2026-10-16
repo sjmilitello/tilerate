@@ -477,6 +477,42 @@ struct BenchOffShowerFloorTests {
     }
 }
 
+struct TileToHalfWallOutsideTests {
+    /// The back wall's tile runs out to the outside face of a half wall
+    /// standing on the curb at its corner, not its inside (owner, 2026-10-16);
+    /// what's behind the half wall's end isn't counted.
+    @Test func backWallTileReachesTheHalfWallsOutsideFace() {
+        // A corner shower, floor x 4…8, y 6…10, in a 96″ × 120″ room; wall
+        // B (x = 8) is tiled from y 6 (the floor's corner) to 10.
+        var room = RoomSketch.room(.rectangle, .init(widthIn: 96, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 7.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let b = room.walls.first { abs($0.start.x - 8) < 0.01 && abs($0.end.x - 8) < 0.01 }!
+        // A half wall on the top curb from wall B, 2′ long, 4½″ thick.
+        let y = 6 - 2.25 / 12
+        _ = room.addPlannedWall(from: .init(x: 8, y: y), to: .init(x: 6, y: y), heightIn: 42, thicknessIn: 4.5)
+        // Measured again: B's tile runs to the half wall's outside face (y 5 5/8′).
+        t.tileWallsAroundFloor(in: room)
+        let piece = t.pieces.first { $0.wallID == b.id }!
+        let outside = room.along(.init(x: 8, y: 6 - 4.5 / 12), on: b)
+        #expect(abs(min(piece.fromFt, piece.toFt) - min(outside, room.along(.init(x: 8, y: 10), on: b))) < 1e-6
+                || abs(max(piece.fromFt, piece.toFt) - max(outside, room.along(.init(x: 8, y: 10), on: b))) < 1e-6)
+        let corner = room.along(.init(x: 8, y: 6), on: b)
+        #expect(piece.fromFt < corner - 0.3 || piece.toFt > corner + 0.3)
+        // One saved stopping at the floor's corner is brought out to it.
+        var old = t
+        if let i = old.pieces.firstIndex(where: { $0.wallID == b.id }) {
+            if old.pieces[i].fromFt < corner { old.pieces[i].fromFt = corner } else { old.pieces[i].toFt = corner }
+        }
+        old.extendTileToCurb(in: room)
+        #expect(old.pieces.first { $0.wallID == b.id } == piece)
+        // Behind the half wall's end (4½″ × 42″) isn't counted.
+        let full = (piece.toFt - piece.fromFt) * piece.heightIn / 12
+        #expect(abs(t.sqft(of: piece, in: room) - (full - 4.5 / 12 * 3.5)) < 1e-6)
+    }
+}
+
 struct HalfWallEndDragTests {
     /// Tile reaching a dragged end follows it both ways, worked out from the
     /// wall as the drag began (owner, 2026-10-14: a half wall shortened on

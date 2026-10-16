@@ -711,7 +711,12 @@ typically extends to the outside edge of the curb"; 4½″, none when
 curbless; `tileWallsAroundFloor`). Showers placed before are brought up
 to date when the shower is opened (`extendTileToCurb`: a piece ending at
 the floor's corner where the entry is runs on by the curb's width; one
-already past it is left alone).
+already past it is left alone). Where a half wall stands across that corner (on the curb), the
+tile runs to the half wall's **outside face** instead (owner, 2026-10-16:
+it stopped at its inside; `kneeWallReach`, in `tileWallsAroundFloor` and
+`extendTileToCurb`, which the editor runs on every room change), and the
+strip behind the half wall's end, up to its height, isn't counted
+(`sqft(of:)`). `TileToHalfWallOutsideTests`.
 
 **Sketch** (`RoomSketch`, `NDSketchRoomSheet`; owner's pick: shape, then
 typed sides): Rectangle (width A/C, depth B/D) or L-shape (overall width

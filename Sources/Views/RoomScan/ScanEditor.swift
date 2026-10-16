@@ -563,6 +563,8 @@ struct ScanEditor: View {
             takeoff.benchesFollowFloor(from: old, in: room, curbWidthFt: takeoff.curbless ? 0 : stone.curbWidthFt)
         }
         .onChange(of: room) { _, now in
+            // Shower wall tile runs out to a half wall's outside face.
+            if area == .shower { takeoff.extendTileToCurb(in: now, curbWidthFt: stone.curbWidthFt) }
             // A wall a divider meets partway is cut into sections, each its
             // own wall; sections whose divider has gone join again.
             var r = now
