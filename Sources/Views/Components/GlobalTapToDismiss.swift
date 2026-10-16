@@ -46,7 +46,21 @@ struct WindowTapToDismiss: UIViewRepresentable {
                 if sv is UITextField || sv is UITextView { return false }
                 s = sv.superview
             }
+            // Nor on a field's box around it (its padding), so a tap there goes
+            // straight into the field instead of first closing the keyboard
+            // (owner, 2026-10-16: tapping from width to length took two taps).
+            if let window = v.window, Self.fields(in: window).contains(where: { f in
+                f.convert(f.bounds, to: window).insetBy(dx: -16, dy: -16).contains(touch.location(in: window))
+            }) { return false }
             return true
+        }
+
+        private static func fields(in view: UIView) -> [UIView] {
+            var out: [UIView] = []
+            for sub in view.subviews where !sub.isHidden && sub.alpha > 0.01 {
+                if sub is UITextField || sub is UITextView { out.append(sub) } else { out += fields(in: sub) }
+            }
+            return out
         }
     }
 }

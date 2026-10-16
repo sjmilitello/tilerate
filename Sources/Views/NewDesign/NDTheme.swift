@@ -220,6 +220,9 @@ struct NDNumberField: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(focused ? ND.link : ND.border, lineWidth: focused ? 2 : 1))
+            // A tap anywhere in the box goes into the field.
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .simultaneousGesture(TapGesture().onEnded { focused = true })
             .onAppear { text = Self.format(value) }
             .onChange(of: text) { _, newText in
                 let parsed = Self.parse(newText)
