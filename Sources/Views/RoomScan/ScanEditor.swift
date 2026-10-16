@@ -353,7 +353,6 @@ struct ScanEditor: View {
     var body: some View {
         OwnNavigation(own: embedding == nil) {
             VStack(spacing: 0) {
-                placingBanner
                 ZStack(alignment: .bottomTrailing) {
                 if show3D {
                     Room3DView(content: content3D, showFixtures: $showFixtures, onTap: { tap3D($0) },
@@ -397,6 +396,7 @@ struct ScanEditor: View {
                 }
                 .background(Color(white: 0.09))
                 .overlay(alignment: .top) { planBanners }
+                stageRow
 
                 // The room's areas, always in view: switch or add without leaving.
                 if let e = embedding {
@@ -432,50 +432,15 @@ struct ScanEditor: View {
                             }
                             .pickerStyle(.segmented)
                             }
-                            if !(mode == .measure && area == .shower && wallsNext) {
                             Text(mode == .measure
                                  ? "Choose the walls, floor and ceiling being tiled. Add walls and doors that aren't built yet."
                                  : "Add niches, windows, benches and corner pieces on the walls, and choose tile or stone for each piece.")
                                 .font(.footnote).foregroundStyle(.secondary)
-                            }
-                            if mode == .measure, area == .shower, wallsNext, !placingShower, !addingWall, !editingWalls, !placingBench {
-                                wallsNextCard.id("guide")
-                            } else if mode == .measure, area == .shower, !editingWalls, takeoff.floor == .drawn, !placingShower,
-                                      !addingWall, !placingBench {
-                                // Where the shower goes, first (owner, 2026-10-12).
-                                HStack(spacing: 10) {
-                                    Button {
-                                        show3D = false
-                                        placingShower = true
-                                    } label: {
-                                        Label(takeoff.floorRect == nil ? "Put the shower here" : "Move the shower",
-                                              systemImage: "hand.tap")
-                                            .frame(maxWidth: .infinity)
-                                    }
-                                    .buttonStyle(NDPrimaryButtonStyle())
-                                    if takeoff.floorRect != nil {
-                                        Button(role: .destructive) { removeShower() } label: {
-                                            Label("Remove", systemImage: "trash")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .tint(.red)
-                                        .fixedSize()
-                                    }
-                                }
-                            }
-                            if mode == .measure {
-                                Picker("Walls", selection: $editingWalls) {
-                                    Text(usesWalls ? "Tile walls" : "Floor").tag(false)
-                                    Text("Edit walls").tag(true)
-                                }
-                                .pickerStyle(.segmented)
-                            }
                             if editingWalls && mode == .measure {
-                                addWallMenu
                                 soffitPanel
                                 wallPanel.id("wall")
                             } else if usesWalls {
-                                if mode == .measure { addWallMenu; soffitPanel }
+                                if mode == .measure { soffitPanel }
                                 wallPanel.id("wall")
                             } else if let id = selectedWall, let w = room.wall(id), w.planned {
                                 // A floor: walls aren't tiled here, but one drawn in can be changed or deleted.
@@ -496,7 +461,7 @@ struct ScanEditor: View {
                     .scrollDismissesKeyboard(.interactively)
                     .onChange(of: selectedWall) { _, _ in
                         // Guided through the walls: keep the card in view, the wall under it.
-                        withAnimation { scroller.scrollTo(wallsNext ? "guide" : "wall", anchor: .top) }
+                        withAnimation { scroller.scrollTo("wall", anchor: .top) }
                     }
                 }
 
@@ -747,75 +712,6 @@ struct ScanEditor: View {
         placingShower = false
     }
 
-    /// After the shower's placed, the walls (owner, 2026-10-12): add one it
-    /// needs, edit the room's, or go on to the tile.
-    private var wallsNextCard: some View {
-        let green = Color(red: 0.11, green: 0.56, blue: 0.29)
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(wallAdded ? "Wall added" : "Next: the walls").font(.system(size: 23, weight: .bold))
-            Text(wallAdded ? "Drag its ends or type its size below. Add another, or carry on."
-                           : "Add a wall the shower needs, or change the room's.")
-                .font(.system(size: 16, weight: .medium)).opacity(0.95)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                Menu {
-                    Button { show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
-                    Button { show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
-                    Button { show3D = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
-                    headerMenuItems
-                } label: {
-                    Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .foregroundStyle(green)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                Button {
-                    show3D = false
-                    wallAdded = false
-                    editingWalls = true
-                } label: {
-                    Label("Edit walls", systemImage: "pencil")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .foregroundStyle(green)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-            HStack {
-            Button {
-                wallsNext = false
-                wallAdded = false
-                if embedding != nil { withAnimation { goTab(.tile) } }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(embedding != nil ? "Walls are right, next: Tile" : "Walls are right")
-                    Image(systemName: "chevron.right")
-                }
-                .font(.system(size: 16, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            Spacer()
-            // A step back: put the shower somewhere else, or take it off.
-            Menu {
-                Button { show3D = false; placingShower = true } label: { Label("Move the shower", systemImage: "hand.tap") }
-                Button(role: .destructive) { removeShower() } label: { Label("Remove the shower", systemImage: "trash") }
-            } label: {
-                Label("Move or remove", systemImage: "arrow.uturn.backward").font(.system(size: 14, weight: .medium))
-            }
-            .opacity(0.9)
-            }
-        }
-        .foregroundStyle(.white)
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(green, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    /// Add a Wall: full or half, then tap the curb or drag on the plan.
-    /// Add a header (soffit) over the curb, a half wall or a doorway (owner,
-    /// 2026-10-13): snapped over it, 6″ drop to start.
     @ViewBuilder
     private var headerMenuItems: some View {
         if area == .shower {
@@ -881,14 +777,82 @@ struct ScanEditor: View {
 
     private var addWallMenu: some View {
         Menu {
-            Button { show3D = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
-            Button { show3D = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
+            Button { show3D = false; editingWalls = false; addingFullWall = true; addingWall = true } label: { Label("Full Wall", systemImage: "rectangle.portrait") }
+            Button { show3D = false; editingWalls = false; addingFullWall = false; addingWall = true } label: { Label("Half Wall", systemImage: "rectangle.bottomhalf.filled") }
+            if area == .shower, takeoff.floorRect != nil {
+                Button { show3D = false; editingWalls = false; placingBench = true } label: { Label("Framed Bench", systemImage: "square.bottomhalf.filled") }
+            }
             headerMenuItems
         } label: {
-            Label("Add a Wall", systemImage: "plus.rectangle.on.rectangle")
+            Label("Add Walls", systemImage: "plus.rectangle.on.rectangle")
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .font(.subheadline)
+    }
+
+    /// What the plan is waiting for a tap on, if anything.
+    private var waitingFor: String? {
+        if placingShower { return "Tap the plan where the shower goes" }
+        if addingWall { return openSides.isEmpty ? "Drag on the plan to draw the wall" : "Tap the curb, or drag to draw the wall" }
+        if placingBench { return "Tap the wall the bench goes against" }
+        if let p = placing3D { return "Tap the wall where the \(p.title.lowercased()) goes" }
+        return nil
+    }
+
+    /// The options for this stage, just under the drawing (owner, 2026-10-15:
+    /// "put the options the user needs under their fingers when they need
+    /// it", no big banners, nothing twice): while the plan waits for a tap,
+    /// what to tap and Cancel; a shower not placed yet, Choose Shower Area;
+    /// then Add Walls, Edit Walls, and a small Move and Remove.
+    @ViewBuilder
+    private var stageRow: some View {
+        let shower = area == .shower && takeoff.floor == .drawn
+        if let waiting = waitingFor {
+            HStack(spacing: 10) {
+                Image(systemName: "hand.tap").foregroundStyle(ND.link)
+                Text(waiting).font(.subheadline.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button("Cancel") {
+                    placingShower = false; addingWall = false; placingBench = false; placing3D = nil
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+        } else if mode == .measure, embedding?.tab.wrappedValue ?? .measure == .measure {
+            HStack(spacing: 8) {
+                if shower, takeoff.floorRect == nil {
+                    Button { show3D = false; editingWalls = false; placingShower = true } label: {
+                        Label("Choose Shower Area", systemImage: "hand.tap").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    addWallMenu
+                    Button {
+                        show3D = false
+                        editingWalls.toggle()
+                        selectedOpening = nil
+                    } label: {
+                        Label(editingWalls ? "Done" : "Edit Walls", systemImage: editingWalls ? "checkmark" : "pencil")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(editingWalls ? .green : nil)
+                    if shower {
+                        Button { show3D = false; editingWalls = false; placingShower = true } label: {
+                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Move the shower")
+                        Button(role: .destructive) { removeShower() } label: { Image(systemName: "trash") }
+                            .buttonStyle(.bordered)
+                            .tint(.red)
+                            .accessibilityLabel("Remove the shower")
+                    }
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 16).padding(.vertical, 10)
+        }
     }
 
     /// A new planned wall, with a door in its middle if asked. Where a wall
@@ -1341,15 +1305,8 @@ struct ScanEditor: View {
     private var planBanners: some View {
         if placingShower {
             EmptyView()   // above the plan instead, so none of the room is covered
-        } else if let p = placing3D {
-            HStack(spacing: 10) {
-                Image(systemName: "hand.tap")
-                Text("Tap the wall where the \(p.title.lowercased()) goes.").font(.caption)
-                Button("Cancel") { placing3D = nil }.font(.caption.weight(.semibold))
-            }
-            .padding(10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .padding(8)
+        } else if placing3D != nil {
+            EmptyView()
         } else if placingBench {
             EmptyView()
         } else if let note = placeNote {
@@ -1390,52 +1347,6 @@ struct ScanEditor: View {
             var d = i
             d.stone = takeoff.anyStone(i) ? .all : .tile
             return d
-        }
-    }
-
-    /// Hard to miss (owner, 2026-10-12): large type on a green banner,
-    /// above the plan so none of the room is covered.
-    private func bigBanner(_ title: String, _ detail: String, icon: String = "hand.tap.fill",
-                           button: String = "Cancel", cancel: @escaping () -> Void) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 30))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 23, weight: .bold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(detail)
-                    .font(.system(size: 16, weight: .medium)).opacity(0.95)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 4)
-            Button(button, action: cancel)
-                .font(.system(size: 15, weight: .semibold))
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.white.opacity(0.2), in: Capsule())
-        }
-        .foregroundStyle(.white)
-        .padding(14)
-        .background(Color(red: 0.11, green: 0.56, blue: 0.29), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(8)
-    }
-
-    /// The big banner for whatever the plan is waiting for a tap on.
-    @ViewBuilder
-    private var placingBanner: some View {
-        if placingShower {
-            bigBanner("Tap where the shower goes", "A corner, or inside a nook of three walls.") { placingShower = false }
-        } else if addingWall {
-            bigBanner(openSides.isEmpty ? "Draw the \(addingFullWall ? "full" : "half") wall" : "Tap the curb, or draw the wall",
-                      openSides.isEmpty ? "Drag from where it starts to where it ends." : "Or drag from where it starts to where it ends.",
-                      icon: "hand.draw.fill") { addingWall = false }
-        } else if placingBench {
-            bigBanner("Tap the wall the bench goes against", "It runs along that side of the shower floor.") { placingBench = false }
-        } else if wallsNext, editingWalls, mode == .measure {
-            // Guided: editing the room's walls, with the way on (owner, 2026-10-13).
-            bigBanner("Tap a wall to change it", "Drag it or its ends, or type its size below. Done when the walls are right.",
-                      icon: "hand.point.up.left.fill", button: "Done") {
-                editingWalls = false
-                selectedOpening = nil
-            }
         }
     }
 

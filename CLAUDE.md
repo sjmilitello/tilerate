@@ -657,35 +657,32 @@ area's name) instead of Done, on the model screen and on the last step
 page alike (`finishOrNext`), opening the next on Measure (on a model) or
 Tile (typed). After a scan or sketch, a guided shower not yet placed opens
 waiting for a tap on where it goes (`Embedding.startPlacingShower`, the
-same Put the shower here), once per guided shower (`showersPlaced`).
+same Choose Shower Area), once per guided shower (`showersPlaced`).
 
 **Always forward** (owner, 2026-10-12: tapping back to Tile felt
 backward): the area screen's tabs are in the order you go — Measure, Tile,
 Extras, Price (`ScanEditor.Tab`, `next`) — and its bottom button steps
 through them ("Next: Tile", "Next: Extras", "Next: Price"), then names the
-next guided area or says Done (`goTab`). A shower's Measure tab starts with
-a full-width **Put the shower here** / **Move the shower: tap where it
-goes** above everything else. While it waits for the tap the plan shows
-"Tap where the shower goes" in large type on a green banner above the plan,
-so none of the room is covered
-(`placingShowerBanner`; owner's call: big type in a colour you notice,
-not rings on the plan). The same banner (`bigBanner`, `placingBanner`)
-asks for the curb or a drawn wall while adding a wall, and for the wall a
-framed bench goes against. Once the shower's placed, **Next: the walls**
-(`wallsNextCard`, green, at the top of Measure) offers Add a Wall (full,
-half, framed bench), Edit walls, or "Walls are right, next: Tile", and
-Move shower (a step back). Every choice leads on (owner, 2026-10-13: "naturally
-push users to where they need to go"): adding a wall or bench shows its
-green prompt, then the card again as **Wall added** (`wallAdded`), kept in
-view above the wall's panel (scrolls to "guide", not "wall"); Edit walls
-shows "Tap a wall to change it" with **Done**, back to the card. **Undo**
-also steps back out of a guide step with nothing changed yet (adding a
-wall or bench, placing, editing walls: `guideStepToUndo`), and undoing the
-shower's placement asks where it goes again. **Remove the shower**
-(card → Move or remove, or Remove beside Move the shower;
-`removeShower`) takes off its floor, curb, drain, tiled walls, built-ins
-and stone choices; walls drawn in stay (they're the room's); Undo puts it
-back.
+next guided area or says Done (`goTab`).
+
+**Options under the fingers** (owner, 2026-10-15, replacing the big green
+banners and "Next: the walls" card of 2026-10-12/13: "nudge the user… put
+the options the user needs under their fingers when they need it. there
+should be no redundant buttons"): one row just under the drawing
+(`ScanEditor.stageRow`) on the Measure tab. A shower not placed yet shows
+only **Choose Shower Area**; once placed, **Add Walls** (full, half, framed
+bench, header) · **Edit Walls** (Done while editing), with a small Move and
+Remove. Other areas get Add Walls · Edit Walls. While the plan waits for a
+tap the row becomes one plain line saying what to tap ("Tap the plan where
+the shower goes", "Tap the curb, or drag to draw the wall", "Tap the wall
+the bench goes against") with Cancel (`waitingFor`). Nothing covers the
+plan, and the tab below no longer repeats these (no Move/Remove buttons,
+Tile walls | Edit walls switch or Add a Wall menu there). **Undo**
+also steps back out of a step with nothing changed yet (adding a wall or
+bench, placing: `guideStepToUndo`), and undoing the shower's placement
+asks where it goes again. **Remove** takes off the shower's floor, curb,
+drain, tiled walls, built-ins and stone choices; walls drawn in stay
+(they're the room's); Undo puts it back.
 
 Wall tile runs on past the shower floor to the curb's **outside edge**
 where the floor's edge at that corner is open (owner, 2026-10-13: "wall tile
