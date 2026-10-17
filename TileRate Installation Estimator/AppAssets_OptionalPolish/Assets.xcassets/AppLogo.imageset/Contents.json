@@ -1,19 +1,8 @@
 {
   "images" : [
     {
-      "filename" : "TileRateLogo 2.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "filename" : "TileRateLogo 1.png",
-      "idiom" : "universal",
-      "scale" : "2x"
-    },
-    {
       "filename" : "TileRateLogo.png",
-      "idiom" : "universal",
-      "scale" : "3x"
+      "idiom" : "universal"
     }
   ],
   "info" : {
