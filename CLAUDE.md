@@ -382,6 +382,30 @@ Window group), a door's or opening's left and right jamb and header
 reaches the ceiling). Any area, not only showers; drawn in 3-D as stone on
 the opening's sides, underside and (a window's) sill. `RoomOpeningStoneTests`.
 
+**Stone cutlist** (owner, 2026-10-16; the format is `docs/stone-cutlist-format.md`,
+a public contract FabSpecPro owns). Every stone choice is measured as the
+pieces to order (`CutPiece`, `AreaTakeoff.cutPieces`, in
+`RoomScan/StoneCutlist.swift`): ordered long and trimmed at fabrication —
+corner curb tops on through the other curb to the far edge of its top,
+outside faces past the other face's thickness, jambs full height, headers,
+sills and niche shelves full width, a stone niche back's thickness off the
+niche's other pieces, the half wall cap ¾″ past each free end, the framed
+bench top the bench plus the front's (and end's) thickness (¾″ if tile) plus
+the overhang (Admin → Stone pieces → Framed bench, `benchTopOverhangIn`).
+Widths are Admin's (`StoneRate.widthIn`), else the model's; each part has a
+thickness (`StoneRate.thickness`, 3 cm, a niche back 2 cm). `trimPieces`
+measures from them (`TrimPiece.cuts`, `cutSqft`, pass `prices:`), so stone
+prices follow the same sizes. `cutlist` names them: no sizes, letters by the
+order added per area when there's more than one ("Niche A Jambs", "Curb B
+Top"), a matching left and right as one row ("Entry Jambs", Qty 2).
+The review screen's **Stone cutlist** card (`StoneCutlistCard`,
+`StoneCutlistExport`) has **Send to FabSpecPro** — opens
+`fabspecpro://import?cutlist=<base64url JSON>`; when nothing opens it, a
+message offers the `.stonecutlist` file or the spreadsheet — and
+**Spreadsheet** (CSV, free). No PDF: a drawing is FabSpecPro's. Nothing
+ties the apps to one developer account (no App Group), so either can be sold.
+`StoneCutlistTests`.
+
 Shower entry trim (owner's rules, 2026-10-07): curbs, wall caps, jambs and
 headers (`TrimPiece`, from `AreaTakeoff.trimPieces`) are tile by default —
 part of the wall square feet, no adder — and each can be switched to stone

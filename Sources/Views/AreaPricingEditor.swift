@@ -165,7 +165,8 @@ struct StoneGroupEditor: View {
                     NavigationLink {
                         StoneRateEditor(title: "\(group.title) \(part.title.lowercased())",
                                         rate: Binding(get: { rates.stoneRate(part) }, set: { rates.setStoneRate($0, for: part) }),
-                                        panel: part.isPanel, panelArea: part.panelArea)
+                                        panel: part.isPanel, panelArea: part.panelArea,
+                                        defaultThickness: part == .nicheBack ? .twoCm : .threeCm)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(part.title)
@@ -177,6 +178,13 @@ struct StoneGroupEditor: View {
                 }
             } footer: {
                 Text("What it costs to install each part in stone. On the estimate they add up on one \"\(group.line)\" line.")
+            }
+            if group == .framedBench {
+                Section {
+                    AmountRow(title: "Top overhang", value: $rates.benchTopOverhangIn, suffix: "in")
+                } footer: {
+                    Text("How far the stone top runs past the front and the open end. The top is ordered as the bench plus the front's (and end's) thickness plus this.")
+                }
             }
         }
         .navigationTitle(group.title)
@@ -198,6 +206,7 @@ struct StoneRateEditor: View {
     /// A panel (a niche's back): by the square foot of its own area.
     var panel: Bool = false
     var panelArea = "the niche's width × its height"
+    var defaultThickness: StoneThickness = .threeCm
 
     var body: some View {
         Form {
@@ -224,9 +233,27 @@ struct StoneRateEditor: View {
                 }
             } footer: {
                 Text(rate.widthIn > 0
-                     ? "Square feet are the length × \(inchText(rate.widthIn / 12))."
-                     : "Enter its usual width to be able to price it by the square foot.")
+                     ? "Square feet are the length × \(inchText(rate.widthIn / 12)). The width is also the size it's ordered at on the cutlist."
+                     : "Enter its usual width to be able to price it by the square foot. Without one, the cutlist uses the model's (the curb's, the wall's or the niche's depth).")
             }
+            }
+            // Its thickness, for the cutlist (owner, 2026-10-16).
+            Section {
+                let t = rate.thickness ?? defaultThickness
+                AmountRow(title: "Thickness", value: Binding(get: { t.value }, set: { v in
+                    rate.thickness = StoneThickness(value: max(0, v), unit: t.unit)
+                }))
+                Picker("Unit", selection: Binding(get: { t.unit }, set: { u in
+                    rate.thickness = StoneThickness(value: t.value, unit: u)
+                })) {
+                    Text("cm").tag(StoneThickness.Unit.cm)
+                    Text("in").tag(StoneThickness.Unit.inch)
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Cutlist")
+            } footer: {
+                Text("\(defaultThickness.text) unless changed here. Used on the cutlist sent to FabSpecPro and in sizing pieces that meet it.")
             }
         }
         .navigationTitle(title)

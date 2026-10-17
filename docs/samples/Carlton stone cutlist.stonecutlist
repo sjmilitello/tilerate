@@ -1,0 +1,168 @@
+{
+  "customer" : {
+    "address" : "",
+    "address2" : "",
+    "cityStateZip" : "",
+    "name" : "Carlton"
+  },
+  "estimate" : {
+    "date" : "2026-10-15T13:23:00Z",
+    "number" : 1443,
+    "title" : "Carlton – Room 1 Shower"
+  },
+  "exportedAt" : "2026-10-17T03:16:05Z",
+  "exportID" : "000CB257-6660-48C1-B4D7-703C99769D60",
+  "format" : "stone-cutlist",
+  "formatVersion" : 1,
+  "pieces" : [
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Curb",
+      "id" : "curb#0#Top#",
+      "lengthIn" : 49.125,
+      "name" : "Curb Top",
+      "notes" : [
+
+      ],
+      "quantity" : 1,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "curbTop",
+      "widthIn" : 7
+    },
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Curb",
+      "id" : "curb:outside#0#Outside Face#",
+      "lengthIn" : 49.125,
+      "name" : "Curb Outside Face",
+      "notes" : [
+
+      ],
+      "quantity" : 1,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "curbOutside",
+      "widthIn" : 5
+    },
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Framed bench",
+      "id" : "benchSide:C532C664-0BD8-4F27-B5A4-F19A7E680B49#C532C664-0BD8-4F27-B5A4-F19A7E680B49#End#",
+      "lengthIn" : 15,
+      "name" : "Bench End",
+      "notes" : [
+
+      ],
+      "quantity" : 1,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "framedBenchSide",
+      "widthIn" : 20
+    },
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Framed bench",
+      "id" : "benchTop:C532C664-0BD8-4F27-B5A4-F19A7E680B49#C532C664-0BD8-4F27-B5A4-F19A7E680B49#Top#",
+      "lengthIn" : 41.4375,
+      "name" : "Bench Top",
+      "notes" : [
+
+      ],
+      "quantity" : 1,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "framedBenchTop",
+      "widthIn" : 16.5
+    },
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Niche",
+      "id" : "niche:38005077-719F-492D-830C-BD2128985FC8:shelf#38005077-719F-492D-830C-BD2128985FC8#Base Shelf#",
+      "lengthIn" : 13,
+      "name" : "Niche Base Shelf",
+      "notes" : [
+
+      ],
+      "quantity" : 1,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "nicheShelf",
+      "widthIn" : 5
+    },
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Niche",
+      "id" : "niche:38005077-719F-492D-830C-BD2128985FC8:jambs#38005077-719F-492D-830C-BD2128985FC8#Jamb#",
+      "lengthIn" : 24,
+      "name" : "Niche Jambs",
+      "notes" : [
+
+      ],
+      "quantity" : 2,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "nicheJamb",
+      "widthIn" : 3.875
+    },
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Niche",
+      "id" : "niche:38005077-719F-492D-830C-BD2128985FC8:header#38005077-719F-492D-830C-BD2128985FC8#Header#",
+      "lengthIn" : 13,
+      "name" : "Niche Header",
+      "notes" : [
+
+      ],
+      "quantity" : 1,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "nicheHeader",
+      "widthIn" : 3.875
+    },
+    {
+      "edges" : "All Edges Polished",
+      "group" : "Niche",
+      "id" : "niche:38005077-719F-492D-830C-BD2128985FC8:dividers#38005077-719F-492D-830C-BD2128985FC8#Divider Shelf#",
+      "lengthIn" : 13,
+      "name" : "Niche Divider Shelf",
+      "notes" : [
+
+      ],
+      "quantity" : 1,
+      "shape" : "rectangle",
+      "thickness" : {
+        "unit" : "cm",
+        "value" : 3
+      },
+      "type" : "nicheDivider",
+      "widthIn" : 3.875
+    }
+  ],
+  "source" : {
+    "app" : "TileRate",
+    "appVersion" : "1.0"
+  },
+  "units" : "inches"
+}

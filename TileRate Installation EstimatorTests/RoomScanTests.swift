@@ -234,7 +234,8 @@ struct RoomScanTests {
         // Outside a shower: a cap and a jamb at the open end, tile until switched to stone.
         let trim = t.trimPieces(in: r, area: .wall, curbHeightIn: 4)
         #expect(trim.map(\.name) == ["Wall cap (half wall E)", "Half wall E end jamb"])
-        #expect(abs(trim[0].lengthFt - 4) < 1e-9 && abs(trim[1].lengthFt - 3.5) < 1e-9)
+        // The cap runs ¾″ past its free end, to order (owner, 2026-10-16).
+        #expect(abs(trim[0].lengthFt - (4 + 0.75 / 12)) < 1e-9 && abs(trim[1].lengthFt - 3.5) < 1e-9)
         #expect(trim.allSatisfy { !$0.stone })
         var s = PricingCases.section(.wall, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
         let prices = StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4)
@@ -244,7 +245,7 @@ struct RoomScanTests {
         t.apply(r, to: &s, prices: prices)
         let cap = try #require(s.additionsLabor.first)
         // On the wall group's line (owner, 2026-10-13: one line per group).
-        #expect(cap.activity == "Stone wall trim" && cap.qty == 4 && cap.rate == 25 && cap.unit == "lin ft")
+        #expect(cap.activity == "Stone wall trim" && cap.qty == 4.06 && cap.rate == 25 && cap.unit == "lin ft")
         s.additionsLabor[0].rate = 28                                    // changed on the estimate
         t.trim[0].lengthFt = 4.5
         t.apply(r, to: &s, prices: prices)
@@ -296,7 +297,7 @@ struct RoomScanTests {
         #expect(abs(byName["Right jamb"]! - (8 - 4.0 / 12)) < 1e-9)          // curb to the top of the tile
         #expect(abs(byName["Left lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)   // curb to cap
         #expect(abs(byName["Left upper jamb"]! - 4.5) < 1e-9)                // cap to the top of the tile
-        #expect(abs(byName["Wall cap (half wall E)"]! - 3) < 1e-9)
+        #expect(abs(byName["Wall cap (half wall E)"]! - (3 + 0.75 / 12)) < 1e-9)   // ¾″ past its free end
         #expect(trim.count == 9)   // with the curb's inside and outside faces, and the ceiling headers over the curb and the cap
 
         // Tile stops at 84″: the jambs follow; a 6″ curb shortens them.
@@ -312,14 +313,14 @@ struct RoomScanTests {
         var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
         t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
         #expect(s.additionsLabor.map(\.activity) == ["Stone curb", "Stone wall trim"])
-        #expect(s.additionsLabor.map(\.qty) == [4, 3])
+        #expect(s.additionsLabor.map(\.qty) == [4, 3.06])
         // Stone jambs join the cap on the wall line, each at its own price:
-        // 3′ of cap at $25 and 6½′ + 3′ of jambs at $20, as one amount.
+        // 3′ ¾″ of cap at $25 and 6½′ + 3′ of jambs at $20, as one amount.
         t.trim.append(.init(key: "jamb:right", stone: true))
         t.trim.append(.init(key: "jamb:left:lower", stone: true))
         t.apply(r, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
         let wall = try #require(s.additionsLabor.first { $0.activity == "Stone wall trim" })
-        #expect(wall.qty == 1 && abs(wall.amount - (3 * 25 + (6.5 + 3) * 20)) < 0.01)
+        #expect(wall.qty == 1 && abs(wall.amount - ((3 + 0.75 / 12) * 25 + (6.5 + 3) * 20)) < 0.01)
     }
 
     @Test func aFourWallShowerWithANewWallAndDoorHasACurbJambsAndHeader() throws {
@@ -432,7 +433,7 @@ struct RoomScanTests {
         #expect(abs(byName["Left jamb"]! - (8 - 4.0 / 12)) < 1e-9)
         #expect(abs(byName["Right lower jamb"]! - (3.5 - 4.0 / 12)) < 1e-9)
         #expect(abs(byName["Right upper jamb"]! - 4.5) < 1e-9)
-        #expect(abs(byName["Wall cap (half wall E)"]! - 5) < 1e-9)
+        #expect(abs(byName["Wall cap (half wall E)"]! - (5 + 0.75 / 12)) < 1e-9)
     }
 
     @Test func aFullWallJustUnderAnOddCeilingIsStillFull() {
@@ -573,7 +574,8 @@ struct RoomScanTests {
         s.features.shelves = 5   // typed earlier: placed items override it
         t.apply(r, to: &s, prices: prices)
         let top = s.additionsLabor.first { $0.activity == "Stone framed bench" }
-        #expect(top?.qty == 11.25 && top?.unit == "sq ft" && top?.rate == 35)
+        // 9′ × (15″ + ¾″ tile front + ¾″ overhang), to order (owner, 2026-10-16).
+        #expect(abs((top?.qty ?? 0) - 9 * 16.5 / 12) < 0.006 && top?.unit == "sq ft" && top?.rate == 35)
         #expect(s.features.benches == 1 && s.features.niches == 1 && s.features.windows == 1)
         #expect(s.features.shelves == 1 && s.features.seats == 1 && s.features.footrests == 0)
         // Stone shelves only: the base shelf and one divider, 13″ each, on the
@@ -1044,7 +1046,8 @@ struct RoomScanTests {
         #expect(abs(t.wallsSqft(in: room) - (4 + 4 + 2 * 4.5 / 12) * 8) < 1e-9)
         // The curb on the two open sides.
         let curb = t.trimPieces(in: room, area: .shower, curbHeightIn: 4).first { $0.key == "curb" }
-        #expect(abs((curb?.lengthFt ?? 0) - 8) < 1e-9)
+        // Each run on through the other curb (4½″) at the corner, to order (owner, 2026-10-16).
+        #expect(abs((curb?.lengthFt ?? 0) - (8 + 2 * 4.5 / 12)) < 1e-9)
         // Resized to 5′ × 3′ and turned: 3′ along C, 5′ up B, still in the corner; the walls follow.
         var turned = t
         turned.floorRect?.widthFt = 5

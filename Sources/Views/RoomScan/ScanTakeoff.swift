@@ -756,7 +756,7 @@ extension AreaTakeoff {
         case nil:
             break
         }
-        let pieces = trimPieces(in: room, area: section.area, curbHeightIn: prices.curbHeightIn)
+        let pieces = trimPieces(in: room, area: section.area, curbHeightIn: prices.curbHeightIn, prices: prices)
         // Stone went on a line per kind before it was grouped: those go.
         for kind in TrimKind.allCases {
             let id = Self.stoneLineID(section.id, kind)
@@ -774,7 +774,8 @@ extension AreaTakeoff {
             func bySqft(_ p: TrimPiece) -> Bool { p.areaSqft != nil ? prices.rate(p.part).bySqft : prices.rate(p.part).usesSqft }
             func sqftOf(_ p: TrimPiece) -> Double {
                 let r = prices.rate(p.part)
-                return p.areaSqft ?? (r.widthIn > 0 ? p.lengthFt * r.widthIn / 12 : 0)
+                // The pieces to order, each its length × its width (owner, 2026-10-16).
+                return p.areaSqft ?? p.cutSqft ?? (r.widthIn > 0 ? p.lengthFt * r.widthIn / 12 : 0)
             }
             for p in stone {
                 let rate = prices.rate(p.part)
@@ -1174,6 +1175,8 @@ struct StonePrices {
     var parts: [StonePart: StoneRate] = [:]
     var materialPerSqft: Double = 0
     var materialSeparate: Bool = false
+    /// How far a framed bench's stone top runs past its front and open end.
+    var benchOverhangIn: Double = 0.75
     var defaults = ScanItemDefaults()
     /// The price list's Curbless Shower and Linear Drain, nil once deleted there.
     var curblessItem: PriceListItem? = PriceListItem.curblessShower
@@ -1223,6 +1226,7 @@ extension StonePrices {
                   stone: Dictionary(uniqueKeysWithValues: StoneItem.allCases.map { ($0, r.stoneRate($0)) }),
                   parts: Dictionary(uniqueKeysWithValues: StonePart.allCases.map { ($0, r.stoneRate($0)) }),
                   materialPerSqft: r.stoneMaterialPerSqft, materialSeparate: r.stoneMaterialSeparate,
+                  benchOverhangIn: r.benchTopOverhangIn,
                   defaults: r.scanDefaults,
                   curblessItem: r.priceList.first { $0.id == PriceListItem.curblessShower.id },
                   linearDrainItem: r.priceList.first { $0.id == PriceListItem.linearDrain.id })
@@ -1239,10 +1243,13 @@ struct TrimPiece: Identifiable, Equatable {
     /// Which priced part it is (owner, 2026-10-13).
     var part: StonePart = .curbTop
     let name: String
-    /// As measured from the plan.
+    /// As measured from the plan: the pieces to order laid end to end.
     let measuredFt: Double
     var lengthFt: Double
     var stone: Bool
+    /// The pieces to order for it (owner, 2026-10-16), and their square feet.
+    var cuts: [CutPiece] = []
+    var cutSqft: Double? = nil
     var id: String { key }
 }
 
@@ -1255,7 +1262,34 @@ extension AreaTakeoff {
     ///   top of the tile) against a knee wall; and a cap on each knee wall.
     /// - Other areas: a cap on each knee wall they tile, and a jamb on each
     ///   of its open ends, floor to cap.
-    func trimPieces(in room: ScannedRoom, area: Area?, curbHeightIn: Double) -> [TrimPiece] {
+    func trimPieces(in room: ScannedRoom, area: Area?, curbHeightIn: Double, prices: StonePrices = StonePrices()) -> [TrimPiece] {
+        let (out, defaults) = trimEntries(in: room, area: area, curbHeightIn: curbHeightIn)
+        // Each measured as the pieces to order (owner, 2026-10-16): prices
+        // follow the same sizes as the cutlist.
+        let cuts = cutPieces(entries: out.map { (key: $0.0, kind: $0.1, name: $0.2, ft: $0.3) }, in: room, area: area,
+                             curbHeightIn: curbHeightIn, prices: prices)
+        let doorIDs = Set((showerDoors(in: room) + stoneOpenings(in: room)).map(\.id.uuidString))
+        return out.map { key, kind, name, ft in
+            let choice = trim.first { $0.key == key }
+            let pieces = cuts[key] ?? []
+            let measured = pieces.isEmpty ? ft : pieces.reduce(0) { $0 + $1.lengthIn * Double($1.quantity) } / 12
+            let sqft: Double? = pieces.isEmpty ? nil : pieces.reduce(0) { $0 + $1.lengthIn * $1.widthIn * Double($1.quantity) } / 144
+            let length = choice?.lengthFt ?? measured
+            // A panel (a niche's back, a bench's top, front and end) by its own area.
+            let panel = key.hasSuffix(":back") || key.hasPrefix("benchTop:") || key.hasPrefix("benchFront:") || key.hasPrefix("benchSide:")
+            let scaled = sqft.map { measured > 0 ? $0 * length / measured : $0 }
+            return TrimPiece(key: key, kind: kind, areaSqft: panel ? scaled : nil,
+                             part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
+                             name: name, measuredFt: measured,
+                             lengthFt: length, stone: choice?.stone ?? defaults[key] ?? false,
+                             cuts: pieces, cutSqft: scaled)
+        }
+    }
+
+    /// The stone choices this area has, as measured on the plan, and each
+    /// niche's or window's part's starting choice.
+    private func trimEntries(in room: ScannedRoom, area: Area?, curbHeightIn: Double)
+        -> ([(String, TrimKind, String, Double)], [String: Bool]) {
         var out: [(String, TrimKind, String, Double)] = []
         // Curbless: no curbs, and the jambs start at the floor.
         let curb = curbless ? 0 : (self.curbHeightIn ?? curbHeightIn) / 12
@@ -1418,24 +1452,7 @@ extension AreaTakeoff {
                 }
             }
         }
-        let doorIDs = Set((showerDoors(in: room) + stoneOpenings(in: room)).map(\.id.uuidString))
-        return out.map { key, kind, name, ft in
-            let choice = trim.first { $0.key == key }
-            let length = choice?.lengthFt ?? ft
-            let item = items.first { key.contains($0.id.uuidString) }
-            // A panel's own area: a niche's back, and a bench's top, front and
-            // outside end at the bench's real size (owner, 2026-10-14).
-            let area: Double? = item.flatMap { i -> Double? in
-                if key.hasSuffix(":back") { return i.widthFt * i.heightIn / 12 }
-                if key.hasPrefix("benchTop:") { return length * i.depthIn / 12 }
-                if key.hasPrefix("benchFront:") { return length * i.heightIn / 12 }
-                if key.hasPrefix("benchSide:") { return length * i.heightIn / 12 }
-                return nil
-            }
-            return TrimPiece(key: key, kind: kind, areaSqft: area, part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
-                             name: name, measuredFt: ft,
-                             lengthFt: choice?.lengthFt ?? ft, stone: choice?.stone ?? defaults[key] ?? false)
-        }
+        return (out, defaults)
     }
 
     /// A niche's or window's part ("shelf", "jambs", "header", "dividers";

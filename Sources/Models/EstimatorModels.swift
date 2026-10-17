@@ -371,6 +371,9 @@ struct Rates: Codable, Equatable {
     /// are to install it).
     var stoneMaterialPerSqft: Double = 0
     var stoneMaterialSeparate: Bool = false
+    /// How far a framed bench's stone top runs past its front and open end
+    /// (owner, 2026-10-16: ¾″).
+    var benchTopOverhangIn: Double = 0.75
     /// A bench placed on a scan: the higher of `unitBench` (its minimum) and
     /// its length at this price.
     var benchPerLinFt: Double = 0
@@ -599,6 +602,7 @@ extension Rates {
         c.read(.stoneRates, into: &stoneRates)
         c.read(.stoneMaterialPerSqft, into: &stoneMaterialPerSqft)
         c.read(.stoneMaterialSeparate, into: &stoneMaterialSeparate)
+        c.read(.benchTopOverhangIn, into: &benchTopOverhangIn)
         c.read(.benchPerLinFt, into: &benchPerLinFt)
         c.read(.unitSeat, into: &unitSeat)
         c.read(.unitWindow, into: &unitWindow)
@@ -694,10 +698,35 @@ struct StoneRate: Codable, Equatable, Hashable {
     var widthIn: Double = 0
     var bySqft: Bool = false
     var perSqft: Double = 0
+    /// Its thickness, when set in Admin (nil: the usual, 3 cm; a niche back 2 cm).
+    var thickness: StoneThickness? = nil
     var usesSqft: Bool { bySqft && widthIn > 0 }
+
     /// Square feet for a run of this piece.
     func sqft(linFt: Double) -> Double { linFt * widthIn / 12 }
     func amount(linFt: Double) -> Double { usesSqft ? sqft(linFt: linFt) * perSqft : linFt * perLinFt }
+}
+
+/// A stone piece's thickness: 3 cm, 2 cm, ¾″… (owner, 2026-10-16).
+struct StoneThickness: Codable, Equatable, Hashable {
+    enum Unit: String, Codable { case cm, inch = "in" }
+    var value: Double = 3
+    var unit: Unit = .cm
+    var inches: Double { unit == .cm ? value / 2.54 : value }
+    /// "3 cm", "3/4 in".
+    var text: String {
+        unit == .cm ? "\(value.formatted(.number.precision(.fractionLength(0...2)))) cm"
+                    : "\(inchText(value / 12).replacingOccurrences(of: "″", with: "")) in"
+    }
+    static let threeCm = StoneThickness(value: 3, unit: .cm)
+    static let twoCm = StoneThickness(value: 2, unit: .cm)
+
+    init(value: Double = 3, unit: Unit = .cm) { self.value = value; self.unit = unit }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.value, into: &value)
+        c.read(.unit, into: &unit)
+    }
 }
 
 /// Every stone piece with a price in Admin.
@@ -1547,6 +1576,7 @@ extension StoneRate {
         c.read(.widthIn, into: &widthIn)
         c.read(.bySqft, into: &bySqft)
         c.read(.perSqft, into: &perSqft)
+        c.read(.thickness, into: &thickness)
     }
 }
 

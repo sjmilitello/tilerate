@@ -1880,7 +1880,7 @@ struct ScanEditor: View {
     /// jambs elsewhere): tile by default, or stone per linear foot.
     @ViewBuilder
     private var trimPanel: some View {
-        let pieces = takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn)
+        let pieces = takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn, prices: stone)
         if area == .shower || !pieces.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Stone pieces").font(.ndTitle(20))

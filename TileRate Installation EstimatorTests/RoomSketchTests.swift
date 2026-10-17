@@ -271,8 +271,11 @@ struct StonePartPricingTests {
         var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
         t.apply(room, to: &s, prices: prices)
         let curb = s.additionsLabor.first { $0.activity == "Stone curb" }!
-        // 8′ of curb top at $30 and 8′ of outside face at $10, one line.
-        #expect(abs(curb.amount - (8 * 30 + 8 * 10)) < 0.01)
+        // To order (owner, 2026-10-16): each run's top on through the other
+        // curb (4½″, no wider top set) and each outside face past the other's
+        // 3 cm too, at $30 and $10, one line.
+        let face = 3 / 2.54 / 12
+        #expect(abs(curb.amount - ((8 + 2 * 4.5 / 12) * 30 + (8 + 2 * (4.5 / 12 + face)) * 10)) < 0.02)
     }
 
     @Test func materialIsInTheLineOrOnItsOwn() {
@@ -285,14 +288,16 @@ struct StonePartPricingTests {
         var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
         t.apply(room, to: &s, prices: prices)
         let curb = s.additionsLabor.first { $0.activity == "Stone curb" }!
-        #expect(curb.qty == 8 && abs(curb.rate - (30 + 10)) < 1e-9)                 // install + material
+        // A 6″ top overhangs ¾″: each run on 4½″ + ¾″ at the corner, 8′ 10½″.
+        let len = 8 + 2 * 5.25 / 12
+        #expect(curb.qty == 8.88 && abs(curb.rate - (30 + 10)) < 1e-9)              // install + material
         #expect(!s.additionsMaterials.contains { $0.activity == "Stone pieces" })
         prices.materialSeparate = true
         t.apply(room, to: &s, prices: prices)
         let installOnly = s.additionsLabor.first { $0.activity == "Stone curb" }!
         let material = s.additionsMaterials.first { $0.activity == "Stone pieces" }
-        #expect(installOnly.qty == 8)
-        #expect(material?.qty == 4 && material?.rate == 20 && material?.taxable == true)  // 8′ × 6″ = 4 sq ft
+        #expect(installOnly.qty == 8.88)
+        #expect(abs((material?.qty ?? 0) - len / 2) < 0.006 && material?.rate == 20 && material?.taxable == true)  // × 6″
     }
 
     @Test func aNicheIsItsMinimumPlusItsStoneParts() {
@@ -592,7 +597,13 @@ struct BenchStoneByItsSizeTests {
         var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
         t.apply(room, to: &s, prices: prices)
         let line = s.additionsLabor.first { $0.activity == "Stone framed bench" }
-        let sqft = length * 16 / 12 + length * 18 / 12               // top + front
+        // To order (owner, 2026-10-16): the front 4′ × 18″; the top 4′ (plus a
+        // tile end's ¾″ and the overhang where the bench meets the entry) by
+        // 16″ + the stone front's 3 cm + the ¾″ overhang.
+        _ = length
+        let atEntry = t.curbSides(in: room).benches.contains { $0.id == id }
+        let topLen = 48 + (atEntry ? 0.75 + 0.75 : 0), topW = 16 + 3 / 2.54 + 0.75
+        let sqft = topLen * topW / 144 + 48 * 18 / 144
         #expect(line?.unit == "sq ft")
         #expect(abs((line?.qty ?? 0) - (sqft * 100).rounded() / 100) < 0.011)
         #expect(abs((line?.amount ?? 0) - sqft * 50) < 0.6)
