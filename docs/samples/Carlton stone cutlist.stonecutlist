@@ -17,7 +17,7 @@
   "formatVersion": 1,
   "pieces": [
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Curb",
       "id": "curb#0#Top#",
       "lengthIn": 49.125,
@@ -33,7 +33,7 @@
       "widthIn": 7
     },
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Curb",
       "id": "curb:outside#0#Outside Face#",
       "lengthIn": 49.125,
@@ -49,7 +49,7 @@
       "widthIn": 5
     },
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Framed bench",
       "id": "benchSide:C532C664-0BD8-4F27-B5A4-F19A7E680B49#C532C664-0BD8-4F27-B5A4-F19A7E680B49#End#",
       "lengthIn": 15,
@@ -65,7 +65,7 @@
       "widthIn": 20
     },
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Framed bench",
       "id": "benchTop:C532C664-0BD8-4F27-B5A4-F19A7E680B49#C532C664-0BD8-4F27-B5A4-F19A7E680B49#Top#",
       "lengthIn": 41.4375,
@@ -81,7 +81,7 @@
       "widthIn": 16.5
     },
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Niche",
       "id": "niche:38005077-719F-492D-830C-BD2128985FC8:shelf#38005077-719F-492D-830C-BD2128985FC8#Base Shelf#",
       "lengthIn": 13,
@@ -97,7 +97,7 @@
       "widthIn": 5
     },
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Niche",
       "id": "niche:38005077-719F-492D-830C-BD2128985FC8:jambs#38005077-719F-492D-830C-BD2128985FC8#Jamb#",
       "lengthIn": 24,
@@ -113,7 +113,7 @@
       "widthIn": 3.875
     },
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Niche",
       "id": "niche:38005077-719F-492D-830C-BD2128985FC8:header#38005077-719F-492D-830C-BD2128985FC8#Header#",
       "lengthIn": 13,
@@ -129,7 +129,7 @@
       "widthIn": 3.875
     },
     {
-      "edges": "Polished",
+      "edges": "standard",
       "group": "Niche",
       "id": "niche:38005077-719F-492D-830C-BD2128985FC8:dividers#38005077-719F-492D-830C-BD2128985FC8#Divider Shelf#",
       "lengthIn": 13,

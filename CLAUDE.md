@@ -401,8 +401,10 @@ Top"), a matching left and right as one row ("Entry Jambs", Qty 2).
 An estimate has a permanent id (`EstimateDocument.id`; saved before: its
 first room's, so it's the same on every read), sent as `estimate.id` so
 FabSpecPro knows a cutlist sent again (owner, 2026-10-17 — the estimate
-number changes as PDFs are made). The FabSpecPro file says "Polished" for
-edges, its library's name; the spreadsheet "All Edges Polished". Area
+number changes as PDFs are made). Edges: the FabSpecPro file says "standard" —
+every edge finished with the shop's standard edge, no profile; FabSpecPro
+gives it the shop's Default edge finish (eased, pencil and polished mean the
+same in shops; owner, 2026-10-17). The spreadsheet says "All Edges Finished". Area
 prefixes use a plain hyphen. `EstimateIDTests`.
 The review screen's **Stone cutlist** card (`StoneCutlistCard`,
 `StoneCutlistExport`) has **Send to FabSpecPro** — opens

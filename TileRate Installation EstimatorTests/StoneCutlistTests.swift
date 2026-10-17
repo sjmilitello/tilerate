@@ -29,7 +29,7 @@ struct StoneCutlistTests {
         #expect(byName["Curb A Outside Face"]?.lengthIn == 53.6875 && byName["Curb A Outside Face"]?.widthIn == 4)
         // Inside faces: the curb's length; height the curb's when no width is set.
         #expect(byName["Curb A Inside Face"]?.lengthIn == 48 && byName["Curb A Inside Face"]?.widthIn == 4)
-        #expect(list.allSatisfy { $0.thickness == .threeCm && $0.edges == "All Edges Polished" })
+        #expect(list.allSatisfy { $0.thickness == .threeCm && $0.edges == "standard" })
         // Prices follow the same sizes.
         let curb = t.trimPieces(in: room, area: .shower, curbHeightIn: 4, prices: prices).first { $0.key == "curb" }!
         #expect(abs(curb.lengthFt - 2 * 53.75 / 12) < 1e-9)
@@ -112,7 +112,7 @@ struct StoneCutlistTests {
         #expect(customer["name"] as? String == "Smith" && customer["phone"] == nil)          // no phone or email
         let first = try #require((json["pieces"] as? [[String: Any]])?.first)
         #expect(first["name"] as? String == "Curb A Top" && (first["thickness"] as? [String: Any])?["unit"] as? String == "cm")
-        #expect(first["edges"] as? String == "Polished")                                    // FabSpecPro's own name
+        #expect(first["edges"] as? String == "standard")                                    // the shop's standard edge
         // The link: compact, zlib-compressed, base64url without padding, z=1.
         let link = try #require(StoneCutlistExport.link(json: StoneCutlistExport.json(pieces: pieces, customer: cust, estimateID: doc.id,
                                                                                       estimateNumber: 1450, title: "Smith", compact: true)))
@@ -125,7 +125,7 @@ struct StoneCutlistTests {
         #expect((try JSONSerialization.jsonObject(with: unzipped) as? [String: Any])?["format"] as? String == "stone-cutlist")
         let csv = StoneCutlistExport.csv(pieces: pieces).split(separator: "\n")
         #expect(csv[0] == "Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Qty,Notes")
-        #expect(csv[1].hasPrefix("Curb A Top,Curb,curbTop,Rectangle,52.5,4.5,3 cm,All Edges Polished,1"))
+        #expect(csv[1].hasPrefix("Curb A Top,Curb,curbTop,Rectangle,52.5,4.5,3 cm,All Edges Finished,1"))
         _ = room
     }
 }

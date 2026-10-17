@@ -40,7 +40,9 @@ struct CutPiece: Equatable {
     var lengthIn: Double
     var widthIn: Double
     var thickness: StoneThickness
-    var edges = "All Edges Polished"
+    /// "standard": every edge finished with the shop's standard edge, no
+    /// profile (owner, 2026-10-17); a profile's own name if TileRate gets them.
+    var edges = "standard"
     var quantity = 1
     /// Filled in by `cutlist`: "Curb A Top", "Niche Jambs".
     var name = ""

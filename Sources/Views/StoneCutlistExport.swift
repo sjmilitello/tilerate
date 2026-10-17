@@ -60,9 +60,8 @@ enum StoneCutlistExport {
                     "id": p.id, "name": p.name, "group": p.group, "type": p.type, "shape": p.shape.rawValue,
                     "lengthIn": round(p.lengthIn), "widthIn": round(p.widthIn),
                     "thickness": ["value": round(p.thickness.value), "unit": p.thickness.unit.rawValue],
-                    // FabSpecPro's edge finish by its own name, on every edge
-                    // (owner, 2026-10-17: "All Edges Polished" matched nothing there).
-                    "edges": p.edges == "All Edges Polished" ? "Polished" : p.edges,
+                    // "standard": every edge, the shop's standard finished edge.
+                    "edges": p.edges,
                     "quantity": p.quantity, "notes": [String](),
                 ]
             },
@@ -81,7 +80,8 @@ enum StoneCutlistExport {
         var rows = ["Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Qty,Notes"]
         for p in pieces {
             rows.append([p.name, p.group, p.type, p.shape == .rightTriangle ? "Right triangle" : "Rectangle",
-                         number(p.lengthIn), number(p.widthIn), p.thickness.text, p.edges, String(p.quantity), ""]
+                         number(p.lengthIn), number(p.widthIn), p.thickness.text,
+                         p.edges == "standard" ? "All Edges Finished" : p.edges, String(p.quantity), ""]
                 .map(cell).joined(separator: ","))
         }
         return rows.joined(separator: "\n") + "\n"

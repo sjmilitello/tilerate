@@ -45,7 +45,7 @@ domain.
       "lengthIn": 53.75,
       "widthIn": 7,
       "thickness": { "value": 3, "unit": "cm" },
-      "edges": "Polished",
+      "edges": "standard",
       "quantity": 1,
       "notes": []
     }
@@ -71,9 +71,15 @@ domain.
 - **lengthIn / widthIn**: decimal inches, to the sixteenth, sized to order.
 - **thickness**: value and unit (`cm` or `in`). 3 cm unless set in TileRate's
   Admin; a niche back 2 cm.
-- **edges**: the edge finish to put on every edge, by the name FabSpecPro's
-  Edges library uses: "Polished" for now (the spreadsheet says "All Edges
-  Polished"). When TileRate has edge profiles, the profile's own name.
+- **edges**: the edge finish for every edge. `"standard"` means every edge
+  is finished (not rough cut) with the shop's standard edge and no special
+  profile — shops call it eased, pencil or polished. FabSpecPro gives it the
+  shop's Default edge finish, whatever letter and name that shop uses. If
+  TileRate later has edge profiles, any other profile is sent by its own name
+  ("Bullnose", "Ogee"); FabSpecPro matches it by exact name in the shop's
+  Edges Library, else uses the default. (Files exported before 2026-10-17 may
+  say "Polished" or "All Edges Polished"; they mean "standard".) The
+  spreadsheet says "All Edges Finished".
 - **material**: absent until TileRate has material choices; then a string.
 - **quantity**: identical pieces of one thing are one row.
 
