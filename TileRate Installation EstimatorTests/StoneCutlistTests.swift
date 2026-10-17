@@ -104,16 +104,46 @@ struct StoneCutlistTests {
         let pieces = StoneCutlistExport.pieces(document: doc, rates: Rates())
         #expect(pieces.map(\.name) == ["Curb A Top", "Curb B Top"])
         let cust = PartyInfo(name: "Smith", address: "1 Main St", phone: "555", email: "a@b.c")
-        let json = try #require(try JSONSerialization.jsonObject(with: StoneCutlistExport.json(pieces: pieces, customer: cust,
-                                                                                              estimateNumber: 1450, title: "Smith")) as? [String: Any])
+        let data = StoneCutlistExport.json(pieces: pieces, customer: cust, estimateID: doc.id, estimateNumber: 1450, title: "Smith")
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((json["estimate"] as? [String: Any])?["id"] as? String == doc.id.uuidString)
         #expect(json["format"] as? String == "stone-cutlist" && json["formatVersion"] as? Int == 1)
         let customer = try #require(json["customer"] as? [String: Any])
         #expect(customer["name"] as? String == "Smith" && customer["phone"] == nil)          // no phone or email
         let first = try #require((json["pieces"] as? [[String: Any]])?.first)
         #expect(first["name"] as? String == "Curb A Top" && (first["thickness"] as? [String: Any])?["unit"] as? String == "cm")
+        #expect(first["edges"] as? String == "Polished")                                    // FabSpecPro's own name
+        // The link: compact, zlib-compressed, base64url without padding, z=1.
+        let link = try #require(StoneCutlistExport.link(json: StoneCutlistExport.json(pieces: pieces, customer: cust, estimateID: doc.id,
+                                                                                      estimateNumber: 1450, title: "Smith", compact: true)))
+        let items = URLComponents(url: link, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(link.scheme == "fabspecpro" && link.host == "import" && items.first { $0.name == "z" }?.value == "1")
+        var b64 = (items.first { $0.name == "cutlist" }?.value ?? "").replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        #expect(!b64.contains("="))
+        while b64.count % 4 != 0 { b64 += "=" }
+        let unzipped = try (Data(base64Encoded: b64)! as NSData).decompressed(using: .zlib) as Data
+        #expect((try JSONSerialization.jsonObject(with: unzipped) as? [String: Any])?["format"] as? String == "stone-cutlist")
         let csv = StoneCutlistExport.csv(pieces: pieces).split(separator: "\n")
         #expect(csv[0] == "Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Qty,Notes")
         #expect(csv[1].hasPrefix("Curb A Top,Curb,curbTop,Rectangle,52.5,4.5,3 cm,All Edges Polished,1"))
         _ = room
+    }
+}
+
+/// An estimate keeps one id for good (owner, 2026-10-17): saved, read, and
+/// for estimates saved before ids, the same on every read.
+struct EstimateIDTests {
+    @Test func anEstimateKeepsItsID() throws {
+        var doc = EstimateDocument()
+        doc.rooms = [EstimateRoom(name: "Bath")]
+        let again = try JSONDecoder().decode(EstimateDocument.self, from: JSONEncoder().encode(doc))
+        #expect(again.id == doc.id)
+        // Saved before: no id. The same each time it's read — its first room's.
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(doc)) as! [String: Any]
+        json["id"] = nil
+        let old = try JSONSerialization.data(withJSONObject: json)
+        let a = try JSONDecoder().decode(EstimateDocument.self, from: old)
+        let b = try JSONDecoder().decode(EstimateDocument.self, from: old)
+        #expect(a.id == b.id && a.id == doc.rooms[0].id)
     }
 }

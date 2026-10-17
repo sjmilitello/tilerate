@@ -32,7 +32,7 @@ enum StoneCutlistExport {
         return perArea.flatMap { area in
             area.pieces.map { p in
                 var p = p
-                p.name = "\(area.label) – \(p.name)"
+                p.name = "\(area.label) - \(p.name)"
                 p.id = "\(area.label)#\(p.id)"
                 return p
             }
@@ -40,8 +40,8 @@ enum StoneCutlistExport {
     }
 
     /// The cutlist for FabSpecPro (format version 1).
-    static func json(pieces: [CutPiece], customer: PartyInfo, estimateNumber: Int, title: String,
-                     date: Date = Date(), exportID: UUID = UUID()) -> Data {
+    static func json(pieces: [CutPiece], customer: PartyInfo, estimateID: UUID, estimateNumber: Int, title: String,
+                     date: Date = Date(), exportID: UUID = UUID(), compact: Bool = false) -> Data {
         let iso = ISO8601DateFormatter()
         func round(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
         let body: [String: Any] = [
@@ -52,7 +52,7 @@ enum StoneCutlistExport {
             "exportID": exportID.uuidString,
             "exportedAt": iso.string(from: Date()),
             "units": "inches",
-            "estimate": ["number": estimateNumber, "title": title, "date": iso.string(from: date)],
+            "estimate": ["id": estimateID.uuidString, "number": estimateNumber, "title": title, "date": iso.string(from: date)],
             "customer": ["name": customer.name, "address": customer.address, "address2": customer.address2,
                          "cityStateZip": customer.cityStateZip],
             "pieces": pieces.map { p -> [String: Any] in
@@ -60,11 +60,16 @@ enum StoneCutlistExport {
                     "id": p.id, "name": p.name, "group": p.group, "type": p.type, "shape": p.shape.rawValue,
                     "lengthIn": round(p.lengthIn), "widthIn": round(p.widthIn),
                     "thickness": ["value": round(p.thickness.value), "unit": p.thickness.unit.rawValue],
-                    "edges": p.edges, "quantity": p.quantity, "notes": [String](),
+                    // FabSpecPro's edge finish by its own name, on every edge
+                    // (owner, 2026-10-17: "All Edges Polished" matched nothing there).
+                    "edges": p.edges == "All Edges Polished" ? "Polished" : p.edges,
+                    "quantity": p.quantity, "notes": [String](),
                 ]
             },
         ]
-        return (try? JSONSerialization.data(withJSONObject: body, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])) ?? Data()
+        let options: JSONSerialization.WritingOptions = compact ? [.sortedKeys, .withoutEscapingSlashes]
+                                                                : [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (try? JSONSerialization.data(withJSONObject: body, options: options)) ?? Data()
     }
 
     /// The same pieces as a spreadsheet: decimal inches, one row per piece.
@@ -82,11 +87,13 @@ enum StoneCutlistExport {
         return rows.joined(separator: "\n") + "\n"
     }
 
-    /// The link that opens FabSpecPro with the cutlist inside it.
+    /// The link that opens FabSpecPro with the cutlist inside it: compact
+    /// JSON, zlib-compressed (raw DEFLATE, `z=1`), base64url without padding.
     static func link(json: Data) -> URL? {
-        let b64 = json.base64EncodedString()
+        let (bytes, z) = (try? (json as NSData).compressed(using: .zlib) as Data).map { ($0, true) } ?? (json, false)
+        let b64 = bytes.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-        return URL(string: "\(scheme)://import?cutlist=\(b64)")
+        return URL(string: "\(scheme)://import?cutlist=\(b64)" + (z ? "&z=1" : ""))
     }
 
     /// A file with the given contents, to share.
@@ -107,6 +114,7 @@ enum StoneCutlistExport {
 struct StoneCutlistCard: View {
     let pieces: [CutPiece]
     let customer: PartyInfo
+    let estimateID: UUID
     let estimateNumber: Int
     let title: String
 
@@ -145,8 +153,9 @@ struct StoneCutlistCard: View {
         }
     }
 
-    private var json: Data {
-        StoneCutlistExport.json(pieces: pieces, customer: customer, estimateNumber: estimateNumber, title: title)
+    private func json(compact: Bool = false) -> Data {
+        StoneCutlistExport.json(pieces: pieces, customer: customer, estimateID: estimateID,
+                                estimateNumber: estimateNumber, title: title, compact: compact)
     }
 
     private var baseName: String {
@@ -154,7 +163,7 @@ struct StoneCutlistCard: View {
     }
 
     private func send() {
-        guard let url = StoneCutlistExport.link(json: json) else { notInstalled = true; return }
+        guard let url = StoneCutlistExport.link(json: json(compact: true)) else { notInstalled = true; return }
         UIApplication.shared.open(url, options: [:]) { opened in
             if !opened { notInstalled = true }
         }
@@ -166,7 +175,7 @@ struct StoneCutlistCard: View {
     }
 
     private func shareFile() {
-        guard let url = StoneCutlistExport.file(json, name: "\(baseName).\(StoneCutlistExport.fileExtension)") else { return }
+        guard let url = StoneCutlistExport.file(json(), name: "\(baseName).\(StoneCutlistExport.fileExtension)") else { return }
         presentPDFShareSheet(url: url)
     }
 }

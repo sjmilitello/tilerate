@@ -66,7 +66,7 @@ struct EstimateReviewView: View {
                     chargesCard
                     totalsBlock(t)
                     StoneCutlistCard(pieces: StoneCutlistExport.pieces(document: store.doc, rates: store.pricingRates),
-                                     customer: customer, estimateNumber: estimateCounter + 1,
+                                     customer: customer, estimateID: store.doc.id, estimateNumber: estimateCounter + 1,
                                      title: custName.isEmpty ? "Estimate #\(estimateCounter + 1)" : custName)
                 }
                 .padding(.horizontal, 20)

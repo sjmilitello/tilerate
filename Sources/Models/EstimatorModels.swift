@@ -1357,6 +1357,9 @@ struct EstimateRoom: Identifiable, Codable, Equatable, Hashable {
 }
 
 struct EstimateDocument: Codable, Equatable {
+    /// Never changes for an estimate (owner, 2026-10-17): FabSpecPro knows a
+    /// cutlist sent again by it. Saved before: its first room's id.
+    var id = UUID()
     var rooms: [EstimateRoom] = []
     /// 3-D views of the scanned areas for the PDF (layouts with "3-D views"
     /// on). Only the camera is kept: the picture is drawn from the scan and
@@ -1798,6 +1801,10 @@ extension EstimateDocument {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         c.read(.rooms, into: &rooms)
         c.read(.pictures, into: &pictures)
+        // Saved before estimates had their own id: one that stays the same
+        // every time it's read, its first room's.
+        if let r = rooms.first { id = r.id }
+        c.read(.id, into: &id)
     }
 }
 

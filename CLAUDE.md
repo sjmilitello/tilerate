@@ -398,9 +398,15 @@ measures from them (`TrimPiece.cuts`, `cutSqft`, pass `prices:`), so stone
 prices follow the same sizes. `cutlist` names them: no sizes, letters by the
 order added per area when there's more than one ("Niche A Jambs", "Curb B
 Top"), a matching left and right as one row ("Entry Jambs", Qty 2).
+An estimate has a permanent id (`EstimateDocument.id`; saved before: its
+first room's, so it's the same on every read), sent as `estimate.id` so
+FabSpecPro knows a cutlist sent again (owner, 2026-10-17 — the estimate
+number changes as PDFs are made). The FabSpecPro file says "Polished" for
+edges, its library's name; the spreadsheet "All Edges Polished". Area
+prefixes use a plain hyphen. `EstimateIDTests`.
 The review screen's **Stone cutlist** card (`StoneCutlistCard`,
 `StoneCutlistExport`) has **Send to FabSpecPro** — opens
-`fabspecpro://import?cutlist=<base64url JSON>`; when nothing opens it, a
+`fabspecpro://import?cutlist=<compact JSON, zlib, base64url>&z=1`; when nothing opens it, a
 message offers the `.stonecutlist` file or the spreadsheet — and
 **Spreadsheet** (CSV, free). No PDF: a drawing is FabSpecPro's. Nothing
 ties the apps to one developer account (no App Group), so either can be sold.

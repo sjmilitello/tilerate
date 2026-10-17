@@ -10,7 +10,8 @@ Agreed with the owner on 2026-10-16.
 ## How it travels
 
 1. **Link** (one tap, FabSpecPro installed): TileRate opens
-   `fabspecpro://import?cutlist=<JSON as base64url, no padding, not compressed>`.
+   `fabspecpro://import?cutlist=<compact JSON, zlib-compressed (raw DEFLATE), as base64url without padding>&z=1`.
+   (Without `z=1` the data is plain JSON; FabSpecPro reads both.)
    If nothing opens it, TileRate says FabSpecPro isn't installed and offers
    the file or a spreadsheet instead (the App Store page once FabSpecPro has
    an App Store ID).
@@ -32,7 +33,7 @@ domain.
   "exportID": "UUID, new for every export",
   "exportedAt": "2026-10-16T21:30:00Z",
   "units": "inches",
-  "estimate": { "number": 1443, "title": "Carlton", "date": "2026-10-15T13:23:00Z" },
+  "estimate": { "id": "UUID, the same for every export of this estimate", "number": 1443, "title": "Carlton", "date": "2026-10-15T13:23:00Z" },
   "customer": { "name": "Carlton", "address": "", "address2": "", "cityStateZip": "" },
   "pieces": [
     {
@@ -44,7 +45,7 @@ domain.
       "lengthIn": 53.75,
       "widthIn": 7,
       "thickness": { "value": 3, "unit": "cm" },
-      "edges": "All Edges Polished",
+      "edges": "Polished",
       "quantity": 1,
       "notes": []
     }
@@ -52,12 +53,15 @@ domain.
 }
 ```
 
+- **estimate.id**: never changes for an estimate (added 2026-10-17), so a
+  cutlist sent again updates the same project. Match on it first; the
+  estimate number can change between sends and repeat across devices.
 - **customer**: name and address only (no phone or email; FabSpecPro has no
   place for them).
 - **id**: unique within the export and the same across exports of the same
   estimate, so a later import can update a project.
 - **name**: never contains a size. When more than one area of the estimate
-  has stone, it starts with the area ("Shower 2 – Niche Jambs").
+  has stone, it starts with the area ("Shower 2 - Niche Jambs", a plain hyphen).
 - **group**: Curb, Wall, Door, Window, Niche, Ceiling, Floating bench,
   Framed bench, Corner pieces.
 - **type**: TileRate's part (`curbTop`, `curbOutside`, `wallCap`,
@@ -67,7 +71,9 @@ domain.
 - **lengthIn / widthIn**: decimal inches, to the sixteenth, sized to order.
 - **thickness**: value and unit (`cm` or `in`). 3 cm unless set in TileRate's
   Admin; a niche back 2 cm.
-- **edges**: the edge finish for every edge. "All Edges Polished" for now.
+- **edges**: the edge finish to put on every edge, by the name FabSpecPro's
+  Edges library uses: "Polished" for now (the spreadsheet says "All Edges
+  Polished"). When TileRate has edge profiles, the profile's own name.
 - **material**: absent until TileRate has material choices; then a string.
 - **quantity**: identical pieces of one thing are one row.
 
