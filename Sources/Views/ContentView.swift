@@ -774,8 +774,9 @@ struct ContentView: View {
                 // --- TileRate (gradient on T & R, light blue for the rest)
                 let titleFont = Font.system(size: 22, weight: .black, design: .default)  // <-- changed
                 let lightBlue = Color(red: 28/255, green: 117/255, blue: 188/255)
-                let gradTop   = Color(red: 163/255, green: 255/255, blue: 111/255)
-                let gradBot   = Color(red:   5/255, green: 183/255, blue: 198/255)
+                // The app icon's lettering: yellow to green (2026-10-17).
+                let gradTop   = Color(red: 234/255, green: 249/255, blue:   8/255)
+                let gradBot   = Color(red:  32/255, green: 202/255, blue: 106/255)
 
                 HStack(spacing: 0) {
                     Text("T")
