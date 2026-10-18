@@ -1413,10 +1413,22 @@ white marble) and any piece can have its own (`stoneLooks`, by its
 `StoneAppearance` is a pattern and colours — base, markings (veins, flecks,
 bands, chips or shading, by pattern) and a second marking colour — polished
 or honed, or a photo of the slab (`photoID`, in `TilePhotos`), and a name
-when it's in My Stones. Patterns are grouped as stone is asked for: Marble
-(soft veins, bold veins, web, breccia), Quartzite (linear, cloudy), Granite
-(fine, coarse, flowing), Quartz (solid, concrete, terrazzo), Other stone
-(soapstone, travertine, limestone, onyx). Each pattern is a photo of
+when it has one. Patterns are grouped by look (owner, 2026-10-18, after
+Cambria's 159 quartz designs — Vein 51, Waterstone 48, Wave 34, Solid 16,
+Granular 10 — and the common US granites and marbles; a marble-look quartz
+is "veined", not "marble"): Veined (soft veins, thin veins, bold veins,
+web, breccia), Moving (sweeping, linear, cloudy), Speckled (speckled,
+coarse), Plain (solid, concrete), Natural stone (soapstone, travertine,
+onyx, terrazzo). Thin veins is Marble001 with only its strongest veins on
+a clean field (Calacatta-look quartz); Sweeping is Onyx001, broad bands
+(Brittanicca, Taj Mahal), with Onyx004's surface. Limestone and Flowing
+were taken out; saved ones read as Solid and Sweeping (`Pattern.reading`).
+**Naming** (owner, 2026-10-18): the picker's name field, under the
+preview, is optional — named ("Taj Duna Quartz", "Absolute Black
+Granite"), the stone is kept in My Stones on Done with its pattern,
+colours, finish and direction (a named slab photo too, badged "Photo");
+blank, it's that piece's alone. A name already in My Stones offers "Use
+the saved one", else Done updates it. Each pattern is a photo of
 real stone (owner, 2026-10-18: patterns drawn from noise weren't
 realistic), recoloured by `StonePatterns` (Sources/Views/Stone): a grayscale
 map per pattern (`StoneMap-<pattern>` in the asset catalogue's StoneMaps
@@ -1431,29 +1443,37 @@ quiet. To change a pattern's photo, remake its map the same way (median
 and 1st/99th percentile of the luminance) rather than editing the image.
 Drawn images are cached. Bold veins is Marble002 and coarse granite
 Granite007A (2026-10-18, replacing weaker picks). Each pattern is drawn at
-its real size (`StoneMaps.spanFt`: bold marble and onyx 6′ a repeat, fine
-granite 1½′; owner chose no size control) with the photo's surface
+its real size (`StoneMaps.spanFt`: sweeping 7′ a repeat, bold marble and
+onyx 6′, speckled granite 1½′; owner chose no size control) with the photo's surface
 (`StoneNormal-<pattern>`, a normal map, stronger when honed); patterns that
 run one way (`hasDirection`) can run along the piece or across it
 (`StoneAppearance.across`, "Veins run" in the picker; the image is turned,
-not redrawn). Stone pieces → "Use this stone for every piece" (in a piece's
+not redrawn). Direction is for the 3-D model and pictures only — not sent
+in the cutlist (owner, 2026-10-18; FabSpecPro's slab layout has a rotation
+lock and reads a slab's vein direction, so a per-piece `veins` field could
+feed it later). Stone pieces → "Use this stone for every piece" (in a piece's
 picker: the area's stone, own stones cleared) and "Put … back on the area's"
 (owner, 2026-10-18). Once a stone is chosen (`chosenStone(for:)`), each
-stone line on the estimate names it — "Stone curb – Taj Mahal, polished",
-its My Stones name else its kind (`Pattern.kindWord`), several joined with
-" & " — unless the line's words were typed over; never-chosen stone keeps
-the old wording. The cutlist carries `material` and `finish` the same way
-(JSON fields, spreadsheet columns), and pieces in different stones aren't
-merged. The picker (`StonePickerSheet`): a big preview in the chosen
-colours, Polished/Honed, My Stones and Recently used (`StoneLibrary`,
-UserDefaults, an unreadable list kept aside as ".unreadable"), the pattern
-swatches each in its own usual colours (owner's call, so every pattern is
-recognisable; picking one keeps the chosen colours), the colours
-(`StonePatterns.palette`: eight families, each light to dark in even OKLCH
-steps) in one sideways strip with wells choosing what it colours and Any
-colour at its end — pinned under the preview with it, so the stone stays in
-view while colours are chosen (owner, 2026-10-17) — the slab photo, and
-Save to My Stones. It opens from Stone pieces → This area's stone and from
+stone line on the estimate says it — its name if it has one and its finish,
+"Stone curb – Taj Duna Quartz, polished", else just "Stone curb – honed"
+(`StoneAppearance.label`), several joined with " & " — unless the line's
+words were typed over; never-chosen stone keeps the old wording. The
+cutlist carries `material` (the name, absent when unnamed) and `finish` the
+same way (JSON fields, spreadsheet columns), and pieces in different
+stones aren't merged. The picker (`StonePickerSheet`): a big preview in the chosen
+colours, the name, Polished/Honed, My Stones and Recently used
+(`StoneLibrary`, UserDefaults, an unreadable list kept aside as
+".unreadable"), the pattern swatches each in its own usual colours
+(owner's call, so every pattern is recognisable; picking one keeps the
+chosen colours), the colours (`StonePatterns.families`, 57: Whites 5 by
+undertone, Cool gray 10 to true black, Warm gray 9, Beige 8, Gold 6, Red 6,
+Blue 6, Green 7 with a soapstone green-gray — even OKLCH steps, fitted so
+every colour measured from the Cambria designs and the common stones has a
+close match; greige was dropped, owner 2026-10-18) in one sideways strip
+with family names above it that jump to each, wells choosing what it
+colours and Any colour at its end — pinned under the preview with it, so
+the stone stays in view while colours are chosen (owner, 2026-10-17) — and
+the slab photo. It opens from Stone pieces → This area's stone and from
 the swatch on each stone piece's row (owner, 2026-10-17), where "Same as the
 area's stone" is offered. In 3-D (`Room3DScene.stoneMaterial`) each piece is
 drawn in its look (`StoneKeys`: the stone keys with their looks, passed where

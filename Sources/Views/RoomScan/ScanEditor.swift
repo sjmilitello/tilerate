@@ -1975,7 +1975,7 @@ struct ScanEditor: View {
     }
 
     private func stoneCaption(_ l: StoneAppearance) -> String {
-        let what = l.photoID != nil ? "Photo of the slab" : l.pattern.fullName
+        let what = l.photoID != nil ? "Photo of the slab" : l.pattern.name
         return [l.name, what, l.honed ? "honed" : "polished"].compactMap { $0 }.joined(separator: " · ")
     }
 

@@ -812,12 +812,13 @@ extension AreaTakeoff {
                 unit = ""
             }
             // The stone it's in, when one has been chosen (owner, 2026-10-18):
-            // "Stone curb – Taj Mahal, polished"; several as "… & …".
+            // its name if it has one, and its finish — "Stone curb – Taj Duna
+            // Quartz, polished", "Stone curb – honed"; several as "… & …".
             var named: [String] = []
             for p in stone {
                 guard let look = chosenStone(for: p.key) else { continue }
                 let l = look.label
-                let text = "\(l.material), \(l.finish)"
+                let text = l.material.map { "\($0), \(l.finish)" } ?? l.finish
                 if !named.contains(text) { named.append(text) }
             }
             let activity = named.isEmpty ? group.line : "\(group.line) – " + named.joined(separator: " & ")

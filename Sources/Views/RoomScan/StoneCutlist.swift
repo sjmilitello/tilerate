@@ -43,8 +43,8 @@ struct CutPiece: Equatable {
     /// "standard": every edge finished with the shop's standard edge, no
     /// profile (owner, 2026-10-17); a profile's own name if TileRate gets them.
     var edges = "standard"
-    /// The stone, when one has been chosen (owner, 2026-10-18): its My Stones
-    /// name, else the kind ("quartzite"); and "polished" or "honed".
+    /// The stone, when one has been chosen (owner, 2026-10-18): its name, if
+    /// it has one ("Taj Duna Quartz"); and "polished" or "honed".
     var material: String? = nil
     var finish: String? = nil
     var quantity = 1

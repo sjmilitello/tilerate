@@ -42,11 +42,12 @@ struct StoneSwatch: View {
     }
 }
 
-/// Choosing how a stone looks (owner's design, 2026-10-17): a big preview,
-/// polished or honed, My Stones and Recently used, the patterns grouped as
-/// stone is asked for (each swatch in its usual colours), and one colour
-/// grid for the base, the veins (flecks, bands…) and a second colour, chosen
-/// with the wells above it. Or a photo of the slab.
+/// Choosing how a stone looks (owner's design, 2026-10-17/18): a big
+/// preview, its name (optional: a named stone is kept in My Stones and
+/// shows on the estimate), the colours for the base, the veins (flecks,
+/// bands…) and a second colour — pinned with the preview — then polished or
+/// honed, the veins' direction, My Stones, Recently used and the patterns
+/// grouped by look (each swatch in its usual colours). Or a photo of the slab.
 struct StonePickerSheet: View {
     let title: String
     let start: StoneAppearance
@@ -63,7 +64,8 @@ struct StonePickerSheet: View {
     @State private var look: StoneAppearance
     @State private var follow: Bool
     @State private var well: Well = .base
-    @State private var naming = false
+    /// The name typed: the stone's name on Done, kept in My Stones.
+    @State private var nameText: String
     @State private var newName = ""
     @State private var renaming: Int? = nil
     @State private var pickedPhoto: PhotosPickerItem?
@@ -80,6 +82,7 @@ struct StonePickerSheet: View {
         self.startsFollowingArea = startsFollowingArea
         self.onDone = onDone
         _look = State(initialValue: start)
+        _nameText = State(initialValue: start.name ?? "")
         _follow = State(initialValue: startsFollowingArea && areaLook != nil)
     }
 
@@ -93,6 +96,7 @@ struct StonePickerSheet: View {
                 // (owner, 2026-10-17: the preview scrolled away while choosing colours).
                 VStack(alignment: .leading, spacing: 10) {
                     preview
+                    nameField
                     colourStrip
                 }
                 .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
@@ -122,19 +126,13 @@ struct StonePickerSheet: View {
                         photoRow
                         if let onUseForAll {
                             Button {
-                                if !follow { library.used(look) }
-                                onUseForAll(shown)
+                                onUseForAll(finish())
                                 dismiss()
                             } label: {
                                 Label("Use this stone for every piece", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
                             }
                             .buttonStyle(NDSecondaryButtonStyle())
                         }
-                        Button { newName = look.name ?? ""; naming = true } label: {
-                            Label(look.name == nil ? "Save to My Stones" : "Save to My Stones as…", systemImage: "star")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(NDSecondaryButtonStyle())
                     }
                     .padding(16)
                 }
@@ -147,22 +145,11 @@ struct StonePickerSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
-                        if !follow { library.used(look) }
-                        onDone(follow ? nil : look)
+                        onDone(follow ? nil : finish())
                         dismiss()
                     }
                     .fontWeight(.semibold)
                 }
-            }
-            .alert("Save to My Stones", isPresented: $naming) {
-                TextField("Name, e.g. Taj Mahal", text: $newName)
-                Button("Save") {
-                    library.save(look, name: newName)
-                    look.name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("It stays on this phone for every estimate.")
             }
             .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $newName)
@@ -190,28 +177,81 @@ struct StonePickerSheet: View {
         .preferredColorScheme(.dark)
     }
 
-    /// Any change makes the stone its own (no longer following the area's,
-    /// and no longer the named one from My Stones).
+    /// Any change makes the stone this piece's own (no longer following the
+    /// area's). Its name stays: Done keeps the changes under it.
     private func edit(_ change: (inout StoneAppearance) -> Void) {
-        if follow, let areaLook { look = areaLook }
+        if follow, let areaLook { look = areaLook; nameText = areaLook.name ?? "" }
         follow = false
         change(&look)
-        look.name = library.mine.first { $0.looksLike(look) }?.name
     }
 
-    private var preview: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            StoneSwatch(look: shown, pixels: 512, showFinish: true)
-                .frame(height: 165)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            Text(caption(shown)).font(.system(size: 14)).foregroundStyle(ND.muted)
+    private var typedName: String { nameText.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// A stone in My Stones already called what's typed.
+    private var savedWithName: StoneAppearance? {
+        typedName.isEmpty ? nil : library.mine.first { $0.name?.caseInsensitiveCompare(typedName) == .orderedSame }
+    }
+
+    /// The stone as chosen: named, it's kept in My Stones (owner, 2026-10-18);
+    /// blank, it's this piece's alone.
+    private func finish() -> StoneAppearance {
+        var l = shown
+        if !follow {
+            l.name = typedName.isEmpty ? nil : typedName
+            if !typedName.isEmpty { library.save(l, name: typedName) }
+            library.used(l)
+        }
+        return l
+    }
+
+    /// Name it (optional): what it's called on the estimate, and in My Stones.
+    @ViewBuilder
+    private var nameField: some View {
+        if follow {
+            Text(areaLook?.name.map { "Same as the area's stone: \($0)" } ?? "Same as the area's stone")
+                .font(.system(size: 15, weight: .semibold)).foregroundStyle(ND.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    TextField(look.photoID != nil ? "Name this slab to keep it" : "Name it (optional), e.g. Taj Duna Quartz",
+                              text: $nameText)
+                        .font(.system(size: 17))
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                    if let saved = savedWithName {
+                        if saved.looksLike(look) {
+                            Label("In My Stones", systemImage: "star.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(ND.link)
+                        } else {
+                            Button("Use the saved one") { pick(saved) }
+                                .font(.system(size: 13, weight: .semibold)).tint(ND.link)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12).frame(height: 46)
+                .background(ND.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(ND.border))
+                Text(nameHint).font(.system(size: 12)).foregroundStyle(ND.muted)
+            }
         }
     }
 
+    private var nameHint: String {
+        if typedName.isEmpty { return "\(caption(look)). Name it to keep it in My Stones and show it on the estimate." }
+        if let saved = savedWithName, !saved.looksLike(look) { return "\(caption(look)). Done updates \(saved.name ?? typedName) in My Stones." }
+        return "\(caption(look)). Kept in My Stones."
+    }
+
+    private var preview: some View {
+        StoneSwatch(look: shown, pixels: 512, showFinish: true)
+            .frame(height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    /// "Sweeping · polished · veins along".
     private func caption(_ l: StoneAppearance) -> String {
-        var parts = [l.photoID != nil ? "Photo of the slab" : l.pattern.fullName]
+        var parts = [l.photoID != nil ? "Photo of the slab" : l.pattern.name]
         parts.append(l.honed ? "honed" : "polished")
-        if follow { parts.insert("Same as the area", at: 0) } else if let n = l.name { parts.insert(n, at: 0) }
+        if l.photoID == nil, l.pattern.hasDirection { parts.append("\(l.pattern.markings.lowercased()) \(l.across ? "across" : "along")") }
         return parts.joined(separator: " · ")
     }
 
@@ -237,6 +277,7 @@ struct StonePickerSheet: View {
     private func pick(_ l: StoneAppearance) {
         follow = false
         look = l
+        nameText = l.name ?? ""
     }
 
     private var myStones: some View {
@@ -247,7 +288,15 @@ struct StonePickerSheet: View {
                     ForEach(Array(library.mine.enumerated()), id: \.offset) { i, s in
                         Button { pick(s) } label: {
                             VStack(spacing: 6) {
-                                swatchTile(s, size: 72, selected: !follow && look.looksLike(s) && look.name == s.name)
+                                swatchTile(s, size: 72, selected: !follow && look.looksLike(s) && typedName == (s.name ?? ""))
+                                    .overlay(alignment: .bottomTrailing) {
+                                        if s.photoID != nil {
+                                            Text("Photo").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                                                .padding(.horizontal, 4).padding(.vertical, 2)
+                                                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 4))
+                                                .padding(8)
+                                        }
+                                    }
                                 Text(s.name ?? "").font(.system(size: 12)).foregroundStyle(ND.secondary)
                                     .lineLimit(2).multilineTextAlignment(.center).frame(width: 76)
                             }
@@ -287,22 +336,22 @@ struct StonePickerSheet: View {
             .padding(4)
     }
 
-    /// Marble and quartzite on one row, granite and quartz on the next, then
-    /// the other stones — six swatches across, as in the mock-up.
+    /// Grouped by look (owner, 2026-10-18): Veined; Moving and Speckled;
+    /// Plain and Natural stone — up to six swatches across.
     private func patterns(width: CGFloat) -> some View {
         let gap: CGFloat = 8
         let cell = max(40, (width - 5 * gap) / 6)
-        let families = ["Marble", "Quartzite", "Granite", "Quartz", "Other stone"]
-        let rows = [[families[0], families[1]], [families[2], families[3]], [families[4]]]
+        let g = StoneAppearance.Pattern.groups
+        let rows = [[g[0]], [g[1], g[2]], [g[3], g[4]]]
         return VStack(alignment: .leading, spacing: 12) {
             NDLabel("Pattern")
             ForEach(rows, id: \.self) { row in
                 HStack(alignment: .top, spacing: gap) {
-                    ForEach(row, id: \.self) { family in
+                    ForEach(row, id: \.self) { group in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(family).font(.system(size: 12)).foregroundStyle(ND.muted)
+                            Text(group).font(.system(size: 12)).foregroundStyle(ND.muted)
                             HStack(alignment: .top, spacing: gap) {
-                                ForEach(StoneAppearance.Pattern.allCases.filter { $0.family == family }) { p in
+                                ForEach(StoneAppearance.Pattern.allCases.filter { $0.group == group }) { p in
                                     patternButton(p, cell: cell)
                                 }
                             }
@@ -354,44 +403,62 @@ struct StonePickerSheet: View {
                 if p.usesSecond { wellButton(.second, "2nd " + p.markings.lowercased(), shown.second) }
             }
             let chosen = current?.uppercased()
+            let inFamily = StonePatterns.families.first { $0.colours.contains(chosen ?? "") }?.name
             ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        if well == .second {
-                            Button { edit { $0.second = nil } } label: {
-                                RoundedRectangle(cornerRadius: 8).fill(ND.surface)
-                                    .overlay(Image(systemName: "slash.circle").foregroundStyle(ND.muted))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(look.second == nil ? ND.link : ND.border,
-                                                                                      lineWidth: look.second == nil ? 3 : 1))
-                                    .frame(width: 38, height: 46)
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.trailing, 8)
-                        }
-                        ForEach(0..<StonePatterns.palette[0].count, id: \.self) { column in
-                            HStack(spacing: 4) {
-                                ForEach(StonePatterns.palette.map { $0[column] }, id: \.self) { hex in
-                                    Button { set(hex) } label: {
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .fill(Color(uiColor: StonePatterns.uiColor(hex)))
-                                            .frame(width: 38, height: 46)
-                                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                .stroke(chosen == hex ? ND.link : Color.white.opacity(0.08),
-                                                        lineWidth: chosen == hex ? 3 : 1))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .id(hex)
+                VStack(alignment: .leading, spacing: 8) {
+                    // Each family's name jumps the strip to it.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(StonePatterns.families, id: \.name) { f in
+                                Button { withAnimation { proxy.scrollTo("family:\(f.name)", anchor: .leading) } } label: {
+                                    Text(f.name).font(.system(size: 13, weight: f.name == inFamily ? .semibold : .regular))
+                                        .foregroundStyle(f.name == inFamily ? ND.text : ND.muted)
+                                        .padding(.horizontal, 10).frame(height: 28)
+                                        .background(f.name == inFamily ? ND.raised : ND.surface, in: Capsule())
                                 }
+                                .buttonStyle(.plain)
                             }
-                            .padding(.trailing, 10)
                         }
-                        ColorPicker(selection: Binding(
-                            get: { Color(uiColor: StonePatterns.uiColor(current ?? look.base)) },
-                            set: { set(StonePatterns.hex(UIColor($0))) }), supportsOpacity: false) { EmptyView() }
-                            .labelsHidden()
-                            .frame(width: 46, height: 46)
                     }
-                    .padding(.vertical, 3)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            if well == .second {
+                                Button { edit { $0.second = nil } } label: {
+                                    RoundedRectangle(cornerRadius: 8).fill(ND.surface)
+                                        .overlay(Image(systemName: "slash.circle").foregroundStyle(ND.muted))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(look.second == nil ? ND.link : ND.border,
+                                                                                          lineWidth: look.second == nil ? 3 : 1))
+                                        .frame(width: 38, height: 46)
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.trailing, 8)
+                            }
+                            ForEach(StonePatterns.families, id: \.name) { f in
+                                HStack(spacing: 4) {
+                                    ForEach(f.colours, id: \.self) { hex in
+                                        Button { set(hex) } label: {
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                .fill(Color(uiColor: StonePatterns.uiColor(hex)))
+                                                .frame(width: 38, height: 46)
+                                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                    .stroke(chosen == hex ? ND.link : Color.white.opacity(0.08),
+                                                            lineWidth: chosen == hex ? 3 : 1))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .id(hex)
+                                    }
+                                }
+                                .id("family:\(f.name)")
+                                .padding(.trailing, 10)
+                            }
+                            ColorPicker(selection: Binding(
+                                get: { Color(uiColor: StonePatterns.uiColor(current ?? look.base)) },
+                                set: { set(StonePatterns.hex(UIColor($0))) }), supportsOpacity: false) { EmptyView() }
+                                .labelsHidden()
+                                .frame(width: 46, height: 46)
+                        }
+                        .padding(.vertical, 3)
+                    }
                 }
                 .onAppear { if let chosen { proxy.scrollTo(chosen, anchor: .center) } }
                 .onChange(of: well) { _, _ in
@@ -426,12 +493,12 @@ struct StonePickerSheet: View {
                 Circle().fill(hex.map { Color(uiColor: StonePatterns.uiColor($0)) } ?? .clear)
                     .overlay(Circle().stroke(ND.border))
                     .overlay(hex == nil ? Image(systemName: "slash.circle").foregroundStyle(ND.muted) : nil)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 22, height: 22)
                 Text(label).font(.system(size: 14, weight: on ? .semibold : .regular)).foregroundStyle(ND.text)
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .lineLimit(1).minimumScaleFactor(0.6)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10).frame(height: 46).frame(maxWidth: .infinity)
+            .padding(.horizontal, 8).frame(height: 46).frame(maxWidth: .infinity)
             .background(ND.surface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(on ? ND.link : ND.border, lineWidth: on ? 2.5 : 1))
         }

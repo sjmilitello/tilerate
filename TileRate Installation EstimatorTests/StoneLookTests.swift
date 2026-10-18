@@ -160,11 +160,11 @@ struct StoneLookTests {
         taj.name = "Taj Mahal"
         t.stoneLook = taj
         #expect(curbLine(t, room, into: &s) == "Stone curb – Taj Mahal, polished")
-        // A piece in an unnamed stone of its own: its kind and finish, both listed.
+        // A piece in an unnamed stone of its own: just its finish, both listed.
         var black = StoneAppearance.usual(.graniteFine)
         black.honed = true
         t.stoneLooks["curb:inside"] = black
-        #expect(curbLine(t, room, into: &s) == "Stone curb – Taj Mahal, polished & granite, honed")
+        #expect(curbLine(t, room, into: &s) == "Stone curb – Taj Mahal, polished & honed")
         // Words typed over on the estimate stay.
         if let i = s.additionsLabor.firstIndex(where: { $0.id == AreaTakeoff.stoneLineID(s.id, StoneGroup.curb) }) {
             s.additionsLabor[i].activity = "Curb in customer's own slab"
@@ -183,7 +183,7 @@ struct StoneLookTests {
         let tops = list.filter { $0.type == "curbTop" }
         #expect(!tops.isEmpty && tops.allSatisfy { $0.material == "Taj Mahal" && $0.finish == "polished" })
         let inside = list.filter { $0.type == "curbInside" }
-        #expect(!inside.isEmpty && inside.allSatisfy { $0.material == "soapstone" })
+        #expect(!inside.isEmpty && inside.allSatisfy { $0.material == nil && $0.finish == "polished" })
         let json = StoneCutlistExport.json(pieces: list, customer: PartyInfo(name: "Smith", address: "", address2: "", cityStateZip: "", phone: "", email: ""),
                                            estimateID: UUID(), estimateNumber: 1, title: "Smith")
         let body = try #require(try JSONSerialization.jsonObject(with: json) as? [String: Any])
@@ -194,8 +194,41 @@ struct StoneLookTests {
     @Test func everyPatternHasASurfaceAndARealSize() {
         for p in StoneAppearance.Pattern.allCases {
             #expect(StoneMaps.surface(p) != nil, "no surface for \(p)")
-            #expect(StoneMaps.spanFt(p) >= 1.5 && StoneMaps.spanFt(p) <= 6)
+            #expect(StoneMaps.spanFt(p) >= 1.5 && StoneMaps.spanFt(p) <= 7)
         }
         #expect(StoneMaps.spanFt(.boldVeins) > StoneMaps.spanFt(.graniteFine))
+    }
+
+    // MARK: Looks, names and colours (owner, 2026-10-18)
+
+    @Test func patternsTakenOutReadAsTheNearestLeft() throws {
+        for (raw, now) in [("limestone", StoneAppearance.Pattern.solid), ("graniteFlowing", .sweeping), ("boldVeins", .boldVeins)] {
+            let l = try JSONDecoder().decode(StoneAppearance.self, from: Data(#"{"pattern":"\#(raw)"}"#.utf8))
+            #expect(l.pattern == now)
+        }
+        #expect(StoneAppearance.Pattern.allCases.count == 16)
+        #expect(Set(StoneAppearance.Pattern.allCases.map(\.group)) == Set(StoneAppearance.Pattern.groups))
+    }
+
+    @Test func anUnnamedStoneShowsOnlyItsFinish() {
+        var l = StoneAppearance.usual(.thinVeins)
+        #expect(l.label.material == nil && l.label.finish == "polished")
+        l.name = "  "
+        #expect(l.label.material == nil)
+        l.name = "Taj Duna Quartz"; l.honed = true
+        #expect(l.label.material == "Taj Duna Quartz" && l.label.finish == "honed")
+    }
+
+    @Test func thePaletteStepsAreClearlyApart() {
+        let all = StonePatterns.families.flatMap(\.colours)
+        #expect(all.count == 57 && Set(all).count == 57)
+        #expect(StonePatterns.families.map(\.name) == ["Whites", "Cool gray", "Warm gray", "Beige", "Gold", "Red", "Blue", "Green"])
+        for f in StonePatterns.families where f.name != "Whites" {
+            // Neighbours in a family differ visibly (sum of channel differences).
+            for (a, b) in zip(f.colours, f.colours.dropFirst()) {
+                let d = StonePatterns.rgb(a) - StonePatterns.rgb(b)
+                #expect(abs(d.x) + abs(d.y) + abs(d.z) > 25, "\(f.name): \(a) \(b)")
+            }
+        }
     }
 }

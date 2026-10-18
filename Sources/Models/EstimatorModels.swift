@@ -716,54 +716,64 @@ enum TrimFinish: String, Codable, CaseIterable { case tile, stone, none }
 /// Each area has one (`AreaTakeoff.stoneLook`), any piece can have its own
 /// (`stoneLooks`), and the owner's named ones are My Stones (`StoneLibrary`).
 struct StoneAppearance: Codable, Hashable, Equatable {
-    /// Grouped as the stone is asked for: marble, quartzite, granite, quartz, other.
+    /// Grouped by how the stone looks (owner, 2026-10-18, after Cambria's
+    /// 159 designs and the common US granites and marbles): a marble-look
+    /// quartz is "veined", not "marble". Listed in the picker's order.
     enum Pattern: String, Codable, CaseIterable, Identifiable {
-        case softVeins, boldVeins, web, breccia
-        case quartziteLinear, quartziteCloudy
-        case graniteFine, graniteCoarse, graniteFlowing
-        case solid, concrete, terrazzo
-        case soapstone, travertine, limestone, onyx
+        case softVeins, thinVeins, boldVeins, web, breccia
+        case sweeping, quartziteLinear, quartziteCloudy
+        case graniteFine, graniteCoarse
+        case solid, concrete
+        case soapstone, travertine, onyx, terrazzo
         var id: String { rawValue }
+
+        /// Patterns taken out (2026-10-18), read as the nearest one left.
+        static func reading(_ raw: String) -> Pattern {
+            switch raw {
+            case "limestone": .solid
+            case "graniteFlowing": .sweeping
+            default: Pattern(rawValue: raw) ?? .softVeins
+            }
+        }
 
         var name: String {
             switch self {
             case .softVeins: "Soft veins"
+            case .thinVeins: "Thin veins"
             case .boldVeins: "Bold veins"
             case .web: "Web"
             case .breccia: "Breccia"
+            case .sweeping: "Sweeping"
             case .quartziteLinear: "Linear"
             case .quartziteCloudy: "Cloudy"
-            case .graniteFine: "Fine"
+            case .graniteFine: "Speckled"
             case .graniteCoarse: "Coarse"
-            case .graniteFlowing: "Flowing"
             case .solid: "Solid"
             case .concrete: "Concrete"
-            case .terrazzo: "Terrazzo"
             case .soapstone: "Soapstone"
             case .travertine: "Travertine"
-            case .limestone: "Limestone"
             case .onyx: "Onyx"
+            case .terrazzo: "Terrazzo"
             }
         }
 
-        var family: String {
+        /// Its group in the picker.
+        var group: String {
             switch self {
-            case .softVeins, .boldVeins, .web, .breccia: "Marble"
-            case .quartziteLinear, .quartziteCloudy: "Quartzite"
-            case .graniteFine, .graniteCoarse, .graniteFlowing: "Granite"
-            case .solid, .concrete, .terrazzo: "Quartz"
-            case .soapstone, .travertine, .limestone, .onyx: "Other stone"
+            case .softVeins, .thinVeins, .boldVeins, .web, .breccia: "Veined"
+            case .sweeping, .quartziteLinear, .quartziteCloudy: "Moving"
+            case .graniteFine, .graniteCoarse: "Speckled"
+            case .solid, .concrete: "Plain"
+            case .soapstone, .travertine, .onyx, .terrazzo: "Natural stone"
             }
         }
-
-        /// "Marble · soft veins".
-        var fullName: String { "\(family) · \(name.lowercased())" }
+        static let groups = ["Veined", "Moving", "Speckled", "Plain", "Natural stone"]
 
         /// What its pattern colour is called: veins, flecks, bands, chips.
         var markings: String {
             switch self {
-            case .graniteFine, .graniteCoarse, .limestone: "Flecks"
-            case .graniteFlowing, .travertine, .onyx: "Bands"
+            case .graniteFine, .graniteCoarse: "Flecks"
+            case .sweeping, .travertine, .onyx: "Bands"
             case .terrazzo: "Chips"
             case .concrete: "Shading"
             default: "Veins"
@@ -773,20 +783,12 @@ struct StoneAppearance: Codable, Hashable, Equatable {
         /// Patterns whose veins or bands run one way, so they can run along
         /// a piece or across it (owner, 2026-10-18).
         var hasDirection: Bool {
-            [.softVeins, .boldVeins, .quartziteLinear, .graniteFlowing, .travertine, .onyx].contains(self)
+            [.softVeins, .thinVeins, .boldVeins, .sweeping, .quartziteLinear, .travertine, .onyx].contains(self)
         }
-        /// What the stone is called on the estimate when it has no name:
-        /// "marble", "quartzite", "granite", "quartz", "soapstone"…
-        var kindWord: String {
-            switch self {
-            case .soapstone, .travertine, .limestone, .onyx: name.lowercased()
-            default: family.lowercased()
-            }
-        }
-        /// Patterns drawn with a second colour of markings.
+        /// Patterns drawn with a second colour of markings (gold veins with gray…).
         var usesSecond: Bool {
-            [.boldVeins, .quartziteLinear, .quartziteCloudy, .graniteFine, .graniteCoarse,
-             .graniteFlowing, .terrazzo, .onyx].contains(self)
+            [.softVeins, .thinVeins, .boldVeins, .sweeping, .quartziteLinear, .quartziteCloudy,
+             .graniteFine, .graniteCoarse, .terrazzo, .onyx].contains(self)
         }
 
         /// Its usual colours, for its swatch in the picker (owner, 2026-10-17:
@@ -794,21 +796,21 @@ struct StoneAppearance: Codable, Hashable, Equatable {
         var usual: (base: String, markings: String, second: String?) {
             switch self {
             case .softVeins: ("#F2F2F0", "#9A9EA3", nil)
+            case .thinVeins: ("#F6F5F2", "#4A4C50", nil)
             case .boldVeins: ("#F7F6F3", "#5A5C60", "#B08D57")
             case .web: ("#F4F3F0", "#7C7F84", nil)
             case .breccia: ("#EDE6DA", "#6B5A4A", nil)
+            case .sweeping: ("#EEEBE5", "#8E8A84", "#C9B79A")
             case .quartziteLinear: ("#EDE4D3", "#B08D57", "#A8A9AB")
             case .quartziteCloudy: ("#E9ECEC", "#8F9AA0", "#D5D6D6")
             case .graniteFine: ("#2A2B2E", "#8C8F94", "#C9CCD0")
             case .graniteCoarse: ("#D9D2C5", "#3A3B3E", "#B08D57")
-            case .graniteFlowing: ("#ECE6DC", "#5E5650", "#9C8F82")
             case .solid: ("#F4F3F0", "#F4F3F0", nil)
             case .concrete: ("#B5B4B0", "#8A8986", nil)
-            case .terrazzo: ("#F2EFE9", "#7C7F84", "#C9A9A6")
             case .soapstone: ("#3B403E", "#BFC4C0", nil)
             case .travertine: ("#E3D5BF", "#C9B28E", nil)
-            case .limestone: ("#E8DFCC", "#B9A98A", nil)
             case .onyx: ("#E9C98F", "#B07A3A", "#F5E6C4")
+            case .terrazzo: ("#F2EFE9", "#7C7F84", "#C9A9A6")
             }
         }
     }
@@ -823,7 +825,9 @@ struct StoneAppearance: Codable, Hashable, Equatable {
     var across: Bool = false
     /// A photo of the real slab (`TilePhotos`), drawn instead of the pattern.
     var photoID: String? = nil
-    /// Its name in My Stones, if it has one.
+    /// Its name, typed in the picker (owner, 2026-10-18: "Taj Duna Quartz",
+    /// "Absolute Black Granite"); a named stone is kept in My Stones and
+    /// shows on the estimate and cutlist. Nil: just this piece, unnamed.
     var name: String? = nil
 
     /// The stone drawn before choices (owner, 2026-10-14): white marble, faint grey veins.
@@ -850,9 +854,10 @@ struct StoneAppearance: Codable, Hashable, Equatable {
     /// Across, for a pattern that runs one way.
     var runsAcross: Bool { across && photoID == nil && pattern.hasDirection }
 
-    /// On the estimate and the cutlist: its name, else the kind of stone; and its finish.
-    var label: (material: String, finish: String) {
-        (name ?? (photoID != nil ? "chosen slab" : pattern.kindWord), honed ? "honed" : "polished")
+    /// On the estimate and the cutlist: its name, if it has one, and its finish.
+    var label: (material: String?, finish: String) {
+        let n = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (n?.isEmpty == false ? n : nil, honed ? "honed" : "polished")
     }
 }
 
@@ -2288,7 +2293,7 @@ extension StoneAppearance {
         // A pattern this version doesn't know reads as the standard one.
         var raw = Pattern.softVeins.rawValue
         c.read(.pattern, into: &raw)
-        pattern = Pattern(rawValue: raw) ?? .softVeins
+        pattern = Pattern.reading(raw)
         c.read(.base, into: &base)
         c.read(.markings, into: &markings)
         c.read(.second, into: &second)

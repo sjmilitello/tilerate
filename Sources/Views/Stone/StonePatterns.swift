@@ -12,19 +12,21 @@ import UIKit
 /// asset catalogue, made from ambientCG textures (CC0, public domain; see
 /// `StoneMaps.source`), shrunk to 1024 px so they still tile.
 enum StonePatterns {
-    /// The picker's colours: families across (white & gray, cool gray,
-    /// greige, cream & beige, gold & brown, rose, green, blue), light to dark
-    /// down, in steps that look even (OKLCH lightness 0.975 to 0.24), muted
-    /// the way stone is.
-    static let palette: [[String]] = [
-        ["#F7F7F7", "#F5F7F9", "#F8F6F4", "#FAF6EF", "#FFF5EB", "#FFF4F2", "#F2F9F4", "#F0F8FF"],
-        ["#E4E4E4", "#E2E5E7", "#E7E4E1", "#E9E4DB", "#F0E2D4", "#EFE1DE", "#DEE7E1", "#DAE6F1"],
-        ["#CACACA", "#C6CBD0", "#CECAC3", "#D3C9B8", "#E0C5AA", "#DFC3BE", "#BED0C3", "#B6CEE2"],
-        ["#ABABAB", "#A4ACB3", "#B1AAA0", "#B8A98F", "#CBA277", "#C9A098", "#98B3A0", "#8BAFCF"],
-        ["#898989", "#828A91", "#8F887F", "#96876E", "#A88157", "#A57E77", "#77917F", "#6B8DAC"],
-        ["#666666", "#60676E", "#6C655C", "#72644C", "#835E34", "#805C55", "#546D5C", "#486A86"],
-        ["#424242", "#3D4349", "#47413A", "#4C412D", "#593B18", "#573A35", "#34483A", "#2A455C"],
-        ["#1F1F1F", "#1D2022", "#211F1C", "#231F17", "#291D0F", "#281C1A", "#19221C", "#16212A"],
+    /// The picker's colours (owner, 2026-10-18): eight families, each in
+    /// even steps light to dark (OKLCH), fitted to the colours measured from
+    /// Cambria's 159 quartz designs and the common US granites and marbles —
+    /// every one of those within a close match. Whites by undertone; cool and
+    /// warm grays (not greige) down to black; gold, red, blue and green with
+    /// a full run each, and a soapstone green-gray.
+    static let families: [(name: String, colours: [String])] = [
+        ("Whites", ["#FAFAFA", "#F0F4F8", "#F7F3EB", "#F7EEDB", "#E7E6E3"]),
+        ("Cool gray", ["#D7DFE8", "#BDC5CE", "#A4ACB4", "#8C939B", "#747B83", "#5A6169", "#424850", "#282F35", "#12171B", "#050607"]),
+        ("Warm gray", ["#E5DDD2", "#CBC3B8", "#B1AA9F", "#989187", "#80796F", "#665F56", "#4D473E", "#332D24", "#191510"]),
+        ("Beige", ["#EAD9BA", "#D9C09D", "#C2A583", "#AC8B69", "#926F51", "#77553C", "#5A3E2B", "#3E281B"]),
+        ("Gold", ["#EAD5AB", "#DCB87A", "#C99B5A", "#AE7F3F", "#8E612C", "#674420"]),
+        ("Red", ["#EAC8C2", "#DAA198", "#D24C49", "#B00A1D", "#833F27", "#54261F"]),
+        ("Blue", ["#CFE1ED", "#99BDD3", "#7996AF", "#27709C", "#384F68", "#172A41"]),
+        ("Green", ["#C2D8C5", "#95B49A", "#66927A", "#586A46", "#46504B", "#2E4A34", "#1D2A1D"]),
     ]
 
     private static let cache = NSCache<NSString, UIImage>()
@@ -85,21 +87,20 @@ enum StoneMaps {
     /// The ambientCG texture each map was made from (CC0).
     static func source(_ p: StoneAppearance.Pattern) -> String {
         switch p {
-        case .softVeins: "Marble001"
+        case .softVeins, .thinVeins: "Marble001"
         case .boldVeins: "Marble002"
         case .web: "Marble017"
         case .breccia: "Marble014"
+        case .sweeping: "Onyx001"
         case .quartziteLinear: "Onyx004"
         case .quartziteCloudy: "Marble012"
         case .graniteFine: "Granite002A"
         case .graniteCoarse: "Granite007A"
-        case .graniteFlowing: "Onyx012"
         case .solid: "Marble015"
         case .concrete: "Concrete034"
         case .terrazzo: "Terrazzo013"
         case .soapstone: "Marble016"
         case .travertine: "Travertine004"
-        case .limestone: "Marble026"
         case .onyx: "Onyx002"
         }
     }
@@ -108,7 +109,7 @@ enum StoneMaps {
     /// rest of it lightens the base; else it darkens it.
     static func darkMarkings(_ p: StoneAppearance.Pattern) -> Bool {
         switch p {
-        case .softVeins, .breccia, .quartziteCloudy, .graniteFine, .concrete, .terrazzo, .limestone: true
+        case .softVeins, .thinVeins, .sweeping, .breccia, .quartziteCloudy, .graniteFine, .concrete, .terrazzo: true
         default: false
         }
     }
@@ -117,10 +118,11 @@ enum StoneMaps {
     /// 2026-10-18), so bold veins run like a slab's and granite's flecks stay small.
     static func spanFt(_ p: StoneAppearance.Pattern) -> Double {
         switch p {
+        case .sweeping: 7
         case .boldVeins, .onyx: 6
-        case .quartziteLinear, .graniteFlowing: 5
+        case .thinVeins, .quartziteLinear: 5
         case .softVeins, .breccia, .quartziteCloudy, .concrete, .travertine: 4
-        case .web, .solid, .soapstone, .limestone: 3
+        case .web, .solid, .soapstone: 3
         case .graniteCoarse: 2.5
         case .terrazzo: 2
         case .graniteFine: 1.5

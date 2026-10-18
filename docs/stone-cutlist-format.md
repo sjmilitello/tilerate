@@ -80,10 +80,11 @@ domain.
   Edges Library, else uses the default. (Files exported before 2026-10-17 may
   say "Polished" or "All Edges Polished"; they mean "standard".) The
   spreadsheet says "All Edges Finished".
-- **material** (added 2026-10-18): the stone, once one is chosen in TileRate —
-  its name from the owner's My Stones ("Taj Mahal"), else its kind
-  ("quartzite", "granite", "soapstone"…). Absent when no stone has been chosen.
-- **finish** (added 2026-10-18): "polished" or "honed", with `material`.
+- **material** (added 2026-10-18): the stone's name as the owner typed it in
+  TileRate ("Taj Duna Quartz", "Absolute Black Granite"). Absent when the
+  stone has no name or none has been chosen.
+- **finish** (added 2026-10-18): "polished" or "honed", once a stone is chosen
+  (named or not).
   Pieces in different stones are separate rows even when the same size.
 - **quantity**: identical pieces of one thing are one row.
 
