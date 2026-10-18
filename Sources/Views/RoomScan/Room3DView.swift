@@ -513,10 +513,17 @@ enum Room3DScene {
                     node.addChildNode(n)
                 }
             }
-            // A half wall's cap.
+            // A half wall's cap: stone if any area made it stone, else the tile
+            // of the area that tiles the wall — whichever area is open (owner,
+            // 2026-10-18: from the Floor area the shower's stone cap showed as
+            // floor tile).
             if room.isKneeWall(w) {
                 let cap = SCNBox(width: w.lengthFt, height: 0.06, length: t + 0.04, chamferRadius: 0)
-                cap.firstMaterial = c.stoneParts.contains("cap:\(w.id)") ? stoneMaterial(c.stoneParts.look("cap:\(w.id)"), widthFt: w.lengthFt, heightFt: t) : tileMaterial(c.tile, widthFt: w.lengthFt, heightFt: t, x0: 0, y0: 0)
+                let key = "cap:\(w.id)"
+                let tiler = areas.first(where: { a in a.pieces.contains { $0.wallID == w.id } })
+                cap.firstMaterial = finishKeys.contains(key)
+                    ? stoneMaterial(finishKeys.look(key), widthFt: w.lengthFt, heightFt: t)
+                    : tileMaterial(tiler.map { $0.wallTiles[w.id] ?? $0.tile } ?? c.tile, widthFt: w.lengthFt, heightFt: t, x0: 0, y0: 0)
                 let n = SCNNode(geometry: cap)
                 n.position = SCNVector3(w.lengthFt / 2, w.heightFt + 0.03, 0)
                 node.addChildNode(n)
