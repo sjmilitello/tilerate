@@ -1469,11 +1469,14 @@ chosen colours), the colours (`StonePatterns.families`, 57: Whites 5 by
 undertone, Cool gray 10 to true black, Warm gray 9, Beige 8, Gold 6, Red 6,
 Blue 6, Green 7 with a soapstone green-gray — even OKLCH steps, fitted so
 every colour measured from the Cambria designs and the common stones has a
-close match; greige was dropped, owner 2026-10-18) in one sideways strip
-with family names above it that jump to each, wells choosing what it
-colours and Any colour at its end — pinned under the preview with it, so
-the stone stays in view while colours are chosen (owner, 2026-10-17) — and
-the slab photo. It opens from Stone pieces → This area's stone and from
+close match; greige was dropped, owner 2026-10-18): wells choosing what
+it colours, all eight families as buttons (each a light-to-dark bar of its
+colours, "Cool"/"Warm" for the grays) and the chosen family's colours in
+one row, no scrolling, with Any colour at its end (owner, 2026-10-18: a
+scrolling strip with labels above wasn't obvious); it opens on the family
+of the colour in use, and switching Base/Veins switches to that colour's
+family — pinned under the preview, so the stone stays in view while
+colours are chosen (owner, 2026-10-17) — and the slab photo. It opens from Stone pieces → This area's stone and from
 the swatch on each stone piece's row (owner, 2026-10-17), where "Same as the
 area's stone" is offered. In 3-D (`Room3DScene.stoneMaterial`) each piece is
 drawn in its look (`StoneKeys`: the stone keys with their looks, passed where

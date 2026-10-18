@@ -64,6 +64,8 @@ struct StonePickerSheet: View {
     @State private var look: StoneAppearance
     @State private var follow: Bool
     @State private var well: Well = .base
+    /// The colour family shown (owner, 2026-10-18): its colours only, no scrolling.
+    @State private var family: String? = nil
     /// The name typed: the stone's name on Done, kept in My Stones.
     @State private var nameText: String
     @State private var newName = ""
@@ -97,7 +99,7 @@ struct StonePickerSheet: View {
                 VStack(alignment: .leading, spacing: 10) {
                     preview
                     nameField
-                    colourStrip
+                    colourStrip(width: geo.size.width - 32)
                 }
                 .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
                 .background(ND.ground)
@@ -388,10 +390,12 @@ struct StonePickerSheet: View {
 
     // MARK: Colour
 
-    /// The wells, then every colour in one sideways strip: each family
-    /// light to dark, a gap between families, Any colour at the end.
+    /// The wells, the eight colour families as buttons (each a light-to-dark
+    /// bar of its colours) and the chosen family's colours in one row with
+    /// Any colour at its end (owner, 2026-10-18: a scrolling strip with
+    /// labels above it wasn't obvious). Opens on the family of the colour in use.
     @ViewBuilder
-    private var colourStrip: some View {
+    private func colourStrip(width: CGFloat) -> some View {
         let p = shown.pattern
         if shown.photoID != nil {
             Text("Using your photo of the slab. Choose a pattern below to draw it from colours instead.")
@@ -403,68 +407,87 @@ struct StonePickerSheet: View {
                 if p.usesSecond { wellButton(.second, "2nd " + p.markings.lowercased(), shown.second) }
             }
             let chosen = current?.uppercased()
-            let inFamily = StonePatterns.families.first { $0.colours.contains(chosen ?? "") }?.name
-            ScrollViewReader { proxy in
-                VStack(alignment: .leading, spacing: 8) {
-                    // Each family's name jumps the strip to it.
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(StonePatterns.families, id: \.name) { f in
-                                Button { withAnimation { proxy.scrollTo("family:\(f.name)", anchor: .leading) } } label: {
-                                    Text(f.name).font(.system(size: 13, weight: f.name == inFamily ? .semibold : .regular))
-                                        .foregroundStyle(f.name == inFamily ? ND.text : ND.muted)
-                                        .padding(.horizontal, 10).frame(height: 28)
-                                        .background(f.name == inFamily ? ND.raised : ND.surface, in: Capsule())
-                                }
-                                .buttonStyle(.plain)
+            let open = family ?? Self.family(of: chosen) ?? StonePatterns.families[0].name
+            familyButtons(open: open, width: width)
+            familyRow(StonePatterns.families.first { $0.name == open }?.colours ?? [], chosen: chosen, width: width)
+                .onChange(of: well) { _, _ in family = Self.family(of: current?.uppercased()) ?? family }
+        }
+    }
+
+    private static func family(of hex: String?) -> String? {
+        guard let hex else { return nil }
+        return StonePatterns.families.first { $0.colours.contains(hex) }?.name
+    }
+
+    /// "Cool gray" shows as "Cool": eight names fit across.
+    private static func shortName(_ name: String) -> String { name.replacingOccurrences(of: " gray", with: "") }
+
+    private func familyButtons(open: String, width: CGFloat) -> some View {
+        let gap: CGFloat = 6
+        let w = (width - 7 * gap) / 8
+        return HStack(alignment: .top, spacing: gap) {
+            ForEach(StonePatterns.families, id: \.name) { f in
+                let on = f.name == open
+                Button { family = f.name } label: {
+                    VStack(spacing: 4) {
+                        HStack(spacing: 0) {
+                            ForEach(f.colours, id: \.self) { hex in
+                                Rectangle().fill(Color(uiColor: StonePatterns.uiColor(hex)))
                             }
                         }
+                        .frame(width: w, height: 20)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).inset(by: -3)
+                            .stroke(on ? ND.link : .clear, lineWidth: 2.5))
+                        Text(Self.shortName(f.name))
+                            .font(.system(size: 11, weight: on ? .semibold : .regular))
+                            .foregroundStyle(on ? ND.text : ND.muted)
+                            .lineLimit(1).minimumScaleFactor(0.8)
                     }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            if well == .second {
-                                Button { edit { $0.second = nil } } label: {
-                                    RoundedRectangle(cornerRadius: 8).fill(ND.surface)
-                                        .overlay(Image(systemName: "slash.circle").foregroundStyle(ND.muted))
-                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(look.second == nil ? ND.link : ND.border,
-                                                                                          lineWidth: look.second == nil ? 3 : 1))
-                                        .frame(width: 38, height: 46)
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.trailing, 8)
-                            }
-                            ForEach(StonePatterns.families, id: \.name) { f in
-                                HStack(spacing: 4) {
-                                    ForEach(f.colours, id: \.self) { hex in
-                                        Button { set(hex) } label: {
-                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                .fill(Color(uiColor: StonePatterns.uiColor(hex)))
-                                                .frame(width: 38, height: 46)
-                                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                    .stroke(chosen == hex ? ND.link : Color.white.opacity(0.08),
-                                                            lineWidth: chosen == hex ? 3 : 1))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .id(hex)
-                                    }
-                                }
-                                .id("family:\(f.name)")
-                                .padding(.trailing, 10)
-                            }
-                            ColorPicker(selection: Binding(
-                                get: { Color(uiColor: StonePatterns.uiColor(current ?? look.base)) },
-                                set: { set(StonePatterns.hex(UIColor($0))) }), supportsOpacity: false) { EmptyView() }
-                                .labelsHidden()
-                                .frame(width: 46, height: 46)
-                        }
-                        .padding(.vertical, 3)
-                    }
+                    .frame(width: w)
+                    .contentShape(Rectangle())
                 }
-                .onAppear { if let chosen { proxy.scrollTo(chosen, anchor: .center) } }
-                .onChange(of: well) { _, _ in
-                    if let c = current?.uppercased() { withAnimation { proxy.scrollTo(c, anchor: .center) } }
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(f.name) colours")
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
+        }
+        .padding(.top, 2)
+    }
+
+    private func familyRow(_ colours: [String], chosen: String?, width: CGFloat) -> some View {
+        let none = well == .second
+        let slots = CGFloat(colours.count + 1 + (none ? 1 : 0))
+        let gap: CGFloat = 6
+        let cw = min(54, (width - (slots - 1) * gap) / slots)
+        return HStack(spacing: gap) {
+            if none {
+                Button { edit { $0.second = nil } } label: {
+                    RoundedRectangle(cornerRadius: 8).fill(ND.surface)
+                        .overlay(Image(systemName: "slash.circle").foregroundStyle(ND.muted))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(shown.second == nil ? ND.link : ND.border,
+                                                                          lineWidth: shown.second == nil ? 3 : 1))
+                        .frame(width: cw, height: 46)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("No second colour")
+            }
+            ForEach(colours, id: \.self) { hex in
+                Button { set(hex) } label: {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(uiColor: StonePatterns.uiColor(hex)))
+                        .frame(width: cw, height: 46)
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(chosen == hex ? ND.link : Color.white.opacity(0.08), lineWidth: chosen == hex ? 3 : 1))
+                }
+                .buttonStyle(.plain)
+            }
+            ColorPicker(selection: Binding(
+                get: { Color(uiColor: StonePatterns.uiColor(current ?? look.base)) },
+                set: { set(StonePatterns.hex(UIColor($0))) }), supportsOpacity: false) { EmptyView() }
+                .labelsHidden()
+                .frame(width: cw, height: 46)
+            Spacer(minLength: 0)
         }
     }
 
