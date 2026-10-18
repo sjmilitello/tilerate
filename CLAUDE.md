@@ -1405,7 +1405,34 @@ The test target could not run from the March rename until 2026-09-26: its
 `TEST_HOST` still named `Integrity Tile Estimator.app`.
 
 
-Stone is drawn as white marble everywhere (`StoneLook`, #E9E6E0; veined in 3-D; owner, 2026-10-14; a colour picker in Admin to talk about later).
+**How stone looks** (owner's design, 2026-10-17; drawing only, never the
+price). Each area has a stone (`AreaTakeoff.stoneLook`, nil = the standard
+white marble) and any piece can have its own (`stoneLooks`, by its
+`TrimPiece.key`; corner shelves, seats and footrests by `cornerKey`,
+"corner:<id>", following the area's until given their own). A
+`StoneAppearance` is a pattern and colours — base, markings (veins, flecks,
+bands, chips or shading, by pattern) and a second marking colour — polished
+or honed, or a photo of the slab (`photoID`, in `TilePhotos`), and a name
+when it's in My Stones. Patterns are grouped as stone is asked for: Marble
+(soft veins, bold veins, web, breccia), Quartzite (linear, cloudy), Granite
+(fine, coarse, flowing), Quartz (solid, concrete, terrazzo), Other stone
+(soapstone, travertine, limestone, onyx). `StonePatterns` draws them
+(Sources/Views/Stone; noise with fixed seeds, so a stone always looks the
+same; cached; sizes in pixels scale from 300 so a swatch and a texture
+match). The picker (`StonePickerSheet`): a big preview in the chosen
+colours, Polished/Honed, My Stones and Recently used (`StoneLibrary`,
+UserDefaults, an unreadable list kept aside as ".unreadable"), the pattern
+swatches each in its own usual colours (owner's call, so every pattern is
+recognisable; picking one keeps the chosen colours), one colour grid
+(`StonePatterns.palette`: families across, light to dark down, even OKLCH
+steps) with wells choosing what it colours, Any colour, the slab photo, and
+Save to My Stones. It opens from Stone pieces → This area's stone and from
+the swatch on each stone piece's row (owner, 2026-10-17), where "Same as the
+area's stone" is offered. In 3-D (`Room3DScene.stoneMaterial`) each piece is
+drawn in its look (`StoneKeys`: the stone keys with their looks, passed where
+a `Set<String>` used to be), about 2′ of pattern mirrored past its edges,
+polished ones shiny. The plan and lists still use `StoneLook.color` (#E9E6E0).
+`StoneLookTests`. My Tile Library and the tile picker are to come.
 
 In 3-D a niche's stone parts are ¾″ slabs — back, jambs and header lining
 the opening, the sill lipping ½″ past the face, divider shelves ¾″ — so

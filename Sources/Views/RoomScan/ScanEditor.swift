@@ -36,7 +36,7 @@ struct OtherAreaPieces: Equatable {
     var headers: [AreaTakeoff.HeaderStrip] = []
     var soffits: [AreaTakeoff.SoffitBox] = []
     var curbHeightIn: Double = 4
-    var stoneParts: Set<String> = []
+    var stoneParts = StoneKeys()
     /// Its takeoff, for its benches, niches, corner pieces and drain in 3-D.
     var takeoff: AreaTakeoff? = nil
 
@@ -160,6 +160,9 @@ struct ScanEditor: View {
     @State private var wallAdded = false
     /// Stone groups opened on the Extras panel.
     @State private var openStoneGroups: Set<StoneGroup> = []
+    /// The stone being chosen: the area's ("") or one piece's, by its key.
+    @State private var stonePicking: StonePick? = nil
+    struct StonePick: Identifiable { let id: String; let title: String }
     /// The niche whose own tile is being chosen.
     @State private var nicheTileFor: UUID? = nil
     /// Tapping a wall chooses it to change its shape (any wall, scanned or
@@ -277,7 +280,7 @@ struct ScanEditor: View {
     private var openSides: [AreaTakeoff.OpenSide] { area == .shower ? takeoff.openSides(in: room) : [] }
 
     private var content3D: Room3DContent {
-        let stoneParts = AreaTakeoff.drawnFinishKeys(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn))
+        let stoneParts = takeoff.stoneKeys(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn))
         return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile,
                              wallTiles: wallTiles, others: others,
                              curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
@@ -1881,9 +1884,11 @@ struct ScanEditor: View {
     @ViewBuilder
     private var trimPanel: some View {
         let pieces = takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn, prices: stone)
-        if area == .shower || !pieces.isEmpty {
+        let corners = takeoff.items.filter { $0.kind.isCorner }
+        if area == .shower || !pieces.isEmpty || !corners.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Stone pieces").font(.ndTitle(20))
+                areaStoneRow
                 if area == .shower, !takeoff.curbless {
                     InchField(title: "Curb height", inches: Binding(
                         get: { takeoff.curbHeightIn ?? stone.curbHeightIn },
@@ -1922,10 +1927,92 @@ struct ScanEditor: View {
                     .padding(12)
                     .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
                 }
+                if !corners.isEmpty { cornerStones(corners) }
                 Text("Tile is part of the wall square feet. Stone goes on one line per group, each piece at its own price (Admin → Stone pieces).")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            .sheet(item: $stonePicking) { pick in stonePicker(pick) }
         }
+    }
+
+    /// The area's stone (owner, 2026-10-17): every stone piece is drawn in
+    /// it unless the piece has its own.
+    private var areaStoneRow: some View {
+        Button { stonePicking = StonePick(id: "", title: "This area's stone") } label: {
+            HStack(spacing: 12) {
+                StoneSwatch(look: takeoff.areaStone, pixels: 120)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("This area's stone").font(.subheadline.weight(.semibold)).foregroundStyle(ND.text)
+                    Text(stoneCaption(takeoff.areaStone)).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("Change").font(.subheadline.weight(.semibold)).foregroundStyle(ND.link)
+            }
+            .padding(12)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func stoneCaption(_ l: StoneAppearance) -> String {
+        let what = l.photoID != nil ? "Photo of the slab" : l.pattern.fullName
+        return [l.name, what, l.honed ? "honed" : "polished"].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// One piece's stone: a swatch that opens the picker (owner, 2026-10-17:
+    /// on its Stone pieces row).
+    private func pieceStoneButton(key: String, title: String) -> some View {
+        let own = takeoff.stoneLooks[key] != nil
+        return Button { stonePicking = StonePick(id: key, title: title) } label: {
+            HStack(spacing: 8) {
+                StoneSwatch(look: takeoff.stone(for: key), pixels: 96)
+                    .frame(width: 34, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(own ? ND.link : Color.white.opacity(0.15), lineWidth: own ? 2 : 1))
+                Text(own ? "Own stone" : "Area's stone").font(.caption).foregroundStyle(own ? ND.link : .secondary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func stonePicker(_ pick: StonePick) -> some View {
+        if pick.id.isEmpty {
+            StonePickerSheet(title: pick.title, start: takeoff.areaStone) { chosen in
+                if let chosen { takeoff.stoneLook = chosen }
+            }
+        } else {
+            StonePickerSheet(title: pick.title, start: takeoff.stone(for: pick.id), areaLook: takeoff.areaStone,
+                             startsFollowingArea: takeoff.stoneLooks[pick.id] == nil) { chosen in
+                takeoff.stoneLooks[pick.id] = chosen
+            }
+        }
+    }
+
+    /// Corner shelves, seats and footrests: always stone, in the area's
+    /// stone unless given their own (owner, 2026-10-17).
+    private func cornerStones(_ corners: [AreaTakeoff.Item]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Corner pieces").font(.headline)
+            ForEach(corners) { item in
+                let wallName = room.wall(item.wallID).map { room.name(of: $0) } ?? ""
+                let title = "\(item.kind.name) on \(wallName.lowercased())"
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(.subheadline.weight(.semibold))
+                        Text("\(inchText(item.sizeIn / 12)) at \(inchText(item.bottomIn / 12))").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    pieceStoneButton(key: AreaTakeoff.cornerKey(item), title: title)
+                }
+                .padding(12)
+                .background(StoneLook.color.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
     }
 
     /// How many divider shelves a niche has, in the Stone pieces list.
@@ -1973,6 +2060,7 @@ struct ScanEditor: View {
             }
             if piece.stone {
                 HStack(spacing: 10) {
+                    pieceStoneButton(key: piece.key, title: piece.name)
                     InchField(title: "Length", inches: Binding(get: { piece.lengthFt * 12 },
                                                                set: { v in update { $0.lengthFt = v / 12 } }))
                         .frame(maxWidth: 140)

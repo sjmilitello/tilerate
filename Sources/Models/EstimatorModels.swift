@@ -711,6 +711,126 @@ struct StoneRate: Codable, Equatable, Hashable {
 /// else, e.g. painted drywall outside the shower (owner, 2026-10-17).
 enum TrimFinish: String, Codable, CaseIterable { case tile, stone, none }
 
+/// How a stone looks (owner, 2026-10-17): a pattern and its colours, or a
+/// photo of the slab, polished or honed. Drawing only — never the price.
+/// Each area has one (`AreaTakeoff.stoneLook`), any piece can have its own
+/// (`stoneLooks`), and the owner's named ones are My Stones (`StoneLibrary`).
+struct StoneAppearance: Codable, Hashable, Equatable {
+    /// Grouped as the stone is asked for: marble, quartzite, granite, quartz, other.
+    enum Pattern: String, Codable, CaseIterable, Identifiable {
+        case softVeins, boldVeins, web, breccia
+        case quartziteLinear, quartziteCloudy
+        case graniteFine, graniteCoarse, graniteFlowing
+        case solid, concrete, terrazzo
+        case soapstone, travertine, limestone, onyx
+        var id: String { rawValue }
+
+        var name: String {
+            switch self {
+            case .softVeins: "Soft veins"
+            case .boldVeins: "Bold veins"
+            case .web: "Web"
+            case .breccia: "Breccia"
+            case .quartziteLinear: "Linear"
+            case .quartziteCloudy: "Cloudy"
+            case .graniteFine: "Fine"
+            case .graniteCoarse: "Coarse"
+            case .graniteFlowing: "Flowing"
+            case .solid: "Solid"
+            case .concrete: "Concrete"
+            case .terrazzo: "Terrazzo"
+            case .soapstone: "Soapstone"
+            case .travertine: "Travertine"
+            case .limestone: "Limestone"
+            case .onyx: "Onyx"
+            }
+        }
+
+        var family: String {
+            switch self {
+            case .softVeins, .boldVeins, .web, .breccia: "Marble"
+            case .quartziteLinear, .quartziteCloudy: "Quartzite"
+            case .graniteFine, .graniteCoarse, .graniteFlowing: "Granite"
+            case .solid, .concrete, .terrazzo: "Quartz"
+            case .soapstone, .travertine, .limestone, .onyx: "Other stone"
+            }
+        }
+
+        /// "Marble · soft veins".
+        var fullName: String { "\(family) · \(name.lowercased())" }
+
+        /// What its pattern colour is called: veins, flecks, bands, chips.
+        var markings: String {
+            switch self {
+            case .graniteFine, .graniteCoarse, .limestone: "Flecks"
+            case .graniteFlowing, .travertine, .onyx: "Bands"
+            case .terrazzo: "Chips"
+            case .concrete: "Shading"
+            default: "Veins"
+            }
+        }
+        var usesMarkings: Bool { self != .solid }
+        /// Patterns drawn with a second colour of markings.
+        var usesSecond: Bool {
+            [.boldVeins, .quartziteLinear, .quartziteCloudy, .graniteFine, .graniteCoarse,
+             .graniteFlowing, .terrazzo, .onyx].contains(self)
+        }
+
+        /// Its usual colours, for its swatch in the picker (owner, 2026-10-17:
+        /// each swatch in its own colours, so every pattern is recognisable).
+        var usual: (base: String, markings: String, second: String?) {
+            switch self {
+            case .softVeins: ("#F2F2F0", "#9A9EA3", nil)
+            case .boldVeins: ("#F7F6F3", "#5A5C60", "#B08D57")
+            case .web: ("#F4F3F0", "#7C7F84", nil)
+            case .breccia: ("#EDE6DA", "#6B5A4A", nil)
+            case .quartziteLinear: ("#EDE4D3", "#B08D57", "#A8A9AB")
+            case .quartziteCloudy: ("#E9ECEC", "#8F9AA0", "#D5D6D6")
+            case .graniteFine: ("#2A2B2E", "#8C8F94", "#C9CCD0")
+            case .graniteCoarse: ("#D9D2C5", "#3A3B3E", "#B08D57")
+            case .graniteFlowing: ("#ECE6DC", "#5E5650", "#9C8F82")
+            case .solid: ("#F4F3F0", "#F4F3F0", nil)
+            case .concrete: ("#B5B4B0", "#8A8986", nil)
+            case .terrazzo: ("#F2EFE9", "#7C7F84", "#C9A9A6")
+            case .soapstone: ("#3B403E", "#BFC4C0", nil)
+            case .travertine: ("#E3D5BF", "#C9B28E", nil)
+            case .limestone: ("#E8DFCC", "#B9A98A", nil)
+            case .onyx: ("#E9C98F", "#B07A3A", "#F5E6C4")
+            }
+        }
+    }
+
+    var pattern: Pattern = .softVeins
+    /// Colours as "#RRGGBB".
+    var base: String = "#E9E6E0"
+    var markings: String = "#9A9EA3"
+    var second: String? = nil
+    var honed: Bool = false
+    /// A photo of the real slab (`TilePhotos`), drawn instead of the pattern.
+    var photoID: String? = nil
+    /// Its name in My Stones, if it has one.
+    var name: String? = nil
+
+    /// The stone drawn before choices (owner, 2026-10-14): white marble, faint grey veins.
+    static let standard = StoneAppearance()
+
+    /// The pattern drawn in its usual colours.
+    static func usual(_ p: Pattern) -> StoneAppearance {
+        let u = p.usual
+        return StoneAppearance(pattern: p, base: u.base, markings: u.markings, second: u.second)
+    }
+
+    /// Everything that changes how it's drawn (not its name or finish).
+    var drawingKey: String {
+        if let photoID { return "photo:\(photoID)" }
+        return [pattern.rawValue, base, pattern.usesMarkings ? markings : "",
+                pattern.usesSecond ? (second ?? "") : ""].joined(separator: "|")
+    }
+
+    /// Two stones look the same, whatever they're called.
+    func looksLike(_ other: StoneAppearance) -> Bool { drawingKey == other.drawingKey && honed == other.honed }
+}
+
 /// A stone piece's thickness: 3 cm, 2 cm, ¾″… (owner, 2026-10-16).
 struct StoneThickness: Codable, Equatable, Hashable {
     enum Unit: String, Codable { case cm, inch = "in" }
@@ -1274,6 +1394,11 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
     /// Headers dropped from the ceiling (soffits) over the curb, a half
     /// wall's cap or a doorway (owner, 2026-10-13).
     var soffits: [Soffit] = []
+    /// The area's stone (owner, 2026-10-17); nil: the standard white marble.
+    var stoneLook: StoneAppearance? = nil
+    /// A piece with a stone of its own, by its key (`TrimPiece.key`; corner
+    /// pieces "corner:<item id>"). Every other piece follows the area's.
+    var stoneLooks: [String: StoneAppearance] = [:]
 
     /// A header dropped from the ceiling, snapped over the curb, a half
     /// wall's cap or a doorway: as wide as the curb (4½″), `dropIn` below the
@@ -2069,6 +2194,8 @@ extension AreaTakeoff {
         c.read(.cutouts, into: &cutouts)
         c.read(.scannedSkipsAdded, into: &scannedSkipsAdded)
         c.read(.soffits, into: &soffits)
+        c.read(.stoneLook, into: &stoneLook)
+        c.read(.stoneLooks, into: &stoneLooks)
     }
 }
 
@@ -2126,6 +2253,23 @@ extension AreaTakeoff.Item {
         c.read(.dividers, into: &dividers)
         c.read(.stone, into: &stone)
         c.read(.tile, into: &tile)
+    }
+}
+
+extension StoneAppearance {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // A pattern this version doesn't know reads as the standard one.
+        var raw = Pattern.softVeins.rawValue
+        c.read(.pattern, into: &raw)
+        pattern = Pattern(rawValue: raw) ?? .softVeins
+        c.read(.base, into: &base)
+        c.read(.markings, into: &markings)
+        c.read(.second, into: &second)
+        c.read(.honed, into: &honed)
+        c.read(.photoID, into: &photoID)
+        c.read(.name, into: &name)
     }
 }
 

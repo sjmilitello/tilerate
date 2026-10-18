@@ -21,7 +21,7 @@ struct Room3DContent: Equatable {
     var wallTiles: [UUID: TileChoice] = [:]
     var others: [OtherAreaPieces]
     var curbHeightIn: Double
-    var stoneParts: Set<String>
+    var stoneParts: StoneKeys
     var showFixtures: Bool
     /// The chosen item, lit up.
     var selectedItem: UUID? = nil
@@ -64,8 +64,8 @@ extension Room3DContent {
                                    soffits: other.area == .shower ? room.scan.map { t.soffitBoxes(in: $0) } ?? [] : [],
                                    curbHeightIn: t.curbHeightIn ?? 4,
                                    stoneParts: room.scan.map { scan in
-                                       AreaTakeoff.drawnFinishKeys(t.trimPieces(in: scan, area: other.area, curbHeightIn: t.curbHeightIn ?? 4))
-                                   } ?? [],
+                                       t.stoneKeys(t.trimPieces(in: scan, area: other.area, curbHeightIn: t.curbHeightIn ?? 4))
+                                   } ?? StoneKeys(area: t.areaStone, looks: t.stoneLooks),
                                    takeoff: t)
         }
     }
@@ -87,7 +87,7 @@ extension Room3DContent {
     static func of(room: EstimateRoom, section s: EstimateSection, rates: Rates, fixtures: Bool = true) -> Room3DContent? {
         guard let scan = s.roomScan ?? room.scan, let t = s.scanTakeoff else { return nil }
         let curb = t.curbHeightIn ?? rates.curbHeightIn
-        let stone = AreaTakeoff.drawnFinishKeys(t.trimPieces(in: scan, area: s.area, curbHeightIn: curb))
+        let stone = t.stoneKeys(t.trimPieces(in: scan, area: s.area, curbHeightIn: curb))
         return Room3DContent(room: scan, takeoff: t, area: s.area, tile: s.mainTile, floorTile: s.showerFloorTile, wallTiles: s.wallTiles(in: scan),
                              others: s.roomScan == nil ? otherAreas(in: room, except: s.id) : [],
                              curbHeightIn: curb, stoneParts: stone, showFixtures: fixtures,
@@ -382,13 +382,13 @@ enum Room3DScene {
         // Every area's built-ins — benches, niches, windows, corner pieces,
         // drains — whichever area is open (owner, 2026-10-14: switching to the
         // Floor made the shower's disappear).
-        typealias Source = (t: AreaTakeoff, stone: Set<String>, tile: TileChoice?, mine: Bool)
+        typealias Source = (t: AreaTakeoff, stone: StoneKeys, tile: TileChoice?, mine: Bool)
         let sources: [Source] = [(c.takeoff, c.stoneParts, c.tile, true)]
             + c.others.compactMap { o in o.takeoff.map { ($0, o.stoneParts, o.tile, false) } }
         func floorMid(_ t: AreaTakeoff) -> ScannedRoom.Point? { t.floor == .drawn ? t.floorRect?.center : nil }
 
         // Every area's stone and bare ("none#…") pieces, for walls' ends.
-        let finishKeys = c.stoneParts.union(c.others.flatMap(\.stoneParts))
+        let finishKeys = StoneKeys.merged([c.stoneParts] + c.others.map(\.stoneParts))
 
         // Walls, with their doors and windows cut out, and tile on them.
         let windows = sources.flatMap { $0.t.items.filter { $0.kind == .window } }
@@ -502,8 +502,8 @@ enum Room3DScene {
                     let keys = ["wallEnd:\(w.id):\(end)", "kneeEnd:\(w.id):\(end)"]
                     if keys.contains(where: { k in finishKeys.contains("none#\(k)") }) {
                         plane.firstMaterial = plain(wallColor)
-                    } else if keys.contains(where: { finishKeys.contains($0) }) {
-                        plane.firstMaterial = stoneMaterial()
+                    } else if let k = keys.first(where: { finishKeys.contains($0) }) {
+                        plane.firstMaterial = stoneMaterial(finishKeys.look(k), widthFt: t, heightFt: w.heightFt)
                     } else {
                         plane.firstMaterial = tileMaterial(a.wallTiles[w.id] ?? a.tile, widthFt: t, heightFt: w.heightFt, x0: 0, y0: 0)
                     }
@@ -516,7 +516,7 @@ enum Room3DScene {
             // A half wall's cap.
             if room.isKneeWall(w) {
                 let cap = SCNBox(width: w.lengthFt, height: 0.06, length: t + 0.04, chamferRadius: 0)
-                cap.firstMaterial = c.stoneParts.contains("cap:\(w.id)") ? stoneMaterial() : tileMaterial(c.tile, widthFt: w.lengthFt, heightFt: t, x0: 0, y0: 0)
+                cap.firstMaterial = c.stoneParts.contains("cap:\(w.id)") ? stoneMaterial(c.stoneParts.look("cap:\(w.id)"), widthFt: w.lengthFt, heightFt: t) : tileMaterial(c.tile, widthFt: w.lengthFt, heightFt: t, x0: 0, y0: 0)
                 let n = SCNNode(geometry: cap)
                 n.position = SCNVector3(w.lengthFt / 2, w.heightFt + 0.03, 0)
                 node.addChildNode(n)
@@ -542,14 +542,20 @@ enum Room3DScene {
                 let stoneTop = src.stone.contains("benchTop:\(item.id)")
                 let material = tileMaterial(src.tile, widthFt: item.widthFt, heightFt: slab, x0: item.fromFt, y0: 0)
                 box.materials = [material, material, material, material,
-                                 stoneTop ? stoneMaterial() : tileMaterial(src.tile, widthFt: item.widthFt, heightFt: depth, x0: item.fromFt, y0: 0),
+                                 stoneTop ? stoneMaterial(src.stone.look("benchTop:\(item.id)"), widthFt: item.widthFt, heightFt: depth)
+                                          : tileMaterial(src.tile, widthFt: item.widthFt, heightFt: depth, x0: item.fromFt, y0: 0),
                                  plain(.darkGray)]
-                if src.stone.contains("benchFront:\(item.id)") { box.materials[0] = stoneMaterial() }
+                if src.stone.contains("benchFront:\(item.id)") {
+                    box.materials[0] = stoneMaterial(src.stone.look("benchFront:\(item.id)"), widthFt: item.widthFt, heightFt: slab)
+                }
                 // Its back is against the wall: never tiled (owner, 2026-10-14).
                 box.materials[2] = plain(UIColor(white: 0.62, alpha: 1))
                 // Its outside end, showing at the entry where the curb stops at it
                 // (the other end is against a wall, out of sight).
-                if src.stone.contains("benchSide:\(item.id)") { box.materials[1] = stoneMaterial(); box.materials[3] = stoneMaterial() }
+                if src.stone.contains("benchSide:\(item.id)") {
+                    let side = stoneMaterial(src.stone.look("benchSide:\(item.id)"), widthFt: depth, heightFt: slab)
+                    box.materials[1] = side; box.materials[3] = side
+                }
                 let n = SCNNode(geometry: box)
                 n.position = SCNVector3((item.fromFt + item.toFt) / 2, top - slab / 2, side * (t / 2 + depth / 2))
                 if side < 0 { n.eulerAngles.y = .pi }
@@ -568,7 +574,7 @@ enum Room3DScene {
                     let p = SCNPlane(width: width, height: height)
                     // Seen from inside the recess only, so it doesn't show
                     // behind the wall from outside the room.
-                    p.firstMaterial = stone ? stoneMaterial() : tileMaterial(nicheTile, widthFt: width, heightFt: height, x0: gx, y0: gy)
+                    p.firstMaterial = tileMaterial(nicheTile, widthFt: width, heightFt: height, x0: gx, y0: gy)
                     return p
                 }
                 let backStone = src.t.partStone(item, "back")
@@ -579,16 +585,17 @@ enum Room3DScene {
                 // sill sticks out ½″ past the face. Tile parts stay surfaces.
                 let st = 0.75 / 12, lip = 0.5 / 12
                 let mid = (face + inner) / 2
-                func slab(_ w: Double, _ hh: Double, _ l: Double, at p: SCNVector3) {
+                func slab(_ part: String, _ w: Double, _ hh: Double, _ l: Double, at p: SCNVector3) {
                     let box = SCNBox(width: w, height: hh, length: l, chamferRadius: 0)
-                    box.firstMaterial = stoneMaterial()
+                    box.firstMaterial = stoneMaterial(src.stone.look(AreaTakeoff.partKey(item, part)),
+                                                      widthFt: max(w, l), heightFt: max(hh, min(w, l)))
                     let n = SCNNode(geometry: box)
                     n.position = p
                     node.addChildNode(n)
                 }
                 // The back.
                 if backStone {
-                    slab(w0, h, st, at: SCNVector3(x0 + w0 / 2, y0 + h / 2, inner + side * st / 2))
+                    slab("back", w0, h, st, at: SCNVector3(x0 + w0 / 2, y0 + h / 2, inner + side * st / 2))
                 } else {
                     let back = SCNNode(geometry: surface(w0, h, stone: false, gx: x0, gy: y0))
                     back.position = SCNVector3(x0 + w0 / 2, y0 + h / 2, inner)
@@ -597,7 +604,7 @@ enum Room3DScene {
                 }
                 // The sill (base shelf): a slab with a lip past the face.
                 if sill {
-                    slab(w0, st, d + lip, at: SCNVector3(x0 + w0 / 2, y0 + st / 2, mid + side * lip / 2))
+                    slab("shelf", w0, st, d + lip, at: SCNVector3(x0 + w0 / 2, y0 + st / 2, mid + side * lip / 2))
                 } else {
                     let n = SCNNode(geometry: surface(w0, d, stone: false, gx: x0, gy: 0))
                     n.position = SCNVector3(x0 + w0 / 2, y0, mid)
@@ -606,7 +613,7 @@ enum Room3DScene {
                 }
                 // The header (top).
                 if top {
-                    slab(w0, st, d, at: SCNVector3(x0 + w0 / 2, y0 + h - st / 2, mid))
+                    slab("header", w0, st, d, at: SCNVector3(x0 + w0 / 2, y0 + h - st / 2, mid))
                 } else {
                     let n = SCNNode(geometry: surface(w0, d, stone: false, gx: x0, gy: 0))
                     n.position = SCNVector3(x0 + w0 / 2, y0 + h, mid)
@@ -617,7 +624,7 @@ enum Room3DScene {
                 for (x, turn, inward) in [(x0, Float.pi / 2, 1.0), (x0 + w0, -Float.pi / 2, -1.0)] {
                     if sides {
                         let lo = y0 + (sill ? st : 0), hi = y0 + h - (top ? st : 0)
-                        slab(st, hi - lo, d, at: SCNVector3(x + inward * st / 2, (lo + hi) / 2, mid))
+                        slab("jambs", st, hi - lo, d, at: SCNVector3(x + inward * st / 2, (lo + hi) / 2, mid))
                     } else {
                         let n = SCNNode(geometry: surface(d, h, stone: false, gx: 0, gy: y0))
                         n.position = SCNVector3(x, y0 + h / 2, mid)
@@ -630,7 +637,7 @@ enum Room3DScene {
                     for k in 1...item.dividers {
                         let y = y0 + h * Double(k) / Double(item.dividers + 1)
                         let shelf = SCNBox(width: w0, height: st, length: d, chamferRadius: 0)
-                        shelf.firstMaterial = !dividerStone ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : stoneMaterial()
+                        shelf.firstMaterial = !dividerStone ? tileMaterial(nicheTile, widthFt: w0, heightFt: d, x0: x0, y0: 0) : stoneMaterial(src.stone.look(AreaTakeoff.partKey(item, "dividers")), widthFt: w0, heightFt: d)
                         let n = SCNNode(geometry: shelf)
                         n.position = SCNVector3(x0 + w0 / 2, y, mid)
                         node.addChildNode(n)
@@ -646,7 +653,7 @@ enum Room3DScene {
                 path.addLine(to: CGPoint(x: x, y: -side * size))
                 path.close()
                 let shape = SCNShape(path: path, extrusionDepth: 1.5 / 12)
-                shape.firstMaterial = stoneMaterial()
+                shape.firstMaterial = stoneMaterial(src.stone.look(AreaTakeoff.cornerKey(item)), widthFt: size, heightFt: size)
                 let n = SCNNode(geometry: shape)
                 n.eulerAngles.x = -.pi / 2
                 n.position = SCNVector3(0, item.bottomIn / 12 - 0.75 / 12, side * t / 2)
@@ -681,7 +688,7 @@ enum Room3DScene {
         // (`curbRuns`). Its top, inside face and outside face are each tile
         // or stone.
         var curbSets: [(runs: [(a: ScannedRoom.Point, b: ScannedRoom.Point, key: String)], mid: ScannedRoom.Point?,
-                        heightIn: Double, stone: Set<String>, tile: TileChoice?)] = []
+                        heightIn: Double, stone: StoneKeys, tile: TileChoice?)] = []
         if c.area == .shower {
             curbSets.append((c.takeoff.curbRuns(in: room, widthFt: c.curbWidthFt), c.takeoff.floorRect?.center,
                              c.curbHeightIn, c.stoneParts, c.tile))
@@ -700,7 +707,8 @@ enum Room3DScene {
                 let box = SCNBox(width: len, height: h, length: w, chamferRadius: 0.01)
                 func face(_ k: String, _ width: Double) -> SCNMaterial {
                     set.stone.contains("none#\(k)") ? plain(UIColor(white: 0.86, alpha: 1))
-                        : set.stone.contains(k) ? stoneMaterial() : tileMaterial(set.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
+                        : set.stone.contains(k) ? stoneMaterial(set.stone.look(k), widthFt: width, heightFt: h)
+                        : tileMaterial(set.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
                 }
                 let top = face(key, len), inside = face(key + ":inside", len), outside = face(key + ":outside", len)
                 // The box's front (+z) is the side its left hand faces: outside unless turned.
@@ -713,8 +721,8 @@ enum Room3DScene {
         }
         // Stone jambs: the strip of wall above each end of the curb, as wide
         // as the curb (owner, 2026-10-13: stone jambs didn't show).
-        var jambSets: [(faces: [AreaTakeoff.JambFace], stone: Set<String>)] = []
-        var headerSets: [(strips: [AreaTakeoff.HeaderStrip], stone: Set<String>)] = []
+        var jambSets: [(faces: [AreaTakeoff.JambFace], stone: StoneKeys)] = []
+        var headerSets: [(strips: [AreaTakeoff.HeaderStrip], stone: StoneKeys)] = []
         // Doors, windows and openings with stone in any area; the entry's
         // jambs in a shower.
         do {
@@ -726,7 +734,7 @@ enum Room3DScene {
         for o in c.others where !o.headers.isEmpty { headerSets.append((o.headers, o.stoneParts)) }
         // Headers dropped from the ceiling (soffits): tile faces and ends, the
         // underside tile or stone (owner, 2026-10-13).
-        var soffitSets: [(boxes: [AreaTakeoff.SoffitBox], stone: Set<String>, tile: TileChoice?)] = []
+        var soffitSets: [(boxes: [AreaTakeoff.SoffitBox], stone: StoneKeys, tile: TileChoice?)] = []
         if c.area == .shower { soffitSets.append((c.takeoff.soffitBoxes(in: room, curbWidthFt: c.curbWidthFt), c.stoneParts, c.tile)) }
         for o in c.others where !o.soffits.isEmpty { soffitSets.append((o.soffits, o.stoneParts, o.tile)) }
         for set in soffitSets {
@@ -736,7 +744,7 @@ enum Room3DScene {
                 let box = SCNBox(width: len, height: h, length: b.widthFt, chamferRadius: 0)
                 let face = tileMaterial(set.tile, widthFt: len, heightFt: h, x0: 0, y0: 0)
                 let end = tileMaterial(set.tile, widthFt: b.widthFt, heightFt: h, x0: 0, y0: 0)
-                let under = set.stone.contains(b.key) ? stoneMaterial() : tileMaterial(set.tile, widthFt: len, heightFt: b.widthFt, x0: 0, y0: 0)
+                let under = set.stone.contains(b.key) ? stoneMaterial(set.stone.look(b.key), widthFt: len, heightFt: b.widthFt) : tileMaterial(set.tile, widthFt: len, heightFt: b.widthFt, x0: 0, y0: 0)
                 box.materials = [face, end, face, end, plain(UIColor(white: 0.9, alpha: 1)), under]
                 let n = SCNNode(geometry: box)
                 n.position = SCNVector3((b.a.x + b.b.x) / 2, (b.topFt + b.bottomFt) / 2, (b.a.y + b.b.y) / 2)
@@ -750,7 +758,7 @@ enum Room3DScene {
                 let len = hypot(h.b.x - h.a.x, h.b.y - h.a.y)
                 guard len > 0.01 else { continue }
                 let plane = SCNPlane(width: len, height: h.widthFt)
-                plane.firstMaterial = stoneMaterial()
+                plane.firstMaterial = stoneMaterial(set.stone.look(h.key), widthFt: len, heightFt: h.widthFt)
                 let n = SCNNode(geometry: plane)
                 n.position = SCNVector3((h.a.x + h.b.x) / 2, h.heightFt + (h.up ? 0.008 : -0.008), (h.a.y + h.b.y) / 2)
                 n.eulerAngles = SCNVector3(h.up ? -Float.pi / 2 : Float.pi / 2, Float(-atan2(h.b.y - h.a.y, h.b.x - h.a.x)), 0)
@@ -762,7 +770,7 @@ enum Room3DScene {
             for f in set.faces where set.stone.contains(f.key) {
                 let plane = SCNPlane(width: f.widthFt, height: f.topFt - f.bottomFt)
                 // One-sided, like the walls: seen from behind its wall, it's gone too.
-                plane.firstMaterial = stoneMaterial()
+                plane.firstMaterial = stoneMaterial(set.stone.look(f.key), widthFt: f.widthFt, heightFt: f.topFt - f.bottomFt)
                 let n = SCNNode(geometry: plane)
                 n.position = SCNVector3(f.center.x + f.facing.x * 0.008, (f.bottomFt + f.topFt) / 2,
                                         f.center.y + f.facing.y * 0.008)
@@ -1059,40 +1067,26 @@ enum Room3DScene {
     /// Stone: the tan the plan uses, so it reads apart from light tile.
     static let stoneColor = StoneLook.uiColor
 
-    /// Stone as white marble: the colour with faint grey veins (owner,
-    /// 2026-10-14), so it reads apart from plain light tile.
-    private static let stoneMaterialImage: UIImage = {
-        let size = CGSize(width: 256, height: 256)
-        return UIGraphicsImageRenderer(size: size).image { ctx in
-            StoneLook.uiColor.setFill()
-            ctx.fill(CGRect(origin: .zero, size: size))
-            let g = ctx.cgContext
-            var seed: UInt64 = 0x9E3779B97F4A7C15
-            func rnd() -> CGFloat { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return CGFloat(seed >> 33) / CGFloat(1 << 31) }
-            for k in 0..<7 {
-                let path = UIBezierPath()
-                var p = CGPoint(x: rnd() * size.width, y: -10)
-                path.move(to: p)
-                while p.y < size.height + 10 {
-                    let q = CGPoint(x: p.x + (rnd() - 0.5) * 60, y: p.y + 20 + rnd() * 30)
-                    path.addQuadCurve(to: q, controlPoint: CGPoint(x: (p.x + q.x) / 2 + (rnd() - 0.5) * 30, y: (p.y + q.y) / 2))
-                    p = q
-                }
-                g.setStrokeColor(UIColor(white: 0.55, alpha: k % 3 == 0 ? 0.35 : 0.18).cgColor)
-                g.setLineWidth(k % 3 == 0 ? 1.6 : 0.8)
-                g.addPath(path.cgPath)
-                g.strokePath()
-            }
-        }
-    }()
+    /// Stone in its own look (owner, 2026-10-17): its pattern drawn about 2′
+    /// square, mirrored past its edges so no seam shows, sized to the piece;
+    /// a photo of the slab instead when there is one. Polished stone shines.
+    static let stoneSpanFt = 2.0
 
-    private static func stoneMaterial() -> SCNMaterial {
+    private static func stoneMaterial(_ look: StoneAppearance, widthFt: Double, heightFt: Double) -> SCNMaterial {
         let m = SCNMaterial()
-        m.diffuse.contents = stoneMaterialImage
-        m.diffuse.wrapS = .repeat
-        m.diffuse.wrapT = .repeat
-        m.diffuse.contentsTransform = SCNMatrix4MakeScale(0.6, 0.6, 1)
-        m.lightingModel = .lambert
+        m.diffuse.contents = StonePatterns.image(look, pixels: 512)
+        m.diffuse.wrapS = .mirror
+        m.diffuse.wrapT = .mirror
+        m.diffuse.mipFilter = .linear
+        m.diffuse.contentsTransform = SCNMatrix4MakeScale(Float(max(widthFt, 0.05) / stoneSpanFt),
+                                                          Float(max(heightFt, 0.05) / stoneSpanFt), 1)
+        if look.honed {
+            m.lightingModel = .lambert
+        } else {
+            m.lightingModel = .blinn
+            m.specular.contents = UIColor(white: 0.45, alpha: 1)
+            m.shininess = 0.6
+        }
         return m
     }
 
