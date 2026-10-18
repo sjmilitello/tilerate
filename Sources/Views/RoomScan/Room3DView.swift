@@ -1067,16 +1067,18 @@ enum Room3DScene {
     /// Stone: the tan the plan uses, so it reads apart from light tile.
     static let stoneColor = StoneLook.uiColor
 
-    /// Stone in its own look (owner, 2026-10-17): its pattern drawn about 2′
-    /// square, mirrored past its edges so no seam shows, sized to the piece;
-    /// a photo of the slab instead when there is one. Polished stone shines.
-    static let stoneSpanFt = 2.0
+    /// Stone in its own look (owner, 2026-10-17): its pattern (a photo of
+    /// real stone that tiles, 2026-10-18) about 3′ square, repeated, sized to
+    /// the piece; a photo of the slab instead when there is one (mirrored past
+    /// its edges, since it doesn't tile). Polished stone shines.
+    static let stoneSpanFt = 3.0
 
     private static func stoneMaterial(_ look: StoneAppearance, widthFt: Double, heightFt: Double) -> SCNMaterial {
         let m = SCNMaterial()
         m.diffuse.contents = StonePatterns.image(look, pixels: 512)
-        m.diffuse.wrapS = .mirror
-        m.diffuse.wrapT = .mirror
+        let wrap: SCNWrapMode = look.photoID == nil ? .repeat : .mirror
+        m.diffuse.wrapS = wrap
+        m.diffuse.wrapT = wrap
         m.diffuse.mipFilter = .linear
         m.diffuse.contentsTransform = SCNMatrix4MakeScale(Float(max(widthFt, 0.05) / stoneSpanFt),
                                                           Float(max(heightFt, 0.05) / stoneSpanFt), 1)

@@ -54,10 +54,11 @@ struct StoneLookTests {
         #expect(m.look("kneeEnd:B:start") == .usual(.onyx))
     }
 
-    /// Every pattern draws, at the size asked, with markings (not one flat
-    /// colour), and the same pixels each time.
+    /// Every pattern draws from its photo's map (in the app), at the size
+    /// asked, with markings (not one flat colour), and the same pixels each time.
     @Test func everyPatternDrawsTheSameEachTime() throws {
         for p in StoneAppearance.Pattern.allCases {
+            #expect(StoneMaps.map(p, n: 16) != nil, "no map for \(p)")
             let look = StoneAppearance.usual(p)
             let a = try #require(StonePatterns.patternImage(look, pixels: 64).cgImage)
             #expect(a.width == 64 && a.height == 64, "\(p)")
@@ -73,9 +74,10 @@ struct StoneLookTests {
     @Test func drawnInTheChosenColours() throws {
         var look = StoneAppearance(pattern: .solid, base: "#335C7A")
         let img = try #require(StonePatterns.patternImage(look, pixels: 32).cgImage)
+        // Solid: the base colour, a little shading either way (on average, the base).
         let px = pixels(img)
-        let mid = (16 * 32 + 16) * 4
-        #expect(abs(Int(px[mid]) - 0x33) < 10 && abs(Int(px[mid + 1]) - 0x5C) < 10 && abs(Int(px[mid + 2]) - 0x7A) < 10)
+        func mean(_ c: Int) -> Int { stride(from: c, to: px.count, by: 4).map { Int(px[$0]) }.reduce(0, +) / (32 * 32) }
+        #expect(abs(mean(0) - 0x33) < 12 && abs(mean(1) - 0x5C) < 12 && abs(mean(2) - 0x7A) < 12)
         look.base = "#F7F7F7"
         #expect(StonePatterns.cachedPattern(look, pixels: 32) == nil)
     }

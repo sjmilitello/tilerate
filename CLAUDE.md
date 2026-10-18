@@ -1416,10 +1416,20 @@ or honed, or a photo of the slab (`photoID`, in `TilePhotos`), and a name
 when it's in My Stones. Patterns are grouped as stone is asked for: Marble
 (soft veins, bold veins, web, breccia), Quartzite (linear, cloudy), Granite
 (fine, coarse, flowing), Quartz (solid, concrete, terrazzo), Other stone
-(soapstone, travertine, limestone, onyx). `StonePatterns` draws them
-(Sources/Views/Stone; noise with fixed seeds, so a stone always looks the
-same; cached; sizes in pixels scale from 300 so a swatch and a texture
-match). The picker (`StonePickerSheet`): a big preview in the chosen
+(soapstone, travertine, limestone, onyx). Each pattern is a photo of
+real stone (owner, 2026-10-18: patterns drawn from noise weren't
+realistic), recoloured by `StonePatterns` (Sources/Views/Stone): a grayscale
+map per pattern (`StoneMap-<pattern>` in the asset catalogue's StoneMaps
+folder, 1024 px, tiling; made from ambientCG textures, CC0 public domain —
+which one each is, `StoneMaps.source`) holds how far each point is from the
+stone's middle tone, 128 the middle; the base colour goes at the middle,
+the markings colour where its veins, flecks or bands are, the second
+colour at their soft edges, and the other side lightens (or darkens) the
+base a little (`StoneMaps.darkMarkings`). Each map keeps its photo's own
+contrast (solid, concrete and limestone softened), so quiet stone stays
+quiet. To change a pattern's photo, remake its map the same way (median
+and 1st/99th percentile of the luminance) rather than editing the image.
+Drawn images are cached. The picker (`StonePickerSheet`): a big preview in the chosen
 colours, Polished/Honed, My Stones and Recently used (`StoneLibrary`,
 UserDefaults, an unreadable list kept aside as ".unreadable"), the pattern
 swatches each in its own usual colours (owner's call, so every pattern is
@@ -1432,8 +1442,8 @@ Save to My Stones. It opens from Stone pieces → This area's stone and from
 the swatch on each stone piece's row (owner, 2026-10-17), where "Same as the
 area's stone" is offered. In 3-D (`Room3DScene.stoneMaterial`) each piece is
 drawn in its look (`StoneKeys`: the stone keys with their looks, passed where
-a `Set<String>` used to be), about 2′ of pattern mirrored past its edges,
-polished ones shiny. The plan and lists still use `StoneLook.color` (#E9E6E0).
+a `Set<String>` used to be), about 3′ of pattern repeated (a slab photo
+mirrored instead, since it doesn't tile), polished ones shiny. The plan and lists still use `StoneLook.color` (#E9E6E0).
 `StoneLookTests`. My Tile Library and the tile picker are to come.
 
 In 3-D a niche's stone parts are ¾″ slabs — back, jambs and header lining
