@@ -1068,20 +1068,30 @@ enum Room3DScene {
     static let stoneColor = StoneLook.uiColor
 
     /// Stone in its own look (owner, 2026-10-17): its pattern (a photo of
-    /// real stone that tiles, 2026-10-18) about 3′ square, repeated, sized to
-    /// the piece; a photo of the slab instead when there is one (mirrored past
-    /// its edges, since it doesn't tile). Polished stone shines.
-    static let stoneSpanFt = 3.0
-
+    /// real stone that tiles, 2026-10-18) at its real size (`StoneMaps.spanFt`:
+    /// a bold marble's veins run like a slab's, granite's flecks stay small),
+    /// repeated, sized to the piece, turned when its veins run across, with
+    /// the photo's surface (a normal map); a photo of the slab instead when
+    /// there is one, mirrored past its edges since it doesn't tile, about 3′.
+    /// Polished stone shines.
     private static func stoneMaterial(_ look: StoneAppearance, widthFt: Double, heightFt: Double) -> SCNMaterial {
         let m = SCNMaterial()
-        m.diffuse.contents = StonePatterns.image(look, pixels: 512)
-        let wrap: SCNWrapMode = look.photoID == nil ? .repeat : .mirror
-        m.diffuse.wrapS = wrap
-        m.diffuse.wrapT = wrap
-        m.diffuse.mipFilter = .linear
-        m.diffuse.contentsTransform = SCNMatrix4MakeScale(Float(max(widthFt, 0.05) / stoneSpanFt),
-                                                          Float(max(heightFt, 0.05) / stoneSpanFt), 1)
+        let photo = look.photoID != nil
+        let span = photo ? 3.0 : StoneMaps.spanFt(look.pattern)
+        m.diffuse.contents = photo ? StonePatterns.image(look, pixels: 512) : StonePatterns.patternImage(look, pixels: 512)
+        var t = SCNMatrix4MakeScale(Float(max(widthFt, 0.05) / span), Float(max(heightFt, 0.05) / span), 1)
+        if look.runsAcross { t = SCNMatrix4Mult(t, SCNMatrix4MakeRotation(.pi / 2, 0, 0, 1)) }
+        let wrap: SCNWrapMode = photo ? .mirror : .repeat
+        for p in [m.diffuse, m.normal] {
+            p.wrapS = wrap
+            p.wrapT = wrap
+            p.mipFilter = .linear
+            p.contentsTransform = t
+        }
+        if !photo, let surface = StoneMaps.surface(look.pattern) {
+            m.normal.contents = surface
+            m.normal.intensity = look.honed ? 0.7 : 0.35
+        }
         if look.honed {
             m.lightingModel = .lambert
         } else {

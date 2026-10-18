@@ -80,7 +80,11 @@ domain.
   Edges Library, else uses the default. (Files exported before 2026-10-17 may
   say "Polished" or "All Edges Polished"; they mean "standard".) The
   spreadsheet says "All Edges Finished".
-- **material**: absent until TileRate has material choices; then a string.
+- **material** (added 2026-10-18): the stone, once one is chosen in TileRate —
+  its name from the owner's My Stones ("Taj Mahal"), else its kind
+  ("quartzite", "granite", "soapstone"…). Absent when no stone has been chosen.
+- **finish** (added 2026-10-18): "polished" or "honed", with `material`.
+  Pieces in different stones are separate rows even when the same size.
 - **quantity**: identical pieces of one thing are one row.
 
 ### Reading rules (for FabSpecPro)
@@ -125,7 +129,7 @@ agree.
 
 Free in TileRate, for anyone: one row per piece, decimal inches.
 
-`Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Qty,Notes`
+`Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Material,Finish,Qty,Notes`
 
-A Material column will be added when TileRate has material choices. There is
+Material and Finish are blank until a stone is chosen (added 2026-10-18). There is
 no PDF: a drawing of each piece is FabSpecPro's.

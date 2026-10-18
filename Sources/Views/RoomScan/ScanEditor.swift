@@ -1889,6 +1889,7 @@ struct ScanEditor: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Stone pieces").font(.ndTitle(20))
                 areaStoneRow
+                resetPieceStones
                 if area == .shower, !takeoff.curbless {
                     InchField(title: "Curb height", inches: Binding(
                         get: { takeoff.curbHeightIn ?? stone.curbHeightIn },
@@ -1956,6 +1957,23 @@ struct ScanEditor: View {
         .buttonStyle(.plain)
     }
 
+    /// Every piece back on the area's stone (owner, 2026-10-18), shown when any has its own.
+    @ViewBuilder
+    private var resetPieceStones: some View {
+        let own = takeoff.stoneLooks.count
+        if own > 0 {
+            Button {
+                takeoff.stoneLooks = [:]
+            } label: {
+                Label(own == 1 ? "Put the 1 piece with its own stone back on the area's"
+                               : "Put the \(own) pieces with their own stone back on the area's",
+                      systemImage: "arrow.uturn.backward")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .tint(ND.link)
+        }
+    }
+
     private func stoneCaption(_ l: StoneAppearance) -> String {
         let what = l.photoID != nil ? "Photo of the slab" : l.pattern.fullName
         return [l.name, what, l.honed ? "honed" : "polished"].compactMap { $0 }.joined(separator: " · ")
@@ -1985,7 +2003,11 @@ struct ScanEditor: View {
             }
         } else {
             StonePickerSheet(title: pick.title, start: takeoff.stone(for: pick.id), areaLook: takeoff.areaStone,
-                             startsFollowingArea: takeoff.stoneLooks[pick.id] == nil) { chosen in
+                             startsFollowingArea: takeoff.stoneLooks[pick.id] == nil,
+                             onUseForAll: { chosen in
+                                 takeoff.stoneLook = chosen
+                                 takeoff.stoneLooks = [:]
+                             }) { chosen in
                 takeoff.stoneLooks[pick.id] = chosen
             }
         }

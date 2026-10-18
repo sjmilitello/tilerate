@@ -811,15 +811,28 @@ extension AreaTakeoff {
                 rate = total
                 unit = ""
             }
+            // The stone it's in, when one has been chosen (owner, 2026-10-18):
+            // "Stone curb – Taj Mahal, polished"; several as "… & …".
+            var named: [String] = []
+            for p in stone {
+                guard let look = chosenStone(for: p.key) else { continue }
+                let l = look.label
+                let text = "\(l.material), \(l.finish)"
+                if !named.contains(text) { named.append(text) }
+            }
+            let activity = named.isEmpty ? group.line : "\(group.line) – " + named.joined(separator: " & ")
             if let i = section.additionsLabor.firstIndex(where: { $0.id == id }) {
                 section.additionsLabor[i].qty = qty
+                // Its words follow the stone unless they've been typed over.
+                let was = section.additionsLabor[i].activity
+                if was == group.line || was.hasPrefix(group.line + " – ") { section.additionsLabor[i].activity = activity }
                 // A price changed on the estimate stays while the line's unit does.
                 if section.additionsLabor[i].unit != unit || unit.isEmpty {
                     section.additionsLabor[i].unit = unit
                     section.additionsLabor[i].rate = rate
                 }
             } else {
-                section.additionsLabor.append(AdditionItem(id: id, activity: group.line, qty: qty, rate: rate, unit: unit))
+                section.additionsLabor.append(AdditionItem(id: id, activity: activity, qty: qty, rate: rate, unit: unit))
             }
         }
         // The stone material on its own line, when listed apart.

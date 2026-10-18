@@ -1429,7 +1429,22 @@ base a little (`StoneMaps.darkMarkings`). Each map keeps its photo's own
 contrast (solid, concrete and limestone softened), so quiet stone stays
 quiet. To change a pattern's photo, remake its map the same way (median
 and 1st/99th percentile of the luminance) rather than editing the image.
-Drawn images are cached. The picker (`StonePickerSheet`): a big preview in the chosen
+Drawn images are cached. Bold veins is Marble002 and coarse granite
+Granite007A (2026-10-18, replacing weaker picks). Each pattern is drawn at
+its real size (`StoneMaps.spanFt`: bold marble and onyx 6′ a repeat, fine
+granite 1½′; owner chose no size control) with the photo's surface
+(`StoneNormal-<pattern>`, a normal map, stronger when honed); patterns that
+run one way (`hasDirection`) can run along the piece or across it
+(`StoneAppearance.across`, "Veins run" in the picker; the image is turned,
+not redrawn). Stone pieces → "Use this stone for every piece" (in a piece's
+picker: the area's stone, own stones cleared) and "Put … back on the area's"
+(owner, 2026-10-18). Once a stone is chosen (`chosenStone(for:)`), each
+stone line on the estimate names it — "Stone curb – Taj Mahal, polished",
+its My Stones name else its kind (`Pattern.kindWord`), several joined with
+" & " — unless the line's words were typed over; never-chosen stone keeps
+the old wording. The cutlist carries `material` and `finish` the same way
+(JSON fields, spreadsheet columns), and pieces in different stones aren't
+merged. The picker (`StonePickerSheet`): a big preview in the chosen
 colours, Polished/Honed, My Stones and Recently used (`StoneLibrary`,
 UserDefaults, an unreadable list kept aside as ".unreadable"), the pattern
 swatches each in its own usual colours (owner's call, so every pattern is

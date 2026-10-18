@@ -13,7 +13,8 @@ struct StoneSwatch: View {
         self.look = look
         self.pixels = pixels
         self.showFinish = showFinish
-        _image = State(initialValue: look.photoID == nil ? StonePatterns.cachedPattern(look, pixels: pixels) : nil)
+        _image = State(initialValue: look.photoID == nil
+                       ? StonePatterns.cachedPattern(look, pixels: pixels).map { StonePatterns.turned($0, look) } : nil)
     }
 
     var body: some View {
@@ -29,14 +30,15 @@ struct StoneSwatch: View {
             }
         }
         .clipped()
-        .task(id: "\(look.drawingKey)@\(pixels)") { image = await render() }
+        .task(id: "\(look.drawingKey)@\(pixels)\(look.runsAcross ? "x" : "")") { image = await render() }
     }
 
     private func render() async -> UIImage? {
         if let id = look.photoID { return TilePhotos.image(id) }
-        if let done = StonePatterns.cachedPattern(look, pixels: pixels) { return done }
+        if let done = StonePatterns.cachedPattern(look, pixels: pixels) { return StonePatterns.turned(done, look) }
         let l = look, px = pixels
-        return await Task.detached(priority: .userInitiated) { StonePatterns.patternImage(l, pixels: px) }.value
+        let made = await Task.detached(priority: .userInitiated) { StonePatterns.patternImage(l, pixels: px) }.value
+        return StonePatterns.turned(made, look)
     }
 }
 
@@ -53,6 +55,8 @@ struct StonePickerSheet: View {
     var startsFollowingArea = false
     /// The stone chosen; nil when a piece follows the area's.
     let onDone: (StoneAppearance?) -> Void
+    /// For one piece: make this the area's stone and every piece follow it.
+    var onUseForAll: ((StoneAppearance) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var library = StoneLibrary.shared
@@ -68,7 +72,8 @@ struct StonePickerSheet: View {
     enum Well { case base, markings, second }
 
     init(title: String, start: StoneAppearance, areaLook: StoneAppearance? = nil, startsFollowingArea: Bool = false,
-         onDone: @escaping (StoneAppearance?) -> Void) {
+         onUseForAll: ((StoneAppearance) -> Void)? = nil, onDone: @escaping (StoneAppearance?) -> Void) {
+        self.onUseForAll = onUseForAll
         self.title = title
         self.start = start
         self.areaLook = areaLook
@@ -101,10 +106,30 @@ struct StonePickerSheet: View {
                             Text("Honed").tag(true)
                         }
                         .pickerStyle(.segmented)
+                        if shown.photoID == nil, shown.pattern.hasDirection {
+                            VStack(alignment: .leading, spacing: 8) {
+                                NDLabel("\(shown.pattern.markings) run")
+                                Picker("Direction", selection: Binding(get: { shown.across }, set: { v in edit { $0.across = v } })) {
+                                    Text("Along the piece").tag(false)
+                                    Text("Across").tag(true)
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                        }
                         if !library.mine.isEmpty { myStones }
                         if !library.recent.isEmpty { recentRow }
                         patterns(width: geo.size.width - 32)
                         photoRow
+                        if let onUseForAll {
+                            Button {
+                                if !follow { library.used(look) }
+                                onUseForAll(shown)
+                                dismiss()
+                            } label: {
+                                Label("Use this stone for every piece", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(NDSecondaryButtonStyle())
+                        }
                         Button { newName = look.name ?? ""; naming = true } label: {
                             Label(look.name == nil ? "Save to My Stones" : "Save to My Stones as…", systemImage: "star")
                                 .frame(maxWidth: .infinity)

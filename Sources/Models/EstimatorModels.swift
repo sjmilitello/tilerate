@@ -770,6 +770,19 @@ struct StoneAppearance: Codable, Hashable, Equatable {
             }
         }
         var usesMarkings: Bool { self != .solid }
+        /// Patterns whose veins or bands run one way, so they can run along
+        /// a piece or across it (owner, 2026-10-18).
+        var hasDirection: Bool {
+            [.softVeins, .boldVeins, .quartziteLinear, .graniteFlowing, .travertine, .onyx].contains(self)
+        }
+        /// What the stone is called on the estimate when it has no name:
+        /// "marble", "quartzite", "granite", "quartz", "soapstone"…
+        var kindWord: String {
+            switch self {
+            case .soapstone, .travertine, .limestone, .onyx: name.lowercased()
+            default: family.lowercased()
+            }
+        }
         /// Patterns drawn with a second colour of markings.
         var usesSecond: Bool {
             [.boldVeins, .quartziteLinear, .quartziteCloudy, .graniteFine, .graniteCoarse,
@@ -806,6 +819,8 @@ struct StoneAppearance: Codable, Hashable, Equatable {
     var markings: String = "#9A9EA3"
     var second: String? = nil
     var honed: Bool = false
+    /// Its veins or bands run across the piece, not along it (owner, 2026-10-18).
+    var across: Bool = false
     /// A photo of the real slab (`TilePhotos`), drawn instead of the pattern.
     var photoID: String? = nil
     /// Its name in My Stones, if it has one.
@@ -828,7 +843,17 @@ struct StoneAppearance: Codable, Hashable, Equatable {
     }
 
     /// Two stones look the same, whatever they're called.
-    func looksLike(_ other: StoneAppearance) -> Bool { drawingKey == other.drawingKey && honed == other.honed }
+    func looksLike(_ other: StoneAppearance) -> Bool {
+        drawingKey == other.drawingKey && honed == other.honed && runsAcross == other.runsAcross
+    }
+
+    /// Across, for a pattern that runs one way.
+    var runsAcross: Bool { across && photoID == nil && pattern.hasDirection }
+
+    /// On the estimate and the cutlist: its name, else the kind of stone; and its finish.
+    var label: (material: String, finish: String) {
+        (name ?? (photoID != nil ? "chosen slab" : pattern.kindWord), honed ? "honed" : "polished")
+    }
 }
 
 /// A stone piece's thickness: 3 cm, 2 cm, ¾″… (owner, 2026-10-16).
@@ -2268,6 +2293,7 @@ extension StoneAppearance {
         c.read(.markings, into: &markings)
         c.read(.second, into: &second)
         c.read(.honed, into: &honed)
+        c.read(.across, into: &across)
         c.read(.photoID, into: &photoID)
         c.read(.name, into: &name)
     }

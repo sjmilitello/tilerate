@@ -38,6 +38,13 @@ extension AreaTakeoff {
     /// A corner shelf's, seat's or footrest's key for its stone.
     static func cornerKey(_ item: Item) -> String { "corner:\(item.id)" }
 
+    /// A piece's stone for the estimate and cutlist, when a stone has been
+    /// chosen for it or its area (owner, 2026-10-18); nil: the standard stone,
+    /// never chosen, so lines read as they always have.
+    func chosenStone(for key: String) -> StoneAppearance? {
+        stoneLooks[key] ?? stoneLook
+    }
+
     /// For drawing: these pieces' stone and bare ones, with their looks.
     func stoneKeys(_ pieces: [TrimPiece]) -> StoneKeys {
         StoneKeys(keys: Self.drawnFinishKeys(pieces), area: areaStone, looks: stoneLooks)

@@ -56,7 +56,7 @@ enum StoneCutlistExport {
             "customer": ["name": customer.name, "address": customer.address, "address2": customer.address2,
                          "cityStateZip": customer.cityStateZip],
             "pieces": pieces.map { p -> [String: Any] in
-                [
+                var row: [String: Any] = [
                     "id": p.id, "name": p.name, "group": p.group, "type": p.type, "shape": p.shape.rawValue,
                     "lengthIn": round(p.lengthIn), "widthIn": round(p.widthIn),
                     "thickness": ["value": round(p.thickness.value), "unit": p.thickness.unit.rawValue],
@@ -64,6 +64,10 @@ enum StoneCutlistExport {
                     "edges": p.edges,
                     "quantity": p.quantity, "notes": [String](),
                 ]
+                // The stone, once one is chosen (owner, 2026-10-18).
+                if let m = p.material { row["material"] = m }
+                if let f = p.finish { row["finish"] = f }
+                return row
             },
         ]
         let options: JSONSerialization.WritingOptions = compact ? [.sortedKeys, .withoutEscapingSlashes]
@@ -77,11 +81,12 @@ enum StoneCutlistExport {
             s.contains(",") || s.contains("\"") || s.contains("\n") ? "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : s
         }
         func number(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...4)).grouping(.never).locale(Locale(identifier: "en_US"))) }
-        var rows = ["Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Qty,Notes"]
+        var rows = ["Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Material,Finish,Qty,Notes"]
         for p in pieces {
             rows.append([p.name, p.group, p.type, p.shape == .rightTriangle ? "Right triangle" : "Rectangle",
                          number(p.lengthIn), number(p.widthIn), p.thickness.text,
-                         p.edges == "standard" ? "All Edges Finished" : p.edges, String(p.quantity), ""]
+                         p.edges == "standard" ? "All Edges Finished" : p.edges, p.material ?? "", p.finish ?? "",
+                         String(p.quantity), ""]
                 .map(cell).joined(separator: ","))
         }
         return rows.joined(separator: "\n") + "\n"

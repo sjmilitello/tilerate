@@ -120,4 +120,82 @@ struct StoneLookTests {
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         return out
     }
+
+    // MARK: Direction, names on the estimate and cutlist (owner, 2026-10-18)
+
+    @Test func veinsRunAcrossOnlyWhereThePatternHasADirection() throws {
+        var l = StoneAppearance.usual(.quartziteLinear)
+        #expect(!l.runsAcross)
+        l.across = true
+        #expect(l.runsAcross)
+        let back = try JSONDecoder().decode(StoneAppearance.self, from: JSONEncoder().encode(l))
+        #expect(back.across && back.looksLike(l))
+        #expect(!l.looksLike(.usual(.quartziteLinear)))
+        var g = StoneAppearance.usual(.graniteFine)
+        g.across = true
+        #expect(!g.runsAcross)                      // flecks have no direction
+    }
+
+    func cornerShower() -> (ScannedRoom, AreaTakeoff) {
+        let room = RoomSketch.room(.rectangle, .init(widthIn: 120, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 9.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        t.trim = [.init(key: "curb", stone: true), .init(key: "curb:inside", stone: true)]
+        return (room, t)
+    }
+
+    func curbLine(_ t: AreaTakeoff, _ room: ScannedRoom, into s: inout EstimateSection) -> String? {
+        t.apply(room, to: &s)
+        return s.additionsLabor.first { $0.id == AreaTakeoff.stoneLineID(s.id, StoneGroup.curb) }?.activity
+    }
+
+    @Test func theEstimateNamesTheStoneOnceOneIsChosen() {
+        var (room, t) = cornerShower()
+        var s = EstimateSection()
+        s.area = .shower
+        // Never chosen: the line reads as it always has.
+        #expect(curbLine(t, room, into: &s) == "Stone curb")
+        var taj = StoneAppearance.usual(.quartziteLinear)
+        taj.name = "Taj Mahal"
+        t.stoneLook = taj
+        #expect(curbLine(t, room, into: &s) == "Stone curb – Taj Mahal, polished")
+        // A piece in an unnamed stone of its own: its kind and finish, both listed.
+        var black = StoneAppearance.usual(.graniteFine)
+        black.honed = true
+        t.stoneLooks["curb:inside"] = black
+        #expect(curbLine(t, room, into: &s) == "Stone curb – Taj Mahal, polished & granite, honed")
+        // Words typed over on the estimate stay.
+        if let i = s.additionsLabor.firstIndex(where: { $0.id == AreaTakeoff.stoneLineID(s.id, StoneGroup.curb) }) {
+            s.additionsLabor[i].activity = "Curb in customer's own slab"
+        }
+        #expect(curbLine(t, room, into: &s) == "Curb in customer's own slab")
+    }
+
+    @Test func theCutlistCarriesTheStoneAndKeepsDifferentStonesApart() throws {
+        var (room, t) = cornerShower()
+        #expect(t.cutlist(in: room, area: .shower, curbHeightIn: 4, prices: StonePrices()).allSatisfy { $0.material == nil && $0.finish == nil })
+        var taj = StoneAppearance.usual(.quartziteLinear)
+        taj.name = "Taj Mahal"
+        t.stoneLook = taj
+        t.stoneLooks["curb:inside"] = .usual(.soapstone)
+        let list = t.cutlist(in: room, area: .shower, curbHeightIn: 4, prices: StonePrices())
+        let tops = list.filter { $0.type == "curbTop" }
+        #expect(!tops.isEmpty && tops.allSatisfy { $0.material == "Taj Mahal" && $0.finish == "polished" })
+        let inside = list.filter { $0.type == "curbInside" }
+        #expect(!inside.isEmpty && inside.allSatisfy { $0.material == "soapstone" })
+        let json = StoneCutlistExport.json(pieces: list, customer: PartyInfo(name: "Smith", address: "", address2: "", cityStateZip: "", phone: "", email: ""),
+                                           estimateID: UUID(), estimateNumber: 1, title: "Smith")
+        let body = try #require(try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let rows = try #require(body["pieces"] as? [[String: Any]])
+        #expect(rows.contains { $0["material"] as? String == "Taj Mahal" && $0["finish"] as? String == "polished" })
+    }
+
+    @Test func everyPatternHasASurfaceAndARealSize() {
+        for p in StoneAppearance.Pattern.allCases {
+            #expect(StoneMaps.surface(p) != nil, "no surface for \(p)")
+            #expect(StoneMaps.spanFt(p) >= 1.5 && StoneMaps.spanFt(p) <= 6)
+        }
+        #expect(StoneMaps.spanFt(.boldVeins) > StoneMaps.spanFt(.graniteFine))
+    }
 }

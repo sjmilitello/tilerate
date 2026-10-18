@@ -124,8 +124,9 @@ struct StoneCutlistTests {
         let unzipped = try (Data(base64Encoded: b64)! as NSData).decompressed(using: .zlib) as Data
         #expect((try JSONSerialization.jsonObject(with: unzipped) as? [String: Any])?["format"] as? String == "stone-cutlist")
         let csv = StoneCutlistExport.csv(pieces: pieces).split(separator: "\n")
-        #expect(csv[0] == "Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Qty,Notes")
-        #expect(csv[1].hasPrefix("Curb A Top,Curb,curbTop,Rectangle,52.5,4.5,3 cm,All Edges Finished,1"))
+        #expect(csv[0] == "Piece,Group,Type,Shape,Length (in),Width (in),Thickness,Edges,Material,Finish,Qty,Notes")
+        // No stone chosen: material and finish left blank.
+        #expect(csv[1].hasPrefix("Curb A Top,Curb,curbTop,Rectangle,52.5,4.5,3 cm,All Edges Finished,,,1"))
         _ = room
     }
 }

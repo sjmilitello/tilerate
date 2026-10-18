@@ -43,6 +43,10 @@ struct CutPiece: Equatable {
     /// "standard": every edge finished with the shop's standard edge, no
     /// profile (owner, 2026-10-17); a profile's own name if TileRate gets them.
     var edges = "standard"
+    /// The stone, when one has been chosen (owner, 2026-10-18): its My Stones
+    /// name, else the kind ("quartzite"); and "polished" or "honed".
+    var material: String? = nil
+    var finish: String? = nil
     var quantity = 1
     /// Filled in by `cutlist`: "Curb A Top", "Niche Jambs".
     var name = ""
@@ -299,6 +303,12 @@ extension AreaTakeoff {
             return cuts
         }
         pieces += cornerCutPieces(in: room)
+        for i in pieces.indices {
+            let key = pieces[i].key.isEmpty ? "corner:\(pieces[i].object)" : pieces[i].key
+            if let look = chosenStone(for: key) {
+                (pieces[i].material, pieces[i].finish) = look.label
+            }
+        }
         return Self.named(pieces)
     }
 
@@ -308,6 +318,7 @@ extension AreaTakeoff {
         func same(_ a: CutPiece, _ b: CutPiece) -> Bool {
             a.family == b.family && a.part == b.part && a.type == b.type && a.shape == b.shape
                 && a.lengthIn == b.lengthIn && a.widthIn == b.widthIn && a.thickness == b.thickness && a.edges == b.edges
+                && a.material == b.material && a.finish == b.finish
         }
         for p in pieces {
             if p.side != nil, let i = merged.firstIndex(where: { $0.object == p.object && $0.side != nil && same($0, p) }) {

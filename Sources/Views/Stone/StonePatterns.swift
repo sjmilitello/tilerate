@@ -51,7 +51,13 @@ enum StonePatterns {
     /// The stone as drawn: its photo, else its pattern. Main thread.
     static func image(_ look: StoneAppearance, pixels: Int) -> UIImage {
         if let id = look.photoID, let photo = TilePhotos.image(id) { return photo }
-        return patternImage(look, pixels: pixels)
+        return turned(patternImage(look, pixels: pixels), look)
+    }
+
+    /// Veins across: the same pixels, turned a quarter (no redrawing).
+    static func turned(_ image: UIImage, _ look: StoneAppearance) -> UIImage {
+        guard look.runsAcross, let cg = image.cgImage else { return image }
+        return UIImage(cgImage: cg, scale: image.scale, orientation: .right)
     }
 
     static func rgb(_ hex: String) -> SIMD3<Float> {
@@ -80,13 +86,13 @@ enum StoneMaps {
     static func source(_ p: StoneAppearance.Pattern) -> String {
         switch p {
         case .softVeins: "Marble001"
-        case .boldVeins: "Marble006"
+        case .boldVeins: "Marble002"
         case .web: "Marble017"
         case .breccia: "Marble014"
         case .quartziteLinear: "Onyx004"
         case .quartziteCloudy: "Marble012"
         case .graniteFine: "Granite002A"
-        case .graniteCoarse: "Granite003A"
+        case .graniteCoarse: "Granite007A"
         case .graniteFlowing: "Onyx012"
         case .solid: "Marble015"
         case .concrete: "Concrete034"
@@ -102,10 +108,27 @@ enum StoneMaps {
     /// rest of it lightens the base; else it darkens it.
     static func darkMarkings(_ p: StoneAppearance.Pattern) -> Bool {
         switch p {
-        case .softVeins, .breccia, .quartziteCloudy, .graniteFine, .graniteCoarse, .concrete, .terrazzo, .limestone: true
+        case .softVeins, .breccia, .quartziteCloudy, .graniteFine, .concrete, .terrazzo, .limestone: true
         default: false
         }
     }
+
+    /// How much stone one map covers, in feet: its real size (owner,
+    /// 2026-10-18), so bold veins run like a slab's and granite's flecks stay small.
+    static func spanFt(_ p: StoneAppearance.Pattern) -> Double {
+        switch p {
+        case .boldVeins, .onyx: 6
+        case .quartziteLinear, .graniteFlowing: 5
+        case .softVeins, .breccia, .quartziteCloudy, .concrete, .travertine: 4
+        case .web, .solid, .soapstone, .limestone: 3
+        case .graniteCoarse: 2.5
+        case .terrazzo: 2
+        case .graniteFine: 1.5
+        }
+    }
+
+    /// The stone's surface (a normal map, from the same photo) for 3-D.
+    static func surface(_ p: StoneAppearance.Pattern) -> UIImage? { UIImage(named: "StoneNormal-\(p.rawValue)") }
 
     /// The map at `n` pixels square: 128 the stone's middle tone, up to 255
     /// fully its markings, down to 0 the other way.
