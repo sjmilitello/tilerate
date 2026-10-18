@@ -83,9 +83,18 @@ struct StonePickerSheet: View {
     var body: some View {
         NavigationStack {
             GeometryReader { geo in
+                VStack(spacing: 0) {
+                // The stone and its colours stay in view while the rest scrolls
+                // (owner, 2026-10-17: the preview scrolled away while choosing colours).
+                VStack(alignment: .leading, spacing: 10) {
+                    preview
+                    colourStrip
+                }
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
+                .background(ND.ground)
+                Divider().overlay(ND.border)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        preview
                         if let areaLook { followRow(areaLook) }
                         Picker("Finish", selection: Binding(get: { look.honed }, set: { v in edit { $0.honed = v } })) {
                             Text("Polished").tag(false)
@@ -95,7 +104,6 @@ struct StonePickerSheet: View {
                         if !library.mine.isEmpty { myStones }
                         if !library.recent.isEmpty { recentRow }
                         patterns(width: geo.size.width - 32)
-                        colours
                         photoRow
                         Button { newName = look.name ?? ""; naming = true } label: {
                             Label(look.name == nil ? "Save to My Stones" : "Save to My Stones as…", systemImage: "star")
@@ -104,6 +112,7 @@ struct StonePickerSheet: View {
                         .buttonStyle(NDSecondaryButtonStyle())
                     }
                     .padding(16)
+                }
                 }
             }
             .background(ND.ground)
@@ -168,7 +177,7 @@ struct StonePickerSheet: View {
     private var preview: some View {
         VStack(alignment: .leading, spacing: 8) {
             StoneSwatch(look: shown, pixels: 512, showFinish: true)
-                .frame(height: 190)
+                .frame(height: 165)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             Text(caption(shown)).font(.system(size: 14)).foregroundStyle(ND.muted)
         }
@@ -305,32 +314,63 @@ struct StonePickerSheet: View {
 
     // MARK: Colour
 
-    private var colours: some View {
-        let p = look.pattern
-        return VStack(alignment: .leading, spacing: 12) {
-            NDLabel("Colour")
-            if look.photoID != nil {
-                Text("Using your photo of the slab. Choose a pattern to draw it from colours instead.")
-                    .font(.system(size: 13)).foregroundStyle(ND.muted)
-            } else {
-                HStack(spacing: 8) {
-                    wellButton(.base, "Base", look.base)
-                    if p.usesMarkings { wellButton(.markings, p.markings, look.markings) }
-                    if p.usesSecond { wellButton(.second, "2nd " + p.markings.lowercased(), look.second) }
+    /// The wells, then every colour in one sideways strip: each family
+    /// light to dark, a gap between families, Any colour at the end.
+    @ViewBuilder
+    private var colourStrip: some View {
+        let p = shown.pattern
+        if shown.photoID != nil {
+            Text("Using your photo of the slab. Choose a pattern below to draw it from colours instead.")
+                .font(.system(size: 13)).foregroundStyle(ND.muted)
+        } else {
+            HStack(spacing: 8) {
+                wellButton(.base, "Base", shown.base)
+                if p.usesMarkings { wellButton(.markings, p.markings, shown.markings) }
+                if p.usesSecond { wellButton(.second, "2nd " + p.markings.lowercased(), shown.second) }
+            }
+            let chosen = current?.uppercased()
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        if well == .second {
+                            Button { edit { $0.second = nil } } label: {
+                                RoundedRectangle(cornerRadius: 8).fill(ND.surface)
+                                    .overlay(Image(systemName: "slash.circle").foregroundStyle(ND.muted))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(look.second == nil ? ND.link : ND.border,
+                                                                                      lineWidth: look.second == nil ? 3 : 1))
+                                    .frame(width: 38, height: 46)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.trailing, 8)
+                        }
+                        ForEach(0..<StonePatterns.palette[0].count, id: \.self) { column in
+                            HStack(spacing: 4) {
+                                ForEach(StonePatterns.palette.map { $0[column] }, id: \.self) { hex in
+                                    Button { set(hex) } label: {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(Color(uiColor: StonePatterns.uiColor(hex)))
+                                            .frame(width: 38, height: 46)
+                                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                .stroke(chosen == hex ? ND.link : Color.white.opacity(0.08),
+                                                        lineWidth: chosen == hex ? 3 : 1))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(hex)
+                                }
+                            }
+                            .padding(.trailing, 10)
+                        }
+                        ColorPicker(selection: Binding(
+                            get: { Color(uiColor: StonePatterns.uiColor(current ?? look.base)) },
+                            set: { set(StonePatterns.hex(UIColor($0))) }), supportsOpacity: false) { EmptyView() }
+                            .labelsHidden()
+                            .frame(width: 46, height: 46)
+                    }
+                    .padding(.vertical, 3)
                 }
-                colourGrid
-                HStack {
-                    ColorPicker(selection: Binding(
-                        get: { Color(uiColor: StonePatterns.uiColor(current ?? look.base)) },
-                        set: { set(StonePatterns.hex(UIColor($0))) }), supportsOpacity: false) {
-                        Label("Any colour", systemImage: "plus").font(.system(size: 15, weight: .semibold)).foregroundStyle(ND.link)
-                    }
-                    .fixedSize()
-                    Spacer()
-                    if well == .second, look.second != nil {
-                        Button("No second colour") { edit { $0.second = nil } }
-                            .font(.system(size: 15, weight: .semibold)).tint(ND.link)
-                    }
+                .onAppear { if let chosen { proxy.scrollTo(chosen, anchor: .center) } }
+                .onChange(of: well) { _, _ in
+                    if let c = current?.uppercased() { withAnimation { proxy.scrollTo(c, anchor: .center) } }
                 }
             }
         }
@@ -338,9 +378,9 @@ struct StonePickerSheet: View {
 
     private var current: String? {
         switch well {
-        case .base: look.base
-        case .markings: look.markings
-        case .second: look.second
+        case .base: shown.base
+        case .markings: shown.markings
+        case .second: shown.second
         }
     }
 
@@ -371,26 +411,6 @@ struct StonePickerSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(on ? ND.link : ND.border, lineWidth: on ? 2.5 : 1))
         }
         .buttonStyle(.plain)
-    }
-
-    private var colourGrid: some View {
-        let chosen = current?.uppercased()
-        return VStack(spacing: 6) {
-            ForEach(StonePatterns.palette, id: \.self) { row in
-                HStack(spacing: 6) {
-                    ForEach(row, id: \.self) { hex in
-                        Button { set(hex) } label: {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Color(uiColor: StonePatterns.uiColor(hex)))
-                                .frame(height: 30)
-                                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(chosen == hex ? ND.link : Color.white.opacity(0.08), lineWidth: chosen == hex ? 3 : 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
     }
 
     private var photoRow: some View {

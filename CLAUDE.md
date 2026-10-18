@@ -1423,9 +1423,11 @@ match). The picker (`StonePickerSheet`): a big preview in the chosen
 colours, Polished/Honed, My Stones and Recently used (`StoneLibrary`,
 UserDefaults, an unreadable list kept aside as ".unreadable"), the pattern
 swatches each in its own usual colours (owner's call, so every pattern is
-recognisable; picking one keeps the chosen colours), one colour grid
-(`StonePatterns.palette`: families across, light to dark down, even OKLCH
-steps) with wells choosing what it colours, Any colour, the slab photo, and
+recognisable; picking one keeps the chosen colours), the colours
+(`StonePatterns.palette`: eight families, each light to dark in even OKLCH
+steps) in one sideways strip with wells choosing what it colours and Any
+colour at its end — pinned under the preview with it, so the stone stays in
+view while colours are chosen (owner, 2026-10-17) — the slab photo, and
 Save to My Stones. It opens from Stone pieces → This area's stone and from
 the swatch on each stone piece's row (owner, 2026-10-17), where "Same as the
 area's stone" is offered. In 3-D (`Room3DScene.stoneMaterial`) each piece is
