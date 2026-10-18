@@ -1247,6 +1247,9 @@ struct TrimPiece: Identifiable, Equatable {
     let measuredFt: Double
     var lengthFt: Double
     var stone: Bool
+    /// Tile, stone or none; none only outside the shower (owner, 2026-10-17).
+    var finish: TrimFinish = .tile
+    var noneAllowed = false
     /// The pieces to order for it (owner, 2026-10-16), and their square feet.
     var cuts: [CutPiece] = []
     var cutSqft: Double? = nil
@@ -1263,7 +1266,7 @@ extension AreaTakeoff {
     /// - Other areas: a cap on each knee wall they tile, and a jamb on each
     ///   of its open ends, floor to cap.
     func trimPieces(in room: ScannedRoom, area: Area?, curbHeightIn: Double, prices: StonePrices = StonePrices()) -> [TrimPiece] {
-        let (out, defaults) = trimEntries(in: room, area: area, curbHeightIn: curbHeightIn)
+        let (out, defaults, outside) = trimEntries(in: room, area: area, curbHeightIn: curbHeightIn)
         // Each measured as the pieces to order (owner, 2026-10-16): prices
         // follow the same sizes as the cutlist.
         let cuts = cutPieces(entries: out.map { (key: $0.0, kind: $0.1, name: $0.2, ft: $0.3) }, in: room, area: area,
@@ -1275,13 +1278,18 @@ extension AreaTakeoff {
             let measured = pieces.isEmpty ? ft : pieces.reduce(0) { $0 + $1.lengthIn * Double($1.quantity) } / 12
             let sqft: Double? = pieces.isEmpty ? nil : pieces.reduce(0) { $0 + $1.lengthIn * $1.widthIn * Double($1.quantity) } / 144
             let length = choice?.lengthFt ?? measured
+            // Outside the shower a piece can be none, and starts so (owner, 2026-10-17).
+            let allowNone = outside.contains(key)
+            var finish: TrimFinish = choice?.finish ?? choice.map { $0.stone ? .stone : .tile }
+                ?? (defaults[key] == true ? .stone : allowNone ? .none : .tile)
+            if finish == .none, !allowNone { finish = .tile }
             // A panel (a niche's back, a bench's top, front and end) by its own area.
             let panel = key.hasSuffix(":back") || key.hasPrefix("benchTop:") || key.hasPrefix("benchFront:") || key.hasPrefix("benchSide:")
             let scaled = sqft.map { measured > 0 ? $0 * length / measured : $0 }
             return TrimPiece(key: key, kind: kind, areaSqft: panel ? scaled : nil,
                              part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
                              name: name, measuredFt: measured,
-                             lengthFt: length, stone: choice?.stone ?? defaults[key] ?? false,
+                             lengthFt: length, stone: finish == .stone, finish: finish, noneAllowed: allowNone,
                              cuts: pieces, cutSqft: scaled)
         }
     }
@@ -1289,8 +1297,11 @@ extension AreaTakeoff {
     /// The stone choices this area has, as measured on the plan, and each
     /// niche's or window's part's starting choice.
     private func trimEntries(in room: ScannedRoom, area: Area?, curbHeightIn: Double)
-        -> ([(String, TrimKind, String, Double)], [String: Bool]) {
+        -> ([(String, TrimKind, String, Double)], [String: Bool], Set<String>) {
         var out: [(String, TrimKind, String, Double)] = []
+        // Pieces outside the shower — the curb's outside face, a wall's end
+        // facing out past the floor and curb — which can be none.
+        var outside = Set<String>()
         // Curbless: no curbs, and the jambs start at the floor.
         let curb = curbless ? 0 : (self.curbHeightIn ?? curbHeightIn) / 12
         let ceiling = room.ceilingFt
@@ -1311,6 +1322,7 @@ extension AreaTakeoff {
                 // Its faces below the top: wall faces, priced as curb (owner).
                 out.append(("curb:inside", .curb, "Curb inside face", width))
                 out.append(("curb:outside", .curb, "Curb outside face", width))
+                outside.insert("curb:outside")
             }
             // A framed bench the curb stops at shows its outside end at the entry.
             for b in curbRun.benches {
@@ -1339,6 +1351,7 @@ extension AreaTakeoff {
                                 guard !used.contains(k) else { continue }
                                 used.insert(k)
                                 out.append((k, .jamb, "Half wall \(wall.label) end", wall.heightFt))
+                                if endFacesOut(of: wall, start: start, in: room) { outside.insert(k) }
                             }
                         }
                     } else if let bench = curbRun.benches.first(where: { $0.wallID == wall.id }) {
@@ -1354,6 +1367,15 @@ extension AreaTakeoff {
                 }
             }
             for w in kneeWalls { out.append(("cap:\(w.id)", .cap, "Wall cap (half wall \(w.label))", w.lengthFt)) }
+            // The end of a full wall drawn in, where it faces out past the
+            // shower (owner, 2026-10-17: wall E's end on a corner shower).
+            for w in room.walls where w.planned && !room.isKneeWall(w) && pieces.contains(where: { $0.wallID == w.id }) {
+                for start in [true, false] where room.isFreeEnd(of: w, start: start) && endFacesOut(of: w, start: start, in: room) {
+                    let k = "wallEnd:\(w.id):\(start ? "start" : "end")"
+                    out.append((k, .jamb, "Wall \(w.label) end", w.heightFt))
+                    outside.insert(k)
+                }
+            }
             // A header on the ceiling over the entry and over each half wall's
             // cap, framing the ceiling tile, so glass can later sit between it
             // and the curb or cap (owner, 2026-10-13). Tile means none; priced
@@ -1382,6 +1404,7 @@ extension AreaTakeoff {
                     out.append(("curb:\(d.id)", .curb, "Curb (\(label))", width))
                     out.append(("curb:\(d.id):inside", .curb, "Curb inside face (\(label))", width))
                     out.append(("curb:\(d.id):outside", .curb, "Curb outside face (\(label))", width))
+                    outside.insert("curb:\(d.id):outside")
                 }
                 for side in ["left", "right"] {
                     out.append(("jamb:\(d.id):\(side)", .jamb, "\(side.capitalized) jamb (\(label))", max(0, jambTop - curb)))
@@ -1452,7 +1475,25 @@ extension AreaTakeoff {
                 }
             }
         }
-        return (out, defaults)
+        return (out, defaults, outside)
+    }
+
+    /// What the 3-D view needs: stone pieces by key, and pieces left bare
+    /// as "none#<key>" (owner, 2026-10-17: none draws as painted wall).
+    static func drawnFinishKeys(_ pieces: [TrimPiece]) -> Set<String> {
+        Set(pieces.compactMap { $0.finish == .stone ? $0.key : $0.finish == .none ? "none#\($0.key)" : nil })
+    }
+
+    /// Whether a wall's end, at `start` or its other end, faces out past the
+    /// shower: just beyond it is outside the floor and its curb.
+    func endFacesOut(of w: ScannedRoom.Wall, start: Bool, in room: ScannedRoom) -> Bool {
+        guard floor == .drawn, let r = floorRect, w.lengthFt > 0 else { return false }
+        let e = start ? w.start : w.end, o = start ? w.end : w.start
+        let p = ScannedRoom.Point(x: e.x + (e.x - o.x) / w.lengthFt * 0.08, y: e.y + (e.y - o.y) / w.lengthFt * 0.08)
+        let cw = curbless ? 0 : 4.5 / 12 + 0.01
+        let a = (p.x - r.origin.x) * r.u.x + (p.y - r.origin.y) * r.u.y
+        let b = (p.x - r.origin.x) * r.v.x + (p.y - r.origin.y) * r.v.y
+        return !(a >= -cw && a <= r.widthFt + cw && b >= -cw && b <= r.depthFt + cw)
     }
 
     /// A niche's or window's part ("shelf", "jambs", "header", "dividers";
@@ -1470,7 +1511,12 @@ extension AreaTakeoff {
 
     mutating func setPartStone(_ i: Item, _ part: String, _ on: Bool) {
         let key = Self.partKey(i, part)
-        if let k = trim.firstIndex(where: { $0.key == key }) { trim[k].stone = on } else { trim.append(.init(key: key, stone: on)) }
+        if let k = trim.firstIndex(where: { $0.key == key }) {
+            trim[k].stone = on
+            trim[k].finish = on ? .stone : .tile
+        } else {
+            trim.append(.init(key: key, stone: on, finish: on ? .stone : .tile))
+        }
     }
 
     /// Whether any part of a niche or window is stone.

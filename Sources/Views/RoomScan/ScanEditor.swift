@@ -277,7 +277,7 @@ struct ScanEditor: View {
     private var openSides: [AreaTakeoff.OpenSide] { area == .shower ? takeoff.openSides(in: room) : [] }
 
     private var content3D: Room3DContent {
-        let stoneParts = Set(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn).filter(\.stone).map(\.key))
+        let stoneParts = AreaTakeoff.drawnFinishKeys(takeoff.trimPieces(in: room, area: area, curbHeightIn: stone.curbHeightIn))
         return Room3DContent(room: room, takeoff: takeoff, area: area, tile: tile, floorTile: floorTile,
                              wallTiles: wallTiles, others: others,
                              curbHeightIn: takeoff.curbHeightIn ?? stone.curbHeightIn, stoneParts: stoneParts,
@@ -1947,7 +1947,7 @@ struct ScanEditor: View {
             if let i = takeoff.trim.firstIndex(where: { $0.key == piece.key }) {
                 change(&takeoff.trim[i])
             } else {
-                var c = AreaTakeoff.TrimChoice(key: piece.key)
+                var c = AreaTakeoff.TrimChoice(key: piece.key, stone: piece.finish == .stone, finish: piece.finish)
                 change(&c)
                 takeoff.trim.append(c)
             }
@@ -1960,12 +1960,16 @@ struct ScanEditor: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Picker("", selection: Binding(get: { piece.stone }, set: { v in update { $0.stone = v } })) {
-                    Text("Tile").tag(false)
-                    Text("Stone").tag(true)
+                // Outside the shower a piece can be none (owner, 2026-10-17).
+                Picker("", selection: Binding(get: { piece.finish }, set: { v in
+                    update { $0.finish = v; $0.stone = v == .stone }
+                })) {
+                    Text("Tile").tag(TrimFinish.tile)
+                    Text("Stone").tag(TrimFinish.stone)
+                    if piece.noneAllowed { Text("None").tag(TrimFinish.none) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 150)
+                .frame(width: piece.noneAllowed ? 200 : 150)
             }
             if piece.stone {
                 HStack(spacing: 10) {

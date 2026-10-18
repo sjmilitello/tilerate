@@ -102,6 +102,12 @@ xcrun devicectl device install app --device <iPhone UDID> "<derived data>/Build/
 
 `xcrun devicectl list devices` gives the UDID.
 
+iOS keeps a picture of the launch screen and reuses it while the build
+number (`CURRENT_PROJECT_VERSION`) stays the same. After changing the launch
+screen or its logo (`TileRateLaunch.storyboard`, `LaunchLogo`), raise the
+build number, or the phone keeps showing the old one (2026-10-17: it went
+from 1 to 2 for the new icon).
+
 ## The Admin unlock
 
 Admin opens with the phone's own Face ID, falling back to the phone passcode
@@ -381,6 +387,18 @@ Window group), a door's or opening's left and right jamb and header
 (`jamb:<id>:left|right`, `header:<id>`, the Door group; no header when it
 reaches the ceiling). Any area, not only showers; drawn in 3-D as stone on
 the opening's sides, underside and (a window's) sill. `RoomOpeningStoneTests`.
+
+**None, outside the shower** (owner, 2026-10-17): a piece outside the
+shower — the curb's outside face (and a shower door's), a wall's end that
+faces out past the floor and curb (`endFacesOut`), e.g. a full wall drawn
+in on a corner shower's curb ("Wall E end", `wallEnd:<id>:start|end`, priced
+and lined as a wall jamb) or a half wall's end out there — can be **None**
+(finished by someone else: painted drywall, glass) as well as Tile or Stone,
+and starts as None. Pieces inside the shower stay Tile or Stone.
+`TrimChoice.finish` (`TrimFinish`: tile, stone, none; nil = saved before, `stone`
+says), `TrimPiece.finish`/`noneAllowed`. None adds nothing to the price or the
+cutlist and draws as painted wall in 3-D (passed in the stone key set as
+"none#<key>", `drawnFinishKeys`). `NoneOutsideTheShowerTests`.
 
 **Stone cutlist** (owner, 2026-10-16; the format is `docs/stone-cutlist-format.md`,
 a public contract FabSpecPro owns). Every stone choice is measured as the

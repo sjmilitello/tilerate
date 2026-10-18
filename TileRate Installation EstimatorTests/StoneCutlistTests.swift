@@ -147,3 +147,48 @@ struct EstimateIDTests {
         #expect(a.id == b.id && a.id == doc.rooms[0].id)
     }
 }
+
+/// Outside the shower a piece can be none — the curb's outside face, a wall's
+/// end facing out — and starts so; inside, only tile or stone (owner, 2026-10-17).
+struct NoneOutsideTheShowerTests {
+    @Test func outsidePiecesCanBeNoneAndStartSo() throws {
+        // A corner shower (floor x 4…8, y 6…10) in a 96″ × 120″ room, a full
+        // wall on its left curb running out past the curb, a half wall partway
+        // along its front curb.
+        var room = RoomSketch.room(.rectangle, .init(widthIn: 96, depthIn: 120, ceilingIn: 96))
+        var t = AreaTakeoff()
+        t.floor = .drawn
+        _ = t.placeShower(near: .init(x: 7.5, y: 9.5), in: room, curbWidthFt: 4.5 / 12)
+        let x = 4 - 2.25 / 12
+        let e = room.addPlannedWall(from: .init(x: x, y: 10), to: .init(x: x, y: 6 - 4.5 / 12), heightIn: 96, thicknessIn: 4.5)
+        let y = 6 - 2.25 / 12
+        let g = room.addPlannedWall(from: .init(x: 6.5, y: y), to: .init(x: 8, y: y), heightIn: 42, thicknessIn: 4.5)
+        t.pieces.append(.init(wallID: e.id, fromFt: 0, toFt: e.lengthFt, heightIn: 96))
+        t.pieces.append(.init(wallID: g.id, fromFt: 0, toFt: g.lengthFt, heightIn: 42))
+        let pieces = t.trimPieces(in: room, area: .shower, curbHeightIn: 4)
+        let byKey = Dictionary(uniqueKeysWithValues: pieces.map { ($0.key, $0) })
+        // The curb's outside face and wall E's outer end: none, to start.
+        let outside = try #require(byKey["curb:outside"])
+        #expect(outside.noneAllowed && outside.finish == .none && !outside.stone)
+        let eEnd = try #require(pieces.first { $0.key.hasPrefix("wallEnd:\(e.id)") })
+        #expect(eEnd.noneAllowed && eEnd.finish == .none && eEnd.name == "Wall \(e.label) end")
+        // Inside the shower: tile or stone only.
+        #expect(byKey["curb:inside"].map { !$0.noneAllowed && $0.finish == .tile } == true)
+        #expect(byKey["curb"].map { !$0.noneAllowed } == true)
+        #expect(!pieces.contains { $0.key.hasPrefix("wallEnd:\(g.id)") })
+        // Chosen: stone goes on the wall line and the cutlist; none on neither.
+        t.trim = [.init(key: eEnd.key, stone: true, finish: .stone)]
+        var s = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
+        t.apply(room, to: &s, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
+        #expect(s.additionsLabor.contains { $0.activity == "Stone wall trim" })
+        #expect(t.cutlist(in: room, area: .shower, curbHeightIn: 4, prices: StonePrices()).contains { $0.name == "Wall End" })
+        t.trim = [.init(key: eEnd.key, finish: TrimFinish.none)]
+        var s2 = PricingCases.section(.shower, tile: PricingCases.tile(.ceramic, .rectangle, .straightStacked))
+        t.apply(room, to: &s2, prices: StonePrices(curb: 30, cap: 25, jamb: 20, curbHeightIn: 4))
+        #expect(!s2.additionsLabor.contains { $0.activity.hasPrefix("Stone") })
+        // Saved before none existed: a choice says tile or stone, and stays so.
+        let old = try JSONDecoder().decode(AreaTakeoff.TrimChoice.self, from: Data(#"{"key":"curb:outside","stone":false}"#.utf8))
+        t.trim = [old]
+        #expect(t.trimPieces(in: room, area: .shower, curbHeightIn: 4).first { $0.key == "curb:outside" }?.finish == .tile)
+    }
+}

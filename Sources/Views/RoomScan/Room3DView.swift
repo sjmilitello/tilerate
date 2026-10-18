@@ -64,7 +64,7 @@ extension Room3DContent {
                                    soffits: other.area == .shower ? room.scan.map { t.soffitBoxes(in: $0) } ?? [] : [],
                                    curbHeightIn: t.curbHeightIn ?? 4,
                                    stoneParts: room.scan.map { scan in
-                                       Set(t.trimPieces(in: scan, area: other.area, curbHeightIn: t.curbHeightIn ?? 4).filter(\.stone).map(\.key))
+                                       AreaTakeoff.drawnFinishKeys(t.trimPieces(in: scan, area: other.area, curbHeightIn: t.curbHeightIn ?? 4))
                                    } ?? [],
                                    takeoff: t)
         }
@@ -87,7 +87,7 @@ extension Room3DContent {
     static func of(room: EstimateRoom, section s: EstimateSection, rates: Rates, fixtures: Bool = true) -> Room3DContent? {
         guard let scan = s.roomScan ?? room.scan, let t = s.scanTakeoff else { return nil }
         let curb = t.curbHeightIn ?? rates.curbHeightIn
-        let stone = Set(t.trimPieces(in: scan, area: s.area, curbHeightIn: curb).filter(\.stone).map(\.key))
+        let stone = AreaTakeoff.drawnFinishKeys(t.trimPieces(in: scan, area: s.area, curbHeightIn: curb))
         return Room3DContent(room: scan, takeoff: t, area: s.area, tile: s.mainTile, floorTile: s.showerFloorTile, wallTiles: s.wallTiles(in: scan),
                              others: s.roomScan == nil ? otherAreas(in: room, except: s.id) : [],
                              curbHeightIn: curb, stoneParts: stone, showFixtures: fixtures,
@@ -387,6 +387,9 @@ enum Room3DScene {
             + c.others.compactMap { o in o.takeoff.map { ($0, o.stoneParts, o.tile, false) } }
         func floorMid(_ t: AreaTakeoff) -> ScannedRoom.Point? { t.floor == .drawn ? t.floorRect?.center : nil }
 
+        // Every area's stone and bare ("none#…") pieces, for walls' ends.
+        let finishKeys = c.stoneParts.union(c.others.flatMap(\.stoneParts))
+
         // Walls, with their doors and windows cut out, and tile on them.
         let windows = sources.flatMap { $0.t.items.filter { $0.kind == .window } }
         for w in room.walls {
@@ -494,7 +497,16 @@ enum Room3DScene {
             if w.planned, let a = areas.first(where: { a in a.pieces.contains { $0.wallID == w.id } }) {
                 for atStart in [true, false] where room.isFreeEnd(of: w, start: atStart) {
                     let plane = SCNPlane(width: t, height: w.heightFt)
-                    plane.firstMaterial = tileMaterial(a.wallTiles[w.id] ?? a.tile, widthFt: t, heightFt: w.heightFt, x0: 0, y0: 0)
+                    // Its end piece's choice (owner, 2026-10-17): none paints it, stone is stone.
+                    let end = atStart ? "start" : "end"
+                    let keys = ["wallEnd:\(w.id):\(end)", "kneeEnd:\(w.id):\(end)"]
+                    if keys.contains(where: { k in finishKeys.contains("none#\(k)") }) {
+                        plane.firstMaterial = plain(wallColor)
+                    } else if keys.contains(where: { finishKeys.contains($0) }) {
+                        plane.firstMaterial = stoneMaterial()
+                    } else {
+                        plane.firstMaterial = tileMaterial(a.wallTiles[w.id] ?? a.tile, widthFt: t, heightFt: w.heightFt, x0: 0, y0: 0)
+                    }
                     let n = SCNNode(geometry: plane)
                     n.position = SCNVector3(atStart ? -0.004 : w.lengthFt + 0.004, w.heightFt / 2, 0)
                     n.eulerAngles.y = atStart ? -.pi / 2 : .pi / 2
@@ -687,7 +699,8 @@ enum Room3DScene {
                 if let m = mid, ((a.x + b.x) / 2 - m.x) * nx + ((a.y + b.y) / 2 - m.y) * ny < 0 { nx = -nx; ny = -ny; flipped = true }
                 let box = SCNBox(width: len, height: h, length: w, chamferRadius: 0.01)
                 func face(_ k: String, _ width: Double) -> SCNMaterial {
-                    set.stone.contains(k) ? stoneMaterial() : tileMaterial(set.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
+                    set.stone.contains("none#\(k)") ? plain(UIColor(white: 0.86, alpha: 1))
+                        : set.stone.contains(k) ? stoneMaterial() : tileMaterial(set.tile, widthFt: width, heightFt: h, x0: 0, y0: 0)
                 }
                 let top = face(key, len), inside = face(key + ":inside", len), outside = face(key + ":outside", len)
                 // The box's front (+z) is the side its left hand faces: outside unless turned.

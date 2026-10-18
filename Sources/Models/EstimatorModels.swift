@@ -707,6 +707,10 @@ struct StoneRate: Codable, Equatable, Hashable {
     func amount(linFt: Double) -> Double { usesSqft ? sqft(linFt: linFt) * perSqft : linFt * perLinFt }
 }
 
+/// How a trim piece is finished: tile, stone, or none — finished by someone
+/// else, e.g. painted drywall outside the shower (owner, 2026-10-17).
+enum TrimFinish: String, Codable, CaseIterable { case tile, stone, none }
+
 /// A stone piece's thickness: 3 cm, 2 cm, ¾″… (owner, 2026-10-16).
 struct StoneThickness: Codable, Equatable, Hashable {
     enum Unit: String, Codable { case cm, inch = "in" }
@@ -1145,6 +1149,8 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
         var key: String
         var stone: Bool = false
         var lengthFt: Double? = nil
+        /// Tile, stone or none (owner, 2026-10-17); nil: saved before, `stone` says.
+        var finish: TrimFinish? = nil
     }
 
     /// A rectangle drawn on the plan: a corner, the two directions its
@@ -2131,6 +2137,7 @@ extension AreaTakeoff.TrimChoice {
         self.init(key: key)
         c.read(.stone, into: &stone)
         c.read(.lengthFt, into: &lengthFt)
+        c.read(.finish, into: &finish)
     }
 }
 

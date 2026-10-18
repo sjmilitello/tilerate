@@ -250,6 +250,13 @@ extension AreaTakeoff {
                 add(e.key, piece("Dropped Header", parts.last ?? "", o, "Underside", .ceilingHeader, length: ft, width: width(.ceilingHeader, else: cw)))
                 continue
             }
+            // The end of a full wall drawn in, facing out past the shower.
+            if parts[0] == "wallEnd", parts.count >= 2, let w = room.wall(UUID(uuidString: parts[1]) ?? UUID()) {
+                let o = room.walls.firstIndex { $0.id == w.id } ?? 99
+                add(e.key, piece("Wall", w.id.uuidString, o, "End", .wallJamb, length: w.heightFt * 12,
+                                 width: width(.wallJamb, else: Self.drawnThicknessFt(w) * 12)))
+                continue
+            }
             // The shower entry's jambs: left and right, lower and upper.
             if parts[0] == "jamb", parts.count >= 2 {
                 let side = parts[1].capitalized
