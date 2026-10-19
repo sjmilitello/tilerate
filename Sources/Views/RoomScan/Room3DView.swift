@@ -1136,7 +1136,15 @@ enum Room3DScene {
         // texture runs down from its top, so its top edge sets the start.
         let tx = x0 * 12 / pattern.periodIn.width, ty = -(y0 + heightFt) * 12 / pattern.periodIn.height
         m.diffuse.contentsTransform = SCNMatrix4Translate(SCNMatrix4MakeScale(Float(sx), Float(sy), 1), Float(tx), Float(ty), 0)
-        m.lightingModel = .lambert
+        // Its finish (owner, 2026-10-18): gloss catches the light.
+        switch tile?.appearance?.finish {
+        case .gloss?:
+            m.lightingModel = .blinn
+            m.specular.contents = UIColor(white: 0.5, alpha: 1)
+            m.shininess = 0.5
+        default:
+            m.lightingModel = .lambert
+        }
         return m
     }
 }
@@ -1282,8 +1290,11 @@ enum TilePattern {
         let (long, short) = drawnSize(t)
         let layout = t?.layout ?? .straightStacked
         let design = waterjet ?? waterjetDesign
+        let look = t?.appearance
         let key = "\(t?.tileType.rawValue ?? "-")|\(long)|\(short)|\(layout.rawValue)|\(shape.rawValue)|\(design.rawValue)"
             + "|\(t?.vertical == true)|\(t?.photoID ?? "")|\(t?.turnedOver == true)"
+            + "|\(look?.colour ?? "")|\(look?.look?.rawValue ?? "")|\(look?.lookPattern?.rawValue ?? "")|\(look?.accent ?? "")"
+            + "|\(look?.grout ?? "")|\(look?.variation ?? 0)"
         if let m = cache[key] { return m }
 
         var pieces: [Piece] = []
@@ -1695,14 +1706,22 @@ enum TilePattern {
         let px = CGSize(width: max(8, period.width * ppi), height: max(8, period.height * ppi))
         // Grout wide enough to see on a phone: 1/8″ (1/16″ on mosaics), never under 2 pixels.
         let grout = max(2, (long <= 4 ? 0.0625 : 0.125) * ppi)
-        let face = color(t?.tileType)
-        // Grout that stands out from the tile: light on darker tile, grey on light.
+        // Its colour, else the material's (owner, 2026-10-18).
+        let face = look?.colour.map(StonePatterns.uiColor) ?? color(t?.tileType)
+        // Its grout, else grout that stands out: light on darker tile, grey on light.
         var fr: CGFloat = 0, fg: CGFloat = 0, fb: CGFloat = 0, fa: CGFloat = 0
         face.getRed(&fr, green: &fg, blue: &fb, alpha: &fa)
         let lum = 0.299 * fr + 0.587 * fg + 0.114 * fb
-        let joint = UIColor(white: lum > 0.75 ? 0.55 : 0.88, alpha: 1)
-        // Each tile's own shade: a little lighter or darker, more for handmade tile.
-        let spread: CGFloat = t?.tileType == .zellige || t?.tileType == .terracotta ? 0.12 : 0.05
+        let joint = look?.grout.map(StonePatterns.uiColor) ?? UIColor(white: lum > 0.75 ? 0.55 : 0.88, alpha: 1)
+        // Each tile's own shade: its V rating, else a little lighter or
+        // darker, more for handmade tile.
+        let spread: CGFloat = switch look?.variation {
+        case 1?: 0.0
+        case 2?: 0.04
+        case 3?: 0.09
+        case 4?: 0.17
+        default: t?.tileType == .zellige || t?.tileType == .terracotta || look?.look == .handmade ? 0.12 : 0.05
+        }
         let toneFactor: [CGFloat] = [1, 0.8, 0.62, 1.12]
         func shade(_ k: Int, tone: Int) -> UIColor {
             var h = UInt32(truncatingIfNeeded: k &* 2_654_435_761)
@@ -1710,7 +1729,12 @@ enum TilePattern {
             let f = toneFactor[min(max(tone, 0), 3)] * (1 + spread * (CGFloat(h % 1000) / 500 - 1))
             return UIColor(red: min(1, fr * f), green: min(1, fg * f), blue: min(1, fb * f), alpha: 1)
         }
+        // Its face: the photo of the real tile, else its look's texture —
+        // real stone for marble, stone, concrete and terrazzo looks, a grain
+        // for wood — each tile a different part of it.
         let photo = TilePhotos.image(t?.photoID)
+        let texture = photo == nil ? lookTexture(look, face: face) : nil
+        let handmade = look?.look == .handmade && photo == nil
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let image = UIGraphicsImageRenderer(size: px, format: format).image { ctx in
@@ -1748,10 +1772,51 @@ enum TilePattern {
                             g.setFillColor(UIColor(white: 0, alpha: p.tone == 3 ? 0 : 0.12 * Double(p.tone)).cgColor)
                             g.fillPath()
                         }
+                    } else if let texture, let cg = texture.image.cgImage {
+                        // Its own patch of the stone (or wood), at the stone's
+                        // real size, from a different spot each tile — not
+                        // the same veins repeated tile after tile.
+                        g.saveGState()
+                        g.addPath(p.path)
+                        g.clip()
+                        let box = p.path.boundingBox
+                        var h = UInt32(truncatingIfNeeded: k &* 2_654_435_761); h ^= h >> 13
+                        let span = texture.spanIn
+                        let ox = Double(h % 997) / 997 * span, oy = Double((h / 997) % 991) / 991 * span
+                        var y = box.minY - oy
+                        while y < box.maxY {
+                            var x = box.minX - ox
+                            while x < box.maxX {
+                                g.draw(cg, in: CGRect(x: x, y: y, width: span, height: span))
+                                x += span
+                            }
+                            y += span
+                        }
+                        let f = toneFactor[min(max(p.tone, 0), 3)] * (1 + spread * (CGFloat(h % 1000) / 500 - 1))
+                        if abs(f - 1) > 0.005 {
+                            g.addPath(p.path)
+                            g.setFillColor(UIColor(white: f < 1 ? 0 : 1, alpha: min(0.35, abs(1 - f))).cgColor)
+                            g.fillPath()
+                        }
+                        g.restoreGState()
                     } else {
                         g.addPath(p.path)
                         g.setFillColor(shade(k, tone: p.tone).cgColor)
                         g.fillPath()
+                    }
+                    if handmade {
+                        // Glaze pooled darker toward each edge.
+                        g.saveGState()
+                        g.addPath(p.path)
+                        g.clip()
+                        let edge = min(p.path.boundingBox.width, p.path.boundingBox.height)
+                        for (w, a) in [(0.32, 0.07), (0.18, 0.08)] {
+                            g.addPath(p.path)
+                            g.setLineWidth(edge * w)
+                            g.setStrokeColor(UIColor(white: 0, alpha: a).cgColor)
+                            g.strokePath()
+                        }
+                        g.restoreGState()
                     }
                     g.addPath(p.path)
                     g.setStrokeColor(joint.cgColor)
@@ -1763,6 +1828,62 @@ enum TilePattern {
         let made = Made(image: image, periodIn: period)
         cache[key] = made
         return made
+    }
+
+    /// A look's texture in the tile's colour, and how many inches of
+    /// stone (or wood) it covers (owner, 2026-10-18).
+    static func lookTexture(_ a: TileAppearance?, face: UIColor) -> (image: UIImage, spanIn: Double)? {
+        guard let a, let look = a.look else { return nil }
+        let base = StonePatterns.hex(face)
+        func stone(_ p: StoneAppearance.Pattern, _ accent: String) -> (image: UIImage, spanIn: Double) {
+            (StonePatterns.patternImage(StoneAppearance(pattern: p, base: base, markings: accent), pixels: 512),
+             StoneMaps.spanFt(p) * 12)
+        }
+        switch look {
+        case .solid, .handmade: return nil
+        case .marble, .stone:
+            let p = a.lookPattern ?? .softVeins
+            return stone(p, a.accent ?? (look == .marble ? "#8C939B" : p.usual.markings))
+        case .concrete: return stone(.concrete, a.accent ?? StonePatterns.hex(face.withBrightness(0.85)))
+        case .terrazzo: return stone(.terrazzo, a.accent ?? "#7C7F84")
+        case .wood: return (woodGrain(face), 48)
+        }
+    }
+
+    private static var grains: [String: UIImage] = [:]
+
+    /// A wood-look plank's grain: fine lines along it, a little lighter and
+    /// darker than the tile's colour, gently wavy.
+    static func woodGrain(_ face: UIColor) -> UIImage {
+        let key = StonePatterns.hex(face)
+        if let g = grains[key] { return g }
+        let n = 256
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: n, height: n), format: format).image { ctx in
+            let g = ctx.cgContext
+            face.setFill()
+            g.fill(CGRect(x: 0, y: 0, width: n, height: n))
+            var seed: UInt64 = 0x51ED_2705
+            func rnd() -> CGFloat { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return CGFloat(seed >> 33) / CGFloat(1 << 31) }
+            for _ in 0..<70 {
+                let y0 = rnd() * CGFloat(n), amp = 2 + rnd() * 6, wave = 40 + rnd() * 120, phase = rnd() * 6
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: 0, y: y0))
+                var x: CGFloat = 0
+                while x <= CGFloat(n) {
+                    path.addLine(to: CGPoint(x: x, y: y0 + amp * sin(x / wave * 2 * .pi + phase)))
+                    x += 4
+                }
+                let dark = rnd() < 0.7
+                g.setStrokeColor((dark ? face.withBrightness(0.78) : face.withBrightness(1.12)).withAlphaComponent(0.35 + rnd() * 0.4).cgColor)
+                g.setLineWidth(0.6 + rnd() * 1.8)
+                g.addPath(path.cgPath)
+                g.strokePath()
+            }
+        }
+        grains[key] = image
+        return image
     }
 
     private static func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? abs(a) : gcd(b, a % b) }
@@ -1786,6 +1907,15 @@ extension EstimateSection {
 
 /// How stone looks on the plan, the wall views and in 3-D: white marble for
 /// now (owner, 2026-10-14; a colour picker in Admin to talk about later).
+extension UIColor {
+    /// The same colour, its brightness scaled.
+    func withBrightness(_ f: CGFloat) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        return UIColor(red: min(1, r * f), green: min(1, g * f), blue: min(1, b * f), alpha: a)
+    }
+}
+
 enum StoneLook {
     static let uiColor = UIColor(red: 0.914, green: 0.902, blue: 0.878, alpha: 1)   // #E9E6E0
     static let color = Color(uiColor: uiColor)

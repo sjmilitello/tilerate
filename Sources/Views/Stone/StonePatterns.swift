@@ -102,6 +102,7 @@ enum StoneMaps {
         case .soapstone: "Marble016"
         case .travertine: "Travertine004"
         case .onyx: "Onyx002"
+        case .slate: "Rock020"
         }
     }
 
@@ -122,7 +123,7 @@ enum StoneMaps {
         case .boldVeins, .onyx: 6
         case .thinVeins, .quartziteLinear: 5
         case .softVeins, .breccia, .quartziteCloudy, .concrete, .travertine: 4
-        case .web, .solid, .soapstone: 3
+        case .web, .solid, .soapstone, .slate: 3
         case .graniteCoarse: 2.5
         case .terrazzo: 2
         case .graniteFine: 1.5

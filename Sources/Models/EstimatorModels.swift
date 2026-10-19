@@ -725,6 +725,8 @@ struct StoneAppearance: Codable, Hashable, Equatable {
         case graniteFine, graniteCoarse
         case solid, concrete
         case soapstone, travertine, onyx, terrazzo
+        /// Stone-look tile only (owner, 2026-10-18): not in the stone picker.
+        case slate
         var id: String { rawValue }
 
         /// Patterns taken out (2026-10-18), read as the nearest one left.
@@ -754,6 +756,7 @@ struct StoneAppearance: Codable, Hashable, Equatable {
             case .travertine: "Travertine"
             case .onyx: "Onyx"
             case .terrazzo: "Terrazzo"
+            case .slate: "Slate"
             }
         }
 
@@ -765,6 +768,7 @@ struct StoneAppearance: Codable, Hashable, Equatable {
             case .graniteFine, .graniteCoarse: "Speckled"
             case .solid, .concrete: "Plain"
             case .soapstone, .travertine, .onyx, .terrazzo: "Natural stone"
+            case .slate: "Tile"
             }
         }
         static let groups = ["Veined", "Moving", "Speckled", "Plain", "Natural stone"]
@@ -811,6 +815,7 @@ struct StoneAppearance: Codable, Hashable, Equatable {
             case .travertine: ("#E3D5BF", "#C9B28E", nil)
             case .onyx: ("#E9C98F", "#B07A3A", "#F5E6C4")
             case .terrazzo: ("#F2EFE9", "#7C7F84", "#C9A9A6")
+            case .slate: ("#3F4145", "#8A4A2F", nil)
             }
         }
     }
@@ -1097,11 +1102,75 @@ struct TileChoice: Codable, Equatable, Hashable {
     var photoID: String? = nil
     /// Fishscale laid round side down (owner: either way is installed).
     var turnedOver: Bool = false
+    /// Its colour, look, grout, variation, finish and name (owner, 2026-10-18).
+    var appearance: TileAppearance? = nil
 
     /// The tile a new choice starts on: 12″ × 24″ porcelain rectangle in
     /// running bond (owner, 2026-10-09).
     static let usual = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: .runningBond,
                                   tileWidthIn: 12, tileLengthIn: 24)
+}
+
+/// How a tile looks beyond what prices it (owner, 2026-10-18): its colour,
+/// look (solid glaze, handmade, marble, stone, wood, concrete, terrazzo), a
+/// veins colour for marble and stone looks, its grout (Laticrete PermaColor
+/// by name, or any colour), the variation (the V rating on the box), the
+/// finish and its name in My Tiles. Drawing and wording only — never the
+/// price. Nil anywhere: drawn as before (the material's colour, grout that
+/// stands out, the material's variation).
+struct TileAppearance: Codable, Hashable, Equatable {
+    enum Look: String, Codable, CaseIterable, Identifiable {
+        case solid, handmade, marble, stone, wood, concrete, terrazzo
+        var id: String { rawValue }
+        var name: String {
+            switch self {
+            case .solid: "Solid"
+            case .handmade: "Handmade"
+            case .marble: "Marble"
+            case .stone: "Stone"
+            case .wood: "Wood"
+            case .concrete: "Concrete"
+            case .terrazzo: "Terrazzo"
+            }
+        }
+        /// The real-stone patterns a look can take (marble and stone looks).
+        var patterns: [StoneAppearance.Pattern] {
+            switch self {
+            case .marble: [.softVeins, .thinVeins, .boldVeins, .web]
+            case .stone: [.slate, .quartziteLinear, .travertine]
+            default: []
+            }
+        }
+    }
+    /// Matte or gloss (owner, 2026-10-18); a satin saved before reads as matte.
+    enum Finish: String, Codable, CaseIterable, Identifiable {
+        case matte, gloss
+        var id: String { rawValue }
+        var name: String { rawValue.capitalized }
+    }
+
+    /// "#RRGGBB"; nil: the material's usual colour.
+    var colour: String? = nil
+    var look: Look? = nil
+    /// For a marble or stone look: which pattern; nil: the look's first.
+    var pattern: StoneAppearance.Pattern? = nil
+    /// The veins' colour for a marble or stone look.
+    var accent: String? = nil
+    /// "#RRGGBB"; nil: grout that stands out from the tile, as before.
+    var grout: String? = nil
+    /// The grout's name, e.g. "PermaColor Sauterne"; nil for any colour.
+    var groutName: String? = nil
+    /// The shade variation, 1–4 (V1 even … V4 strong); nil: the material's.
+    var variation: Int? = nil
+    var finish: Finish? = nil
+    /// Its name in My Tiles.
+    var name: String? = nil
+
+    /// The pattern a marble or stone look is drawn with.
+    var lookPattern: StoneAppearance.Pattern? {
+        guard let look, !look.patterns.isEmpty else { return nil }
+        return pattern.flatMap { look.patterns.contains($0) ? $0 : nil } ?? look.patterns[0]
+    }
 }
 
 /// One shower or tub-surround wall with its own tile, used when the walls are
@@ -1485,6 +1554,8 @@ struct EstimateSection: Identifiable, Codable, Hashable, Equatable {
     /// The main tile laid long side up, and a photo of it (see `TileChoice`).
     var tileVertical: Bool = false
     var tilePhotoID: String? = nil
+    /// The main tile's colour, look, grout and so on (see `TileAppearance`).
+    var tileAppearance: TileAppearance? = nil
 
     /// An area with no tile chosen yet starts on the owner's usual tile:
     /// 12″ × 24″ porcelain rectangle in running bond (2026-10-09).
@@ -1818,6 +1889,7 @@ extension EstimateSection {
         c.read(.multiTilePieces, into: &multiTilePieces)
         c.read(.tileVertical, into: &tileVertical)
         c.read(.tilePhotoID, into: &tilePhotoID)
+        c.read(.tileAppearance, into: &tileAppearance)
         c.read(.tileTurnedOver, into: &tileTurnedOver)
         if tileSize == .square { tileSize = .rectangle }   // square is a rectangle (2026-10-09)
         c.read(.showerFloorTile, into: &showerFloorTile)
@@ -1880,6 +1952,28 @@ extension TiledWall {
     }
 }
 
+extension TileAppearance {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.colour, into: &colour)
+        var lookRaw: String? = nil
+        c.read(.look, into: &lookRaw)
+        look = lookRaw.flatMap(Look.init(rawValue:))
+        var patternRaw: String? = nil
+        c.read(.pattern, into: &patternRaw)
+        pattern = patternRaw.map(StoneAppearance.Pattern.reading)
+        c.read(.accent, into: &accent)
+        c.read(.grout, into: &grout)
+        c.read(.groutName, into: &groutName)
+        c.read(.variation, into: &variation)
+        var finishRaw: String? = nil
+        c.read(.finish, into: &finishRaw)
+        finish = finishRaw == "satin" ? .matte : finishRaw.flatMap(Finish.init(rawValue:))
+        c.read(.name, into: &name)
+    }
+}
+
 extension TileChoice {
     init(from decoder: Decoder) throws {
         self.init()
@@ -1894,6 +1988,7 @@ extension TileChoice {
         c.read(.vertical, into: &vertical)
         c.read(.photoID, into: &photoID)
         c.read(.turnedOver, into: &turnedOver)
+        c.read(.appearance, into: &appearance)
         if tileSize == .square { tileSize = .rectangle }   // square is a rectangle (2026-10-09)
     }
 }
@@ -2154,7 +2249,8 @@ extension EstimateSection {
         return TileChoice(tileType: type, tileSize: size, layout: layout ?? .straightStacked,
                           tileWidthIn: tileWidthIn, tileLengthIn: tileLengthIn,
                           mosaicStyle: mosaicStyle, pieces: multiTilePieces,
-                          vertical: tileVertical, photoID: tilePhotoID, turnedOver: tileTurnedOver)
+                          vertical: tileVertical, photoID: tilePhotoID, turnedOver: tileTurnedOver,
+                          appearance: tileAppearance)
     }
 }
 

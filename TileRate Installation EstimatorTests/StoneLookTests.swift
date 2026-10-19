@@ -150,21 +150,21 @@ struct StoneLookTests {
         return s.additionsLabor.first { $0.id == AreaTakeoff.stoneLineID(s.id, StoneGroup.curb) }?.activity
     }
 
-    @Test func theEstimateNamesTheStoneOnceOneIsChosen() {
+    @Test func theEstimateKeepsStoneLinesPlain() {
+        // The stone's name and finish stay off the estimate (owner, 2026-10-18).
         var (room, t) = cornerShower()
         var s = EstimateSection()
         s.area = .shower
-        // Never chosen: the line reads as it always has.
         #expect(curbLine(t, room, into: &s) == "Stone curb")
         var taj = StoneAppearance.usual(.quartziteLinear)
         taj.name = "Taj Mahal"
         t.stoneLook = taj
-        #expect(curbLine(t, room, into: &s) == "Stone curb – Taj Mahal, polished")
-        // A piece in an unnamed stone of its own: just its finish, both listed.
-        var black = StoneAppearance.usual(.graniteFine)
-        black.honed = true
-        t.stoneLooks["curb:inside"] = black
-        #expect(curbLine(t, room, into: &s) == "Stone curb – Taj Mahal, polished & honed")
+        #expect(curbLine(t, room, into: &s) == "Stone curb")
+        // A line named before is put back to plain words.
+        if let i = s.additionsLabor.firstIndex(where: { $0.id == AreaTakeoff.stoneLineID(s.id, StoneGroup.curb) }) {
+            s.additionsLabor[i].activity = "Stone curb – Taj Mahal, polished"
+        }
+        #expect(curbLine(t, room, into: &s) == "Stone curb")
         // Words typed over on the estimate stay.
         if let i = s.additionsLabor.firstIndex(where: { $0.id == AreaTakeoff.stoneLineID(s.id, StoneGroup.curb) }) {
             s.additionsLabor[i].activity = "Curb in customer's own slab"
@@ -206,8 +206,10 @@ struct StoneLookTests {
             let l = try JSONDecoder().decode(StoneAppearance.self, from: Data(#"{"pattern":"\#(raw)"}"#.utf8))
             #expect(l.pattern == now)
         }
-        #expect(StoneAppearance.Pattern.allCases.count == 16)
-        #expect(Set(StoneAppearance.Pattern.allCases.map(\.group)) == Set(StoneAppearance.Pattern.groups))
+        // 16 in the stone picker; slate is for stone-look tile only.
+        let picker = StoneAppearance.Pattern.allCases.filter { StoneAppearance.Pattern.groups.contains($0.group) }
+        #expect(picker.count == 16 && !picker.contains(.slate))
+        #expect(StoneAppearance.Pattern.allCases.count == 17)
     }
 
     @Test func anUnnamedStoneShowsOnlyItsFinish() {

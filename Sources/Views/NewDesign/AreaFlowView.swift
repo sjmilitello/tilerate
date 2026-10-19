@@ -559,6 +559,10 @@ struct AreaFlowView: View {
                 photoID: sec.tilePhotoID,
                 turnedOver: sec.tileTurnedOver
             )
+            // Its colour, look, grout, variation and finish (owner, 2026-10-18).
+            if let t = section.fullMainTile {
+                TileLookRow(title: "Tile", tile: t) { sec.wrappedValue.setMainTile($0) }
+            }
             if section.area == .shower || section.area == .tub {
                 Text("Walls, the shower floor and the ceiling can each have their own tile on the Measure step.")
                     .font(.system(size: 13))
@@ -2042,6 +2046,7 @@ struct NDTileSheet: View {
                     photoID: $tile.photoID,
                     turnedOver: $tile.turnedOver
                 )
+                TileLookRow(title: title, tile: tile) { tile = $0 }
               }
               .padding(20)
             }
@@ -2167,6 +2172,7 @@ extension EstimateSection {
         t.vertical = tileVertical
         t.photoID = tilePhotoID
         t.turnedOver = tileTurnedOver
+        t.appearance = tileAppearance
         return t
     }
 
@@ -2181,5 +2187,6 @@ extension EstimateSection {
         tileVertical = t.vertical
         tilePhotoID = t.photoID
         tileTurnedOver = t.turnedOver
+        tileAppearance = t.appearance
     }
 }

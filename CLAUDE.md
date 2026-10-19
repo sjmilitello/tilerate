@@ -1454,14 +1454,13 @@ in the cutlist (owner, 2026-10-18; FabSpecPro's slab layout has a rotation
 lock and reads a slab's vein direction, so a per-piece `veins` field could
 feed it later). Stone pieces → "Use this stone for every piece" (in a piece's
 picker: the area's stone, own stones cleared) and "Put … back on the area's"
-(owner, 2026-10-18). Once a stone is chosen (`chosenStone(for:)`), each
-stone line on the estimate says it — its name if it has one and its finish,
-"Stone curb – Taj Duna Quartz, polished", else just "Stone curb – honed"
-(`StoneAppearance.label`), several joined with " & " — unless the line's
-words were typed over; never-chosen stone keeps the old wording. The
-cutlist carries `material` (the name, absent when unnamed) and `finish` the
-same way (JSON fields, spreadsheet columns), and pieces in different
-stones aren't merged. The picker (`StonePickerSheet`): a big preview in the chosen
+(owner, 2026-10-18). Stone lines on the estimate keep their plain wording
+("Stone curb") — the stone's name and finish stay off the description
+(owner, 2026-10-18; maybe listed under materials later), and a line given
+a name for a day is put back unless typed over. The cutlist carries
+`material` (the name, absent when unnamed) and `finish` once a stone is
+chosen (`chosenStone(for:)`, `StoneAppearance.label`; JSON fields,
+spreadsheet columns), and pieces in different stones aren't merged. The picker (`StonePickerSheet`): a big preview in the chosen
 colours, the name, Polished/Honed, My Stones and Recently used
 (`StoneLibrary`, UserDefaults, an unreadable list kept aside as
 ".unreadable"), the pattern swatches each in its own usual colours
@@ -1483,7 +1482,38 @@ area's stone" is offered. In 3-D (`Room3DScene.stoneMaterial`) each piece is
 drawn in its look (`StoneKeys`: the stone keys with their looks, passed where
 a `Set<String>` used to be), about 3′ of pattern repeated (a slab photo
 mirrored instead, since it doesn't tile), polished ones shiny. The plan and lists still use `StoneLook.color` (#E9E6E0).
-`StoneLookTests`. My Tile Library and the tile picker are to come.
+`StoneLookTests`.
+
+**How tile looks** (owner's design, 2026-10-18; drawing and wording only,
+never the price). A tile's `TileAppearance` (`TileChoice.appearance`; the
+area's main tile keeps it in `EstimateSection.tileAppearance`, carried by
+`mainTile`/`fullMainTile`/`setMainTile`; nil anywhere = drawn as before):
+its colour, look (solid, handmade — glaze pooled toward each edge — marble,
+stone, wood, concrete, terrazzo), a marble or stone look's pattern (marble:
+soft, thin, bold veins, web; stone: slate, quartzite, travertine — the
+stone picker's real-stone maps; slate is ambientCG Rock020, CC0, a pattern
+the stone picker doesn't list) and veins colour, its grout (Laticrete
+PermaColor's 40 colours by name and Laticrete's on-screen values,
+`TilePalette.grouts`, owner's grout; or any colour), variation (V1–V4, the
+rating on the box: how much tile to tile differs), finish (matte or gloss,
+gloss shining in 3-D; owner, 2026-10-18 — a satin saved for a day reads as
+matte) and its name in My Tiles (`TileLibrary`, like My
+Stones, keeping the whole tile — material, size and layout too). Drawn in
+`TilePattern.make`: each tile its own patch of the look's texture at the
+stone's real size, never the same veins tile after tile. Tile, stone and
+grout names are kept but not put in the estimate's description (owner,
+2026-10-18: maybe listed under materials later). The picker
+(`TilePickerSheet`, Sources/Views/Tile) opens from **Colour, look & grout**
+(`TileLookRow`) under the tile choices on the Tile step and in every tile
+sheet: what prices it on top with Change › back to those choices, a preview,
+the name, wells (Tile, Veins for marble/stone, Grout) and family buttons
+with one row of colours — tile: `TilePalette.families`, 53 colours in nine
+families measured from 1,045 TileBar tiles (real tile is muted; purple left
+out); grout: PermaColor's six families with names under each — pinned; then
+look, pattern, variation, finish, My Tiles, Recently used and a photo of
+the tile. Naming the grout's maker is a factual description (owner chose
+names, 2026-10-18); its swatch values are facts; Laticrete's own images
+aren't used. `TileLookTests`.
 
 In 3-D a niche's stone parts are ¾″ slabs — back, jambs and header lining
 the opening, the sill lipping ½″ past the face, divider shelves ¾″ — so
