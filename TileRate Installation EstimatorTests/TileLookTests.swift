@@ -46,7 +46,11 @@ struct TileLookTests {
         #expect(a.lookPattern == .slate)
         a.look = .marble
         #expect(a.lookPattern == .thinVeins)
-        a.look = .wood
+        a.look = .wood                   // real wood grain, straight unless chosen
+        #expect(a.lookPattern == .woodStraight)
+        a.pattern = .woodRustic
+        #expect(a.lookPattern == .woodRustic)
+        a.look = .solid
         #expect(a.lookPattern == nil)
     }
 

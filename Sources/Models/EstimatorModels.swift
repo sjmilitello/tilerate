@@ -725,8 +725,8 @@ struct StoneAppearance: Codable, Hashable, Equatable {
         case graniteFine, graniteCoarse
         case solid, concrete
         case soapstone, travertine, onyx, terrazzo
-        /// Stone-look tile only (owner, 2026-10-18): not in the stone picker.
-        case slate
+        /// Tile looks only (owner, 2026-10-18): not in the stone picker.
+        case slate, woodStraight, woodRustic
         var id: String { rawValue }
 
         /// Patterns taken out (2026-10-18), read as the nearest one left.
@@ -757,6 +757,8 @@ struct StoneAppearance: Codable, Hashable, Equatable {
             case .onyx: "Onyx"
             case .terrazzo: "Terrazzo"
             case .slate: "Slate"
+            case .woodStraight: "Straight grain"
+            case .woodRustic: "Rustic"
             }
         }
 
@@ -768,7 +770,7 @@ struct StoneAppearance: Codable, Hashable, Equatable {
             case .graniteFine, .graniteCoarse: "Speckled"
             case .solid, .concrete: "Plain"
             case .soapstone, .travertine, .onyx, .terrazzo: "Natural stone"
-            case .slate: "Tile"
+            case .slate, .woodStraight, .woodRustic: "Tile"
             }
         }
         static let groups = ["Veined", "Moving", "Speckled", "Plain", "Natural stone"]
@@ -816,6 +818,8 @@ struct StoneAppearance: Codable, Hashable, Equatable {
             case .onyx: ("#E9C98F", "#B07A3A", "#F5E6C4")
             case .terrazzo: ("#F2EFE9", "#7C7F84", "#C9A9A6")
             case .slate: ("#3F4145", "#8A4A2F", nil)
+            case .woodStraight: ("#B98A55", "#7A5530", nil)
+            case .woodRustic: ("#C9A57E", "#8A6640", nil)
             }
         }
     }
@@ -1133,11 +1137,12 @@ struct TileAppearance: Codable, Hashable, Equatable {
             case .terrazzo: "Terrazzo"
             }
         }
-        /// The real-stone patterns a look can take (marble and stone looks).
+        /// The real patterns a look can take (marble, stone and wood looks).
         var patterns: [StoneAppearance.Pattern] {
             switch self {
             case .marble: [.softVeins, .thinVeins, .boldVeins, .web]
             case .stone: [.slate, .quartziteLinear, .travertine]
+            case .wood: [.woodStraight, .woodRustic]
             default: []
             }
         }

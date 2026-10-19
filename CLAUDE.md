@@ -1420,8 +1420,16 @@ Granular 10 — and the common US granites and marbles; a marble-look quartz
 is "veined", not "marble"): Veined (soft veins, thin veins, bold veins,
 web, breccia), Moving (sweeping, linear, cloudy), Speckled (speckled,
 coarse), Plain (solid, concrete), Natural stone (soapstone, travertine,
-onyx, terrazzo). Thin veins is Marble001 with only its strongest veins on
-a clean field (Calacatta-look quartz); Sweeping is Onyx001, broad bands
+onyx, terrazzo). The three veined marbles must look plainly different
+on a tile (owner, 2026-10-18: "very little difference"): soft veins is
+hazy, pale drifts (Carrara), thin veins long fine veins on a clean white
+field (Calacatta), bold veins wide, dark diagonal veins. No CC0 photo had
+a Calacatta's long veins, so the owner chose Pexels photos (free under
+the Pexels licence, not CC0): thin is Pexels 3847500, soft the same
+photo's other end softened, bold Pexels 2341290 — each with its lighting
+flattened and edges cross-faded so it tiles. Travertine is Travertine009
+(even cream bands, vein-cut; it was Travertine004, which read as onyx).
+Sweeping is Onyx001, broad bands
 (Brittanicca, Taj Mahal), with Onyx004's surface. Limestone and Flowing
 were taken out; saved ones read as Solid and Sweeping (`Pattern.reading`).
 **Naming** (owner, 2026-10-18): the picker's name field, under the
@@ -1442,8 +1450,8 @@ base a little (`StoneMaps.darkMarkings`). Each map keeps its photo's own
 contrast (solid, concrete and limestone softened), so quiet stone stays
 quiet. To change a pattern's photo, remake its map the same way (median
 and 1st/99th percentile of the luminance) rather than editing the image.
-Drawn images are cached. Bold veins is Marble002 and coarse granite
-Granite007A (2026-10-18, replacing weaker picks). Each pattern is drawn at
+Drawn images are cached. Coarse granite is Granite007A (2026-10-18,
+replacing a weaker pick). Each pattern is drawn at
 its real size (`StoneMaps.spanFt`: sweeping 7′ a repeat, bold marble and
 onyx 6′, speckled granite 1½′; owner chose no size control) with the photo's surface
 (`StoneNormal-<pattern>`, a normal map, stronger when honed); patterns that
@@ -1488,11 +1496,14 @@ mirrored instead, since it doesn't tile), polished ones shiny. The plan and list
 never the price). A tile's `TileAppearance` (`TileChoice.appearance`; the
 area's main tile keeps it in `EstimateSection.tileAppearance`, carried by
 `mainTile`/`fullMainTile`/`setMainTile`; nil anywhere = drawn as before):
-its colour, look (solid, handmade — glaze pooled toward each edge — marble,
-stone, wood, concrete, terrazzo), a marble or stone look's pattern (marble:
-soft, thin, bold veins, web; stone: slate, quartzite, travertine — the
-stone picker's real-stone maps; slate is ambientCG Rock020, CC0, a pattern
-the stone picker doesn't list) and veins colour, its grout (Laticrete
+its colour, look (solid, handmade — a mottled glaze, from the concrete
+map, with a thin soft band at each edge — marble, stone, wood, concrete,
+terrazzo), a marble, stone or wood look's pattern (marble: soft, thin, bold
+veins, web; stone: slate, quartzite, travertine — the stone picker's
+real-stone maps; wood: straight grain and rustic, ambientCG Wood049 and
+Wood096, owner, 2026-10-18: the drawn grain wasn't realistic; slate is
+ambientCG Rock020; all CC0, patterns the stone picker doesn't list) and
+veins colour, its grout (Laticrete
 PermaColor's 40 colours by name and Laticrete's on-screen values,
 `TilePalette.grouts`, owner's grout; or any colour), variation (V1–V4, the
 rating on the box: how much tile to tile differs), finish (matte or gloss,
@@ -1500,7 +1511,9 @@ gloss shining in 3-D; owner, 2026-10-18 — a satin saved for a day reads as
 matte) and its name in My Tiles (`TileLibrary`, like My
 Stones, keeping the whole tile — material, size and layout too). Drawn in
 `TilePattern.make`: each tile its own patch of the look's texture at the
-stone's real size, never the same veins tile after tile. Tile, stone and
+stone's real size (wood: 4′ of board), never the same veins tile after
+tile, and turned with the tile when its long side is up, so grain runs
+along the plank. Tile, stone and
 grout names are kept but not put in the estimate's description (owner,
 2026-10-18: maybe listed under materials later). The picker
 (`TilePickerSheet`, Sources/Views/Tile) opens from **Colour, look & grout**

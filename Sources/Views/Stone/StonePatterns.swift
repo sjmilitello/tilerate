@@ -84,11 +84,15 @@ enum StonePatterns {
 
 /// The photographed stone behind each pattern.
 enum StoneMaps {
-    /// The ambientCG texture each map was made from (CC0).
+    /// The photo each map was made from: ambientCG textures (CC0), and thin
+    /// and bold veins Pexels photos (free under the Pexels licence; 3847500
+    /// by ready made, 2341290 by H&CO; owner's call, 2026-10-18: no CC0 photo
+    /// has a Calacatta's long veins).
     static func source(_ p: StoneAppearance.Pattern) -> String {
         switch p {
-        case .softVeins, .thinVeins: "Marble001"
-        case .boldVeins: "Marble002"
+        case .softVeins: "Pexels 3847500, its left end softened"
+        case .thinVeins: "Pexels 3847500"
+        case .boldVeins: "Pexels 2341290"
         case .web: "Marble017"
         case .breccia: "Marble014"
         case .sweeping: "Onyx001"
@@ -100,9 +104,11 @@ enum StoneMaps {
         case .concrete: "Concrete034"
         case .terrazzo: "Terrazzo013"
         case .soapstone: "Marble016"
-        case .travertine: "Travertine004"
+        case .travertine: "Travertine009"
         case .onyx: "Onyx002"
         case .slate: "Rock020"
+        case .woodStraight: "Wood049"
+        case .woodRustic: "Wood096"
         }
     }
 
@@ -110,7 +116,7 @@ enum StoneMaps {
     /// rest of it lightens the base; else it darkens it.
     static func darkMarkings(_ p: StoneAppearance.Pattern) -> Bool {
         switch p {
-        case .softVeins, .thinVeins, .sweeping, .breccia, .quartziteCloudy, .graniteFine, .concrete, .terrazzo: true
+        case .softVeins, .thinVeins, .boldVeins, .sweeping, .breccia, .quartziteCloudy, .graniteFine, .concrete, .terrazzo, .travertine, .woodRustic: true
         default: false
         }
     }
@@ -120,6 +126,7 @@ enum StoneMaps {
     static func spanFt(_ p: StoneAppearance.Pattern) -> Double {
         switch p {
         case .sweeping: 7
+        case .woodStraight, .woodRustic: 4
         case .boldVeins, .onyx: 6
         case .thinVeins, .quartziteLinear: 5
         case .softVeins, .breccia, .quartziteCloudy, .concrete, .travertine: 4

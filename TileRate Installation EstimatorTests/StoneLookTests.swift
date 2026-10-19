@@ -206,10 +206,10 @@ struct StoneLookTests {
             let l = try JSONDecoder().decode(StoneAppearance.self, from: Data(#"{"pattern":"\#(raw)"}"#.utf8))
             #expect(l.pattern == now)
         }
-        // 16 in the stone picker; slate is for stone-look tile only.
+        // 16 in the stone picker; slate and the two woods are for tile only.
         let picker = StoneAppearance.Pattern.allCases.filter { StoneAppearance.Pattern.groups.contains($0.group) }
-        #expect(picker.count == 16 && !picker.contains(.slate))
-        #expect(StoneAppearance.Pattern.allCases.count == 17)
+        #expect(picker.count == 16 && !picker.contains(.slate) && !picker.contains(.woodStraight) && !picker.contains(.woodRustic))
+        #expect(StoneAppearance.Pattern.allCases.count == 19)
     }
 
     @Test func anUnnamedStoneShowsOnlyItsFinish() {

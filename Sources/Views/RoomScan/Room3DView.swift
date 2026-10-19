@@ -1733,8 +1733,20 @@ enum TilePattern {
         // real stone for marble, stone, concrete and terrazzo looks, a grain
         // for wood — each tile a different part of it.
         let photo = TilePhotos.image(t?.photoID)
-        let texture = photo == nil ? lookTexture(look, face: face) : nil
         let handmade = look?.look == .handmade && photo == nil
+        var texture = photo == nil ? (lookTexture(look, face: face) ?? (handmade ? glazeTexture(face) : nil)) : nil
+        // Grain and veins run with the tile: turned when it's laid long side up.
+        if t?.vertical == true, let tex = texture, let cg = tex.image.cgImage {
+            let n = CGSize(width: cg.height, height: cg.width)
+            let one = UIGraphicsImageRendererFormat()
+            one.scale = 1
+            let turned = UIGraphicsImageRenderer(size: n, format: one).image { c in
+                c.cgContext.translateBy(x: n.width / 2, y: n.height / 2)
+                c.cgContext.rotate(by: .pi / 2)
+                tex.image.draw(in: CGRect(x: -CGFloat(cg.width) / 2, y: -CGFloat(cg.height) / 2, width: CGFloat(cg.width), height: CGFloat(cg.height)))
+            }
+            texture = (turned, tex.spanIn)
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let image = UIGraphicsImageRenderer(size: px, format: format).image { ctx in
@@ -1809,10 +1821,12 @@ enum TilePattern {
                         g.saveGState()
                         g.addPath(p.path)
                         g.clip()
+                        // A thin soft band (inches, whatever the tile's size),
+                        // not a frame: the mottled glaze does the rest.
                         let edge = min(p.path.boundingBox.width, p.path.boundingBox.height)
-                        for (w, a) in [(0.32, 0.07), (0.18, 0.08)] {
+                        for (w, a) in [(min(0.7, edge * 0.12), 0.05), (min(0.35, edge * 0.06), 0.06)] {
                             g.addPath(p.path)
-                            g.setLineWidth(edge * w)
+                            g.setLineWidth(w)
                             g.setStrokeColor(UIColor(white: 0, alpha: a).cgColor)
                             g.strokePath()
                         }
@@ -1846,44 +1860,20 @@ enum TilePattern {
             return stone(p, a.accent ?? (look == .marble ? "#8C939B" : p.usual.markings))
         case .concrete: return stone(.concrete, a.accent ?? StonePatterns.hex(face.withBrightness(0.85)))
         case .terrazzo: return stone(.terrazzo, a.accent ?? "#7C7F84")
-        case .wood: return (woodGrain(face), 48)
+        case .wood:
+            // Real wood grain (ambientCG Wood049, Wood096; CC0), its figure a
+            // darker shade of the wood's colour (owner, 2026-10-18).
+            let p = a.lookPattern ?? .woodStraight
+            return stone(p, a.accent ?? StonePatterns.hex(face.withBrightness(0.68)))
         }
     }
 
-    private static var grains: [String: UIImage] = [:]
-
-    /// A wood-look plank's grain: fine lines along it, a little lighter and
-    /// darker than the tile's colour, gently wavy.
-    static func woodGrain(_ face: UIColor) -> UIImage {
-        let key = StonePatterns.hex(face)
-        if let g = grains[key] { return g }
-        let n = 256
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let image = UIGraphicsImageRenderer(size: CGSize(width: n, height: n), format: format).image { ctx in
-            let g = ctx.cgContext
-            face.setFill()
-            g.fill(CGRect(x: 0, y: 0, width: n, height: n))
-            var seed: UInt64 = 0x51ED_2705
-            func rnd() -> CGFloat { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return CGFloat(seed >> 33) / CGFloat(1 << 31) }
-            for _ in 0..<70 {
-                let y0 = rnd() * CGFloat(n), amp = 2 + rnd() * 6, wave = 40 + rnd() * 120, phase = rnd() * 6
-                let path = UIBezierPath()
-                path.move(to: CGPoint(x: 0, y: y0))
-                var x: CGFloat = 0
-                while x <= CGFloat(n) {
-                    path.addLine(to: CGPoint(x: x, y: y0 + amp * sin(x / wave * 2 * .pi + phase)))
-                    x += 4
-                }
-                let dark = rnd() < 0.7
-                g.setStrokeColor((dark ? face.withBrightness(0.78) : face.withBrightness(1.12)).withAlphaComponent(0.35 + rnd() * 0.4).cgColor)
-                g.setLineWidth(0.6 + rnd() * 1.8)
-                g.addPath(path.cgPath)
-                g.strokePath()
-            }
-        }
-        grains[key] = image
-        return image
+    /// A handmade glaze's own unevenness: soft clouds a little lighter and
+    /// darker than the tile, different on each tile.
+    static func glazeTexture(_ face: UIColor) -> (image: UIImage, spanIn: Double) {
+        let base = StonePatterns.hex(face)
+        return (StonePatterns.patternImage(StoneAppearance(pattern: .concrete, base: base,
+                                                           markings: StonePatterns.hex(face.withBrightness(0.82))), pixels: 256), 18)
     }
 
     private static func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? abs(a) : gcd(b, a % b) }
