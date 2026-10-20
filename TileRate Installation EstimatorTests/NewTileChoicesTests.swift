@@ -130,6 +130,65 @@ struct NewTileChoicesTests {
         #expect(read?.turnedOver == true)
     }
 
+    // MARK: Added 2026-10-19 (owner, after TileBar, Daltile and Tile Shop)
+
+    @Test func choicesAddedAfterTheRetailerResearchChargeTheirAdderAndAreOffered() {
+        for l in [Layout.checkerboard, .randomOffset] {
+            var r = rates()
+            r.layoutAdder[l] = 3
+            let t = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: l, tileWidthIn: 12, tileLengthIn: 24)
+            let (legacy, scheme) = totals(wall(t), r)
+            #expect(legacy == 2300 && scheme == 2300, "\(l)")
+            #expect(Layout.choices.contains(l))
+        }
+        for shape in [TileSize.octagonDot, .trapezoid] {
+            var r = rates()
+            r.sizeAdder[shape] = 2
+            let t = TileChoice(tileType: .porcelain, tileSize: shape, layout: .straightStacked, tileWidthIn: 12, tileLengthIn: 12)
+            let (legacy, scheme) = totals(wall(t), r)
+            #expect(legacy == 2200 && scheme == 2200, "\(shape)")
+            #expect(TileSize.choices.contains(shape))
+        }
+        for style in [MosaicStyle.trapezoid, .fan, .latticeWeave] {
+            var r = rates()
+            r.sizeAdder[.mosaic] = 1
+            r.mosaicStyleAdder[style] = 2
+            var t = TileChoice(tileType: .porcelain, tileSize: .mosaic, layout: .straightStacked)
+            t.mosaicStyle = style
+            let (legacy, scheme) = totals(wall(t), r)
+            #expect(legacy == 2300 && scheme == 2300, "\(style)")
+            #expect(TilePattern.shape(t) != .rect)
+        }
+        let oct = TileChoice(tileType: .ceramic, tileSize: .octagonDot, layout: .straightStacked, tileWidthIn: 12, tileLengthIn: 12)
+        #expect(tilePhrase(oct, .standard).hasPrefix("12×12 Ceramic Octagon & Dot Tile"))
+    }
+
+    @Test func ratesSavedBeforeGiveTheNewChoicesNoAdder() throws {
+        var old = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Rates())) as! [String: Any]
+        old["layoutAdder"] = ["Straight Stacked", 0, "Running Bond", 1.5]
+        old["sizeAdder"] = ["Hexagon", 4]
+        old["mosaicStyleAdder"] = ["Square", 1]
+        let r = try JSONDecoder().decode(Rates.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(r.layoutAdder[.runningBond] == 1.5 && r.layoutAdder[.checkerboard] == 0 && r.layoutAdder[.randomOffset] == 0)
+        #expect(r.sizeAdder[.hexagon] == 4 && r.sizeAdder[.octagonDot] == 0 && r.sizeAdder[.trapezoid] == 0)
+        #expect((r.mosaicStyleAdder[.fan] ?? 0) == 0)
+    }
+
+    @Test func checkerboardAndOctagonDotTakeASecondColourThatIsSaved() throws {
+        var t = TileChoice(tileType: .porcelain, tileSize: .rectangle, layout: .checkerboard, tileWidthIn: 12, tileLengthIn: 12)
+        t.appearance = TileAppearance(colour: "#F2F0EB")
+        let plain = TilePattern.make(t)
+        t.appearance?.secondColour = "#8FA58F"
+        let green = TilePattern.make(t)
+        #expect(plain.image.pngData() != green.image.pngData())
+        #expect(green.periodIn.width >= 24 && green.periodIn.height >= 24)
+        let read = try JSONDecoder().decode(TileChoice.self, from: JSONEncoder().encode(t))
+        #expect(read.appearance?.secondColour == "#8FA58F")
+        // A look saved before has none, and still reads.
+        let old = try JSONDecoder().decode(TileAppearance.self, from: Data(##"{"colour":"#FFFFFF"}"##.utf8))
+        #expect(old.secondColour == nil && old.colour == "#FFFFFF")
+    }
+
     // MARK: Materials, shapes and wording (owner, 2026-10-09)
 
     @Test func limestoneAndTravertineAreSeparateAndOldRatesKeepTravertinesPrice() throws {

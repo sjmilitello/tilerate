@@ -1191,6 +1191,8 @@ enum TilePattern {
         case .triangle, .fishscale: (6, 6)
         case .picket: (3, 12)
         case .pill: (2, 6)
+        case .octagonDot: (12, 12)
+        case .trapezoid: (8, 4)
         }
         let a = w ?? l ?? fallback.0, b = l ?? w ?? fallback.1
         return (max(a, b, 0.5), max(min(a, b), 0.5))
@@ -1200,7 +1202,8 @@ enum TilePattern {
     enum Shape: String {
         case rect, hexagon, pennyRound, octagonDot, diamond, rhombus, cube, triangle,
              picket, pill, chevron, basketweave, pinwheel, hopscotch, fishscale, arabesque, starCross,
-             pebble, randomStrip, mixedStick, miniBrick, herringbone, doubleHerringbone, versailles, waterjet
+             pebble, randomStrip, mixedStick, miniBrick, herringbone, doubleHerringbone, versailles, waterjet,
+             trapezoid, trapezoidPinwheel, fan, latticeWeave, harlequin, basketweaveDot
     }
 
     static func shape(_ t: TileChoice?) -> Shape {
@@ -1223,18 +1226,20 @@ enum TilePattern {
         case .fishscale: return .fishscale
         case .picket: return .picket
         case .pill: return .pill
+        case .octagonDot: return .octagonDot
+        case .trapezoid: return .trapezoid
         case .mosaic:
             switch t.mosaicStyle ?? .square {
             case .square, .rectangular: return .rect
             case .hexagon: return .hexagon
             case .octagonDot: return .octagonDot
-            case .diamond: return .diamond
+            case .diamond: return .harlequin
             case .waterjet: return .waterjet
             case .miniBrick: return .miniBrick
             case .picket: return .picket
             case .herringbone: return .herringbone
             case .chevron: return .chevron
-            case .basketweave: return .basketweave
+            case .basketweave: return .basketweaveDot
             case .pinwheel: return .pinwheel
             case .pennyRound: return .pennyRound
             case .fishscale: return .fishscale
@@ -1245,6 +1250,9 @@ enum TilePattern {
             case .triangle: return .triangle
             case .mixedStick: return .mixedStick
             case .pill: return .pill
+            case .trapezoid: return .trapezoidPinwheel
+            case .fan: return .fan
+            case .latticeWeave: return .latticeWeave
             }
         }
     }
@@ -1252,7 +1260,8 @@ enum TilePattern {
     /// A mosaic piece's usual size (inches, long side first) when none was entered.
     private static func mosaicSize(_ style: MosaicStyle) -> (Double, Double) {
         switch style {
-        case .square, .hexagon, .octagonDot, .diamond, .fishscale, .triangle: (2, 2)
+        case .square, .hexagon, .octagonDot, .fishscale, .triangle: (2, 2)
+        case .diamond: (3, 2)
         case .rectangular, .herringbone, .basketweave, .pinwheel: (2, 1)
         case .pennyRound: (0.75, 0.75)
         case .miniBrick: (2, 0.625)
@@ -1262,6 +1271,9 @@ enum TilePattern {
         case .pebble: (1.5, 1)
         case .randomStrip, .mixedStick: (3, 0.625)
         case .pill: (3, 1)
+        case .trapezoid: (3, 3)
+        case .fan: (2, 2)
+        case .latticeWeave: (3, 1)
         case .waterjet: (12, 12)
         case .cube: (1.5, 1.5)
         }
@@ -1294,7 +1306,7 @@ enum TilePattern {
         let key = "\(t?.tileType.rawValue ?? "-")|\(long)|\(short)|\(layout.rawValue)|\(shape.rawValue)|\(design.rawValue)"
             + "|\(t?.vertical == true)|\(t?.photoID ?? "")|\(t?.turnedOver == true)"
             + "|\(look?.colour ?? "")|\(look?.look?.rawValue ?? "")|\(look?.lookPattern?.rawValue ?? "")|\(look?.accent ?? "")"
-            + "|\(look?.grout ?? "")|\(look?.variation ?? 0)"
+            + "|\(look?.grout ?? "")|\(look?.variation ?? 0)|\(look?.secondColour ?? "")"
         if let m = cache[key] { return m }
 
         var pieces: [Piece] = []
@@ -1395,6 +1407,36 @@ enum TilePattern {
             case .diagonal:
                 // The tile itself on the diagonal (a 3 × 12 stays a 3 × 12), stacked.
                 turned45([rect(0, 0, long, short)], long, short)
+            case .checkerboard:
+                // Stacked, every other tile the second colour (tone 4).
+                period = CGSize(width: 2 * long, height: 2 * short)
+                pieces = [rect(0, 0, long, short), rect(long, 0, long, short, tone: 4),
+                          rect(0, short, long, short, tone: 4), rect(long, short, long, short)]
+            case .randomOffset:
+                // Planks staggered at random, as wood-look floors are laid:
+                // no two neighbouring rows' joints within a fifth of a plank.
+                let rows = 9
+                period = CGSize(width: long, height: short * Double(rows))
+                var last = 0.0
+                for r in 0..<rows {
+                    var shift = last
+                    for _ in 0..<20 {
+                        shift = rnd() * long
+                        let d = abs(shift - last), gap = min(d, long - d)
+                        if gap > long * 0.2 { break }
+                    }
+                    if r == rows - 1 {
+                        // The last row also has to clear the first, one repeat on.
+                        for _ in 0..<40 {
+                            let d1 = abs(shift - last), d2 = abs(shift)
+                            if min(d1, long - d1) > long * 0.2 && min(d2, long - d2) > long * 0.2 { break }
+                            shift = rnd() * long
+                        }
+                    }
+                    pieces.append(rect(shift, short * Double(r), long, short))
+                    pieces.append(rect(shift - long, short * Double(r), long, short))
+                    last = shift
+                }
             default:
                 period = CGSize(width: long, height: short)
                 pieces = [rect(0, 0, long, short)]
@@ -1446,7 +1488,80 @@ enum TilePattern {
             let d = short, c = d / (2 + 2.squareRoot())
             period = CGSize(width: d, height: d)
             pieces = [poly([(c, 0), (d - c, 0), (d, c), (d, d - c), (d - c, d), (c, d), (0, d - c), (0, c)]),
-                      poly([(0, -c), (c, 0), (0, c), (-c, 0)], tone: 1)]
+                      poly([(0, -c), (c, 0), (0, c), (-c, 0)], tone: 4)]
+        case .trapezoid:
+            // Trapezoids with 60° sides, alternately wide side down and up,
+            // in rows set half a tile over: `long` the wide side, `short` its height.
+            let h = short, run = h / 3.squareRoot(), top = max(long - 2 * run, long * 0.2)
+            let step = (long + top) / 2
+            period = CGSize(width: 2 * step, height: 2 * h)
+            for row in 0..<2 {
+                let y = Double(row) * h, shift = row == 0 ? 0 : step
+                for k in -2...2 {
+                    let x = Double(k) * 2 * step + shift
+                    pieces.append(poly([(x, y + h), (x + long, y + h), (x + long - (long - top) / 2, y), (x + (long - top) / 2, y)]))
+                    let x2 = x + step
+                    pieces.append(poly([(x2 + (long - top) / 2, y + h), (x2 + long - (long - top) / 2, y + h), (x2 + long, y), (x2, y)]))
+                }
+            }
+        case .trapezoidPinwheel:
+            // Daltile's trapezoid mosaic: equilateral triangles (`long` a
+            // side), point up and point down, each cut into a small dark
+            // triangle in its middle and three trapezoids turning round it,
+            // in two shades.
+            let a = long, h = a * 3.squareRoot() / 2, k = 0.28
+            period = CGSize(width: a, height: 2 * h)
+            func pinwheel(_ A: CGPoint, _ B: CGPoint, _ C: CGPoint) {
+                let g = CGPoint(x: (A.x + B.x + C.x) / 3, y: (A.y + B.y + C.y) / 3)
+                func inner(_ p: CGPoint) -> CGPoint { CGPoint(x: g.x + (p.x - g.x) * k, y: g.y + (p.y - g.y) * k) }
+                let ia = inner(A), ib = inner(B), ic = inner(C)
+                // Where the line through two inner corners meets an outer side.
+                func meet(_ p: CGPoint, _ q: CGPoint, _ s1: CGPoint, _ s2: CGPoint) -> CGPoint {
+                    let d1 = CGPoint(x: q.x - p.x, y: q.y - p.y), d2 = CGPoint(x: s2.x - s1.x, y: s2.y - s1.y)
+                    let den = d1.x * d2.y - d1.y * d2.x
+                    let t = ((s1.x - p.x) * d2.y - (s1.y - p.y) * d2.x) / den
+                    return CGPoint(x: p.x + d1.x * t, y: p.y + d1.y * t)
+                }
+                let qb = meet(ia, ib, B, C), qc = meet(ib, ic, C, A), qa = meet(ic, ia, A, B)
+                let quads = [[qa, B, qb, ia], [qb, C, qc, ib], [qc, A, qa, ic]]
+                for (n, q) in quads.enumerated() { pieces.append(poly(q.map { (Double($0.x), Double($0.y)) }, tone: n == 1 ? 1 : 0)) }
+                pieces.append(poly([ia, ib, ic].map { (Double($0.x), Double($0.y)) }, tone: 4))
+            }
+            for row in -1...2 {
+                let y = Double(row) * h, shift = row.isMultiple(of: 2) ? 0 : a / 2
+                for col in -1...2 {
+                    let x = Double(col) * a + shift
+                    pinwheel(CGPoint(x: x, y: y + h), CGPoint(x: x + a / 2, y: y), CGPoint(x: x + a, y: y + h))
+                    pinwheel(CGPoint(x: x + a / 2, y: y), CGPoint(x: x + 1.5 * a, y: y), CGPoint(x: x + a, y: y + h))
+                }
+            }
+        case .fan:
+            // Fan (scallop) tiles as Daltile sells them: laid like fishscale,
+            // round side up, each a little taller than wide and pinched in to
+            // a point where the two below meet, with a rim just inside its top.
+            let d = long, r = d / 2, ry = r * 1.2
+            period = CGSize(width: d, height: 2 * ry)
+            ordered = true
+            for row in -3...7 {
+                for col in -2...3 {
+                    let cx = Double(col) * d + (row.isMultiple(of: 2) ? 0 : r), cy = Double(row) * ry
+                    pieces.append(Piece(path: CGPath(ellipseIn: CGRect(x: cx - r, y: cy - ry, width: d, height: 2 * ry), transform: nil)))
+                    // The rim: a fine line just inside the top edge (the
+                    // same tile, so same shade: drawn as part of it).
+                    let ir = r * 0.88, iry = ry * 0.88
+                    pieces.append(Piece(path: CGPath(ellipseIn: CGRect(x: cx - ir, y: cy - ry * 0.84, width: 2 * ir, height: 2 * iry), transform: nil), tone: -1))
+                }
+            }
+        case .latticeWeave:
+            // Lattice weave as Daltile sells it: three strips to a square
+            // block, each block turned a quarter from the next.
+            let w = short, l = 3 * w
+            period = CGSize(width: 2 * l, height: 2 * l)
+            for (bx, by, flat) in [(0.0, 0.0, true), (l, 0.0, false), (0.0, l, false), (l, l, true)] {
+                for k in 0..<3 {
+                    pieces.append(flat ? rect(bx, by + Double(k) * w, l, w) : rect(bx + Double(k) * w, by, w, l))
+                }
+            }
         case .diamond:
             // Squares turned 45°.
             let d = short * 2.squareRoot()
@@ -1457,6 +1572,28 @@ enum TilePattern {
         case .rhombus:
             // Long diamonds: `long` the long diagonal (across), `short` the short one.
             let a = long, b = short
+            period = CGSize(width: a, height: b)
+            for (cx, cy) in [(a / 2, b / 2), (0.0, 0.0)] {
+                pieces.append(poly([(cx, cy - b / 2), (cx + a / 2, cy), (cx, cy + b / 2), (cx - a / 2, cy)]))
+            }
+        case .basketweaveDot:
+            // Basketweave mosaic as the owner installs it (2026-10-19): 1 × 2
+            // strips woven over and under, a small square dot (half a strip
+            // wide, the second colour) in each gap. A strip across, a strip
+            // up under its middle with a dot each side; the next repeat sits
+            // 1½ strips over and 1½ down.
+            let w = short, l = 2 * w, dt = w / 2
+            period = CGSize(width: 3 * w, height: 3 * w)
+            for (ox, oy) in [(0.0, 0.0), (1.5 * w, 1.5 * w)] {
+                pieces.append(rect(ox, oy, l, w))
+                pieces.append(rect(ox + dt, oy + w, w, l))
+                pieces.append(rect(ox, oy + w, dt, dt, tone: 4))
+                pieces.append(rect(ox + dt + w, oy + w, dt, dt, tone: 4))
+            }
+        case .harlequin:
+            // Diamond mosaic as sold (harlequin): tall diamonds, `short`
+            // across and `long` from point to point, points up.
+            let a = short, b = long
             period = CGSize(width: a, height: b)
             for (cx, cy) in [(a / 2, b / 2), (0.0, 0.0)] {
                 pieces.append(poly([(cx, cy - b / 2), (cx + a / 2, cy), (cx, cy + b / 2), (cx - a / 2, cy)]))
@@ -1507,7 +1644,7 @@ enum TilePattern {
             let l = long, w = short, side = l + w
             period = CGSize(width: side, height: side)
             pieces = [rect(0, 0, l, w), rect(l, 0, w, l), rect(w, l, l, w), rect(0, w, w, l),
-                      rect(w, w, max(l - w, 0.05), max(l - w, 0.05), tone: 1)]
+                      rect(w, w, max(l - w, 0.05), max(l - w, 0.05), tone: 4)]
         case .hopscotch:
             // Big squares, each with a small square at one corner's turn.
             let big = long, sm = long / 2
@@ -1723,10 +1860,19 @@ enum TilePattern {
         default: t?.tileType == .zellige || t?.tileType == .terracotta || look?.look == .handmade ? 0.12 : 0.05
         }
         let toneFactor: [CGFloat] = [1, 0.8, 0.62, 1.12]
+        // A checkerboard's other tiles and the dots of octagon & dot (tone
+        // 4): their own colour, else one
+        // that stands out — charcoal with light tile, white with dark.
+        let second = look?.secondColour.map(StonePatterns.uiColor)
+            ?? (lum > 0.5 ? UIColor(red: 0.17, green: 0.17, blue: 0.18, alpha: 1) : UIColor(red: 0.95, green: 0.94, blue: 0.92, alpha: 1))
+        var sr: CGFloat = 0, sg: CGFloat = 0, sb: CGFloat = 0, sa: CGFloat = 0
+        second.getRed(&sr, green: &sg, blue: &sb, alpha: &sa)
         func shade(_ k: Int, tone: Int) -> UIColor {
             var h = UInt32(truncatingIfNeeded: k &* 2_654_435_761)
             h ^= h >> 15
-            let f = toneFactor[min(max(tone, 0), 3)] * (1 + spread * (CGFloat(h % 1000) / 500 - 1))
+            let jitter = 1 + spread * (CGFloat(h % 1000) / 500 - 1)
+            if tone == 4 { return UIColor(red: min(1, sr * jitter), green: min(1, sg * jitter), blue: min(1, sb * jitter), alpha: 1) }
+            let f = toneFactor[min(max(tone, 0), 3)] * jitter
             return UIColor(red: min(1, fr * f), green: min(1, fg * f), blue: min(1, fb * f), alpha: 1)
         }
         // Its face: the photo of the real tile, else its look's texture —
@@ -1735,6 +1881,8 @@ enum TilePattern {
         let photo = TilePhotos.image(t?.photoID)
         let handmade = look?.look == .handmade && photo == nil
         var texture = photo == nil ? (lookTexture(look, face: face) ?? (handmade ? glazeTexture(face) : nil)) : nil
+        var texture2 = photo == nil && ((shape == .rect && layout == .checkerboard) || [.octagonDot, .pinwheel, .trapezoidPinwheel, .basketweaveDot].contains(shape))
+            ? (lookTexture(look, face: second) ?? (handmade ? glazeTexture(second) : nil)) : nil
         // Grain and veins run with the tile: turned when it's laid long side up.
         if t?.vertical == true, let tex = texture, let cg = tex.image.cgImage {
             let n = CGSize(width: cg.height, height: cg.width)
@@ -1746,6 +1894,13 @@ enum TilePattern {
                 tex.image.draw(in: CGRect(x: -CGFloat(cg.width) / 2, y: -CGFloat(cg.height) / 2, width: CGFloat(cg.width), height: CGFloat(cg.height)))
             }
             texture = (turned, tex.spanIn)
+            if let t2 = texture2, let cg2 = t2.image.cgImage {
+                texture2 = (UIGraphicsImageRenderer(size: n, format: one).image { c in
+                    c.cgContext.translateBy(x: n.width / 2, y: n.height / 2)
+                    c.cgContext.rotate(by: .pi / 2)
+                    t2.image.draw(in: CGRect(x: -CGFloat(cg2.width) / 2, y: -CGFloat(cg2.height) / 2, width: CGFloat(cg2.width), height: CGFloat(cg2.height)))
+                }, t2.spanIn)
+            }
         }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -1761,7 +1916,10 @@ enum TilePattern {
             // edges wrap (not for overlapping scales, drawn in order).
             let shifts: [(Double, Double)] = ordered ? [(0, 0)]
                 : [-1, 0, 1].flatMap { i in [-1, 0, 1].map { j in (Double(i) * period.width, Double(j) * period.height) } }
-            for (k, p) in all.enumerated() {
+            for (k0, p0) in all.enumerated() {
+                // Tone −1: part of the tile before it (a fan's rim), same shade.
+                let k = p0.tone == -1 ? k0 - 1 : k0
+                let p = p0.tone == -1 ? Piece(path: p0.path, tone: all[max(k0 - 1, 0)].tone) : p0
                 for (dx, dy) in shifts {
                     g.saveGState()
                     g.translateBy(x: dx, y: dy)
@@ -1779,12 +1937,16 @@ enum TilePattern {
                         g.scaleBy(x: 1, y: -1)
                         g.draw(cg, in: draw)
                         g.restoreGState()
-                        if p.tone != 0 {
+                        if p.tone == 4 {
+                            g.addPath(p.path)
+                            g.setFillColor(second.withAlphaComponent(0.7).cgColor)
+                            g.fillPath()
+                        } else if p.tone != 0 {
                             g.addPath(p.path)
                             g.setFillColor(UIColor(white: 0, alpha: p.tone == 3 ? 0 : 0.12 * Double(p.tone)).cgColor)
                             g.fillPath()
                         }
-                    } else if let texture, let cg = texture.image.cgImage {
+                    } else if let texture = (p.tone == 4 ? texture2 : nil) ?? texture, let cg = texture.image.cgImage {
                         // Its own patch of the stone (or wood), at the stone's
                         // real size, from a different spot each tile — not
                         // the same veins repeated tile after tile.
@@ -1804,7 +1966,7 @@ enum TilePattern {
                             }
                             y += span
                         }
-                        let f = toneFactor[min(max(p.tone, 0), 3)] * (1 + spread * (CGFloat(h % 1000) / 500 - 1))
+                        let f = (p.tone == 4 ? 1 : toneFactor[min(max(p.tone, 0), 3)]) * (1 + spread * (CGFloat(h % 1000) / 500 - 1))
                         if abs(f - 1) > 0.005 {
                             g.addPath(p.path)
                             g.setFillColor(UIColor(white: f < 1 ? 0 : 1, alpha: min(0.35, abs(1 - f))).cgColor)
@@ -1833,8 +1995,15 @@ enum TilePattern {
                         g.restoreGState()
                     }
                     g.addPath(p.path)
-                    g.setStrokeColor(joint.cgColor)
+                    if p0.tone == -1 {
+                        // A raised rim catches the light: a fine, lighter line.
+                        g.setLineWidth(grout / ppi * 0.6)
+                        g.setStrokeColor(UIColor(white: 1, alpha: 0.75).cgColor)
+                    } else {
+                        g.setStrokeColor(joint.cgColor)
+                    }
                     g.strokePath()
+                    g.setLineWidth(grout / ppi)
                     g.restoreGState()
                 }
             }

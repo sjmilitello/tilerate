@@ -176,6 +176,10 @@ enum TileSize: String, CaseIterable, Hashable, Codable, Identifiable {
     case fishscale = "Fishscale"
     case picket = "Picket"
     case pill = "Pill"
+    // Added 2026-10-19 (owner, after TileBar, Daltile and Tile Shop): an
+    // octagon with a small square dot at its corners, and trapezoids.
+    case octagonDot = "Octagon & Dot"
+    case trapezoid = "Trapezoid"
 
     var id: String { rawValue }
 }
@@ -198,6 +202,10 @@ enum Layout: String, CaseIterable, Codable, Identifiable {
     case basketweave = "Basketweave"
     case versailles = "Versailles"
     case hopscotch = "Hopscotch"
+    // Added 2026-10-19 (owner): two colours alternating (the second is
+    // `TileAppearance.secondColour`), and planks staggered at random.
+    case checkerboard = "Checkerboard"
+    case randomOffset = "Random Offset"
     var id: String { rawValue }
 }
 
@@ -226,6 +234,10 @@ enum MosaicStyle: String, CaseIterable, Codable, Identifiable {
     case triangle = "Triangle"
     case mixedStick = "Mixed Stick"
     case pill = "Pill"
+    // Added 2026-10-19 (owner, after Daltile's mosaic patterns).
+    case trapezoid = "Trapezoid"
+    case fan = "Fan"
+    case latticeWeave = "Lattice Weave"
     var id: String { rawValue }
 }
 
@@ -272,12 +284,13 @@ struct Rates: Codable, Equatable {
     var travertineSplit: Bool = true
     var sizeAdder: [TileSize: Double] = [
         .mosaic: 0, .starCross: 0, .arabesque: 0, .hexagon: 0, .rectangle: 0, .square: 0,
-        .diamond: 0, .triangle: 0, .fishscale: 0, .picket: 0, .pill: 0
+        .diamond: 0, .triangle: 0, .fishscale: 0, .picket: 0, .pill: 0,
+        .octagonDot: 0, .trapezoid: 0
     ]
     var layoutAdder: [Layout: Double] = [
         .straightStacked: 0, .runningBond: 0, .diagonal: 0, .herringbone: 0, .multiTile: 0,
         .oneThirdOffset: 0, .diagonalHerringbone: 0, .doubleHerringbone: 0, .chevron: 0, .basketweave: 0,
-        .versailles: 0, .hopscotch: 0
+        .versailles: 0, .hopscotch: 0, .checkerboard: 0, .randomOffset: 0
     ]
     /// Added on top of the Mosaic size adder for a mosaic of that style.
     var mosaicStyleAdder: [MosaicStyle: Double] =
@@ -1161,6 +1174,11 @@ struct TileAppearance: Codable, Hashable, Equatable {
     var pattern: StoneAppearance.Pattern? = nil
     /// The veins' colour for a marble or stone look.
     var accent: String? = nil
+    /// A checkerboard's other colour, the dots of octagon & dot and the
+    /// windmill (pinwheel) mosaic, or a trapezoid mosaic's small triangles
+    /// (owner, 2026-10-19); nil: one that stands out (charcoal with light
+    /// tile, white with dark).
+    var secondColour: String? = nil
     /// "#RRGGBB"; nil: grout that stands out from the tile, as before.
     var grout: String? = nil
     /// The grout's name, e.g. "PermaColor Sauterne"; nil for any colour.
@@ -1969,6 +1987,7 @@ extension TileAppearance {
         c.read(.pattern, into: &patternRaw)
         pattern = patternRaw.map(StoneAppearance.Pattern.reading)
         c.read(.accent, into: &accent)
+        c.read(.secondColour, into: &secondColour)
         c.read(.grout, into: &grout)
         c.read(.groutName, into: &groutName)
         c.read(.variation, into: &variation)

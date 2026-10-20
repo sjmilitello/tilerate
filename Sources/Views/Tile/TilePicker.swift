@@ -106,7 +106,7 @@ struct TilePickerSheet: View {
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var takingPhoto = false
 
-    enum Well { case tile, accent, grout }
+    enum Well { case tile, second, accent, grout }
 
     init(title: String, start: TileChoice, onDone: @escaping (TileChoice) -> Void) {
         self.title = title
@@ -129,6 +129,18 @@ struct TilePickerSheet: View {
     /// The tile's colour as shown: its own, else the material's.
     private var faceHex: String { look.colour ?? StonePatterns.hex(TilePattern.color(tile.tileType)) }
     private var usesAccent: Bool { look.look == .marble || look.look == .stone }
+    /// A checkerboard has a second tile colour, octagon & dot its dots' (owner, 2026-10-19).
+    private var usesSecond: Bool {
+        (tile.layout == .checkerboard && (tile.tileSize == .rectangle || tile.tileSize == .square)) || hasDot
+    }
+    private var hasDot: Bool {
+        tile.tileSize == .octagonDot || (tile.tileSize == .mosaic && [.octagonDot, .pinwheel, .trapezoid, .basketweave].contains(tile.mosaicStyle))
+    }
+    /// What the second colour is called: the dots, a trapezoid mosaic's triangles, else the other tiles.
+    private var secondLabel: String {
+        if tile.tileSize == .mosaic && tile.mosaicStyle == .trapezoid { return "Triangles" }
+        return hasDot ? "Dot" : "Tile 2"
+    }
 
     var body: some View {
         NavigationStack {
@@ -269,6 +281,7 @@ struct TilePickerSheet: View {
     private var current: String? {
         switch well {
         case .tile: faceHex
+        case .second: look.secondColour
         case .accent: look.accent
         case .grout: look.grout
         }
@@ -277,7 +290,8 @@ struct TilePickerSheet: View {
     @ViewBuilder
     private func colours(width: CGFloat) -> some View {
         HStack(spacing: 8) {
-            wellButton(.tile, "Tile", faceHex)
+            wellButton(.tile, usesSecond && !hasDot ? "Tile 1" : "Tile", faceHex)
+            if usesSecond { wellButton(.second, secondLabel, look.secondColour) }
             if usesAccent { wellButton(.accent, "Veins", look.accent) }
             wellButton(.grout, "Grout", look.grout)
         }
@@ -299,6 +313,7 @@ struct TilePickerSheet: View {
         edit { a in
             switch well {
             case .tile: a.colour = hex
+            case .second: a.secondColour = hex
             case .accent: a.accent = hex
             case .grout: a.grout = hex; a.groutName = nil
             }

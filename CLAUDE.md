@@ -571,6 +571,38 @@ colour. The Tile step shows an "In 3-D" swatch at true scale. New layouts,
 shapes and mosaic styles each have their own adder in Admin, starting at
 $0. `PricingCases` keeps the enum values there were when it was recorded
 (`recordedLayouts` etc.); later ones are tested in `NewTileChoicesTests`.
+Added 2026-10-19, after comparing TileBar, Daltile and Tile Shop's
+catalogues (owner's picks; no new materials): shapes **Octagon & Dot**
+(the octagon with a small square dot at its corners) and **Trapezoid**
+(60° sides, alternately up and down, rows half a tile over; long side up
+allowed); layouts **Checkerboard** (stacked, every other tile in a second
+colour) and **Random Offset** (planks staggered at random, no neighbouring
+joints within a fifth of a plank, as wood-look floors are laid); mosaic
+styles **Trapezoid**, **Fan** and **Lattice Weave**. Every mosaic style
+was then checked against Daltile's product photos (owner, 2026-10-19:
+"Daltile has a fan mosaic that doesn't look like the one here"), and
+drawn to match: Fan is round-side-up scallops a little taller than wide,
+pinched to a point, with a fine light rim inside the top (tone −1: part
+of the tile before it); Lattice Weave is a basketweave of three 1×3
+strips to a block; the Trapezoid mosaic is equilateral triangles each cut
+into a small triangle and three trapezoids turning round it
+(`trapezoidPinwheel`; the Trapezoid *shape* stays rows of trapezoids);
+Diamond is tall harlequin diamonds (3″ × 2″); the Pinwheel (Daltile's
+Windmill) dot is the second colour; the Basketweave mosaic is the one the
+owner installs most (their photo, 2026-10-19): 1 × 2 strips woven over and
+under with a square dot half a strip wide in each gap, in the second
+colour (`basketweaveDot`; the Basketweave *layout* of full-size tile stays
+plain pairs); picket and diamond mosaics can be
+laid long side up. Left as they are, being other designs of the same
+name: our fishscale is round (Daltile's is a tall 2×6 arch), our pebble
+is river pebbles (Daltile's is flat broken stone), our waterjet is the
+owner's floral. The checkerboard's other tiles, the dots of octagon & dot,
+the pinwheel and the basketweave mosaic, and the trapezoid mosaic's
+triangles take
+`TileAppearance.secondColour` ("Tile 2" / "Dot" / "Triangles" in the tile
+picker; nil: charcoal with light tile, white with dark), drawn as tone 4
+in `TilePattern`. Each has its Admin adder, $0 to start; rates
+saved before read them as $0.
 
 Pictures for the PDF (owner's calls, 2026-10-07): the estimate keeps the
 3-D views chosen for it (`EstimateDocument.pictures`, `EstimatePicture`:

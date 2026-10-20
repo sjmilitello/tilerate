@@ -1558,9 +1558,9 @@ struct NDTileFields: View {
     }
     /// Shapes with a long side, which can run across or up.
     private var hasLongSide: Bool {
-        if isMosaic { return mosaicStyle == .pill }
+        if isMosaic { return mosaicStyle == .pill || mosaicStyle == .picket || mosaicStyle == .diamond }
         guard !isMultiTile, let size else { return false }
-        return [.rectangle, .picket, .pill].contains(size)
+        return [.rectangle, .picket, .pill, .trapezoid].contains(size)
             && ![.diagonal, .diagonalHerringbone, .herringbone, .doubleHerringbone, .basketweave, .versailles, .hopscotch]
                 .contains(layout ?? .straightStacked)
     }
@@ -1877,6 +1877,26 @@ struct NDLayoutPattern: Shape {
         case .straightStacked:
             for i in 1...2 { line(0, CGFloat(i) / 3, 1, CGFloat(i) / 3) }
             for i in 1...3 { line(CGFloat(i) / 4, 0, CGFloat(i) / 4, 1) }
+        case .checkerboard:
+            // A grid, every other tile hatched: the second colour.
+            for i in 1...2 { line(0, CGFloat(i) / 3, 1, CGFloat(i) / 3) }
+            for i in 1...3 { line(CGFloat(i) / 4, 0, CGFloat(i) / 4, 1) }
+            for cx in 0..<4 {
+                for cy in 0..<3 where (cx + cy).isMultiple(of: 2) {
+                    let x0 = CGFloat(cx) / 4, y0 = CGFloat(cy) / 3
+                    for k in 1...3 {
+                        let f = CGFloat(k) / 4
+                        line(x0 + f / 4, y0, x0, y0 + f / 3)
+                        line(x0 + 0.25, y0 + f / 3, x0 + f / 4, y0 + 1.0 / 3)
+                    }
+                }
+            }
+        case .randomOffset:
+            // Rows of planks, their joints staggered at random.
+            for i in 1...3 { line(0, CGFloat(i) / 4, 1, CGFloat(i) / 4) }
+            for (row, xs) in [[0.55], [0.2, 0.85], [0.4], [0.1, 0.7]].enumerated() {
+                for x in xs { line(x, CGFloat(row) / 4, x, CGFloat(row + 1) / 4) }
+            }
         case .runningBond:
             for i in 1...2 { line(0, CGFloat(i) / 3, 1, CGFloat(i) / 3) }
             for x in [0.33, 0.73] { line(x, 0, x, 1.0 / 3); line(x, 2.0 / 3, x, 1) }
