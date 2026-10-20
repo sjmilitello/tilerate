@@ -151,7 +151,7 @@ struct AreaFlowView: View {
         }
         .background(ND.ground.ignoresSafeArea())
         .foregroundStyle(ND.text)
-        .navigationTitle("\(roomName) · \(section.area?.rawValue ?? "New area")")
+        .navigationTitle("\(roomName) · \(section.areaTitle ?? "New area")")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(ND.ground, for: .navigationBar)
         .onAppear {
@@ -175,7 +175,7 @@ struct AreaFlowView: View {
         .sheet(isPresented: $addingAreas) {
             NDNewRoomSheet(defaultName: roomName, addingTo: roomName) { _, areas, _ in addAreas(areas) }
         }
-        .confirmationDialog("Delete \(section.area?.rawValue ?? "this area")?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .confirmationDialog("Delete \(section.areaTitle ?? "this area")?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete this area", role: .destructive) { deleteArea() }
         } message: {
             Text("Its tile, measurements and lines come off the estimate.")
@@ -309,7 +309,7 @@ struct AreaFlowView: View {
             out.append(.init(label: "Same as " + label, tile: tile))
         }
         for a in store.doc.rooms[r].sections {
-            let name = a.area?.rawValue ?? "Area"
+            let name = a.areaTitle ?? "Area"
             let hasWalls = a.area == .shower || a.area == .tub
             if a.walls.isEmpty { add(hasWalls ? "\(name.lowercased()) walls" : name.lowercased(), a.fullMainTile) }
             for w in a.walls { add("\(name.lowercased()) · \(w.name)", w.tile) }
@@ -357,7 +357,7 @@ struct AreaFlowView: View {
         if a.scanTakeoff?.vanityID != nil {
             let vanities = areas.filter { $0.scanTakeoff?.vanityID != nil }
             let n = vanities.firstIndex { $0.id == a.id } ?? 0
-            return vanities.count > 1 && n > 0 ? "Vanity \(n + 1)" : "Vanity"
+            return vanities.count > 1 && n > 0 ? "Vanity Backsplash \(n + 1)" : "Vanity Backsplash"
         }
         guard let kind = a.area else { return "New area" }
         let same = areas.filter { $0.area == kind && $0.scanTakeoff?.vanityID == nil }
@@ -707,7 +707,7 @@ struct AreaFlowView: View {
     /// the area's own screen.
     private func modelEditor(_ scan: ScannedRoom, mode: ScanEditor.Mode, embedding: ScanEditor.Embedding?) -> ScanEditor {
         ScanEditor(room: scan, area: section.area,
-                           title: "\(roomName.isEmpty ? "" : roomName + " · ")\(section.area?.rawValue ?? "Area")",
+                           title: "\(roomName.isEmpty ? "" : roomName + " · ")\(section.areaTitle ?? "Area")",
                            takeoff: takeoffForEditor(scan), others: otherScanAreas, mode: mode,
                            kneeWallThicknessIn: store.rates.kneeWallThicknessIn,
                            stone: StonePrices(rates: store.pricingRates),

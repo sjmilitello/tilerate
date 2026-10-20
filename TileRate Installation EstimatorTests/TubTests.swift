@@ -218,6 +218,17 @@ struct TubTests {
         #expect(left.isEmpty)
     }
 
+    @Test func aDraggedShowerCatchesOnTheDeckBesideIt() {
+        // A deck 0–5¼′ along the wall; a shower floor dragged to start 1½″ past it.
+        let deck: [ScannedRoom.Point] = [.init(x: 0, y: 0), .init(x: 5.25, y: 0), .init(x: 5.25, y: 2.75), .init(x: 0, y: 2.75)]
+        let floor = AreaTakeoff.FloorRect(origin: .init(x: 5.375, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1), widthFt: 3, depthFt: 3)
+        let segs = deck.indices.map { (deck[$0], deck[($0 + 1) % 4]) }
+        let caught = floor.caught(on: segs, reach: 0.2)
+        #expect(abs(caught.origin.x - 5.25) < 1e-9 && abs(caught.origin.y) < 1e-9)
+        // Out of reach, it stays where it was.
+        #expect(floor.caught(on: segs, reach: 0.05) == floor)
+    }
+
     @Test func freestandingTubsAreTheRoomsAndChangeNoTile() throws {
         var room = RoomSketch.room(.rectangle, .init(widthIn: 96, depthIn: 120, ceilingIn: 96))
         room.addFreestandingTub(at: room.middle)

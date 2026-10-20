@@ -62,7 +62,8 @@ struct VanityTests {
         er.refreshFloorCutouts(prices: prices)
         let s = try #require(er.sections.first { $0.scanTakeoff?.vanityID != nil })
         #expect(s.area == .backsplash)
-        #expect(AreaFlowView.areaName(s, in: er.sections) == "Vanity")
+        #expect(AreaFlowView.areaName(s, in: er.sections) == "Vanity Backsplash")
+        #expect(estimateSentence(room: er, section: s, wording: .standard).hasPrefix("Bath - Vanity Backsplash"))
         // Stone backsplash: its own line, no tile.
         let line = try #require(s.additionsLabor.first { $0.activity == "Stone vanity backsplash" })
         #expect(abs(line.qty - (38.0 / 12 * 100).rounded() / 100) < 0.011 && line.rate == 30)

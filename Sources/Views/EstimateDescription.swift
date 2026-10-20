@@ -5,7 +5,7 @@ import Foundation
 
 /// "Primary bath - Shower Tile installation consisting of …"
 func estimateSentence(room: EstimateRoom, section: EstimateSection, wording: WordingTemplates) -> String {
-    let areaText = section.area?.rawValue ?? "Area"
+    let areaText = section.areaTitle ?? "Area"
     return "\(room.name) - \(areaText) \(areaWording(section, wording: wording).text)"
 }
 
@@ -199,7 +199,7 @@ private func sentenceParts(_ section: EstimateSection, wording: WordingTemplates
     return (roomPrefix, [
         "tiles": tiles,
         "features": features.joined(separator: ", "),
-        "area": section.area?.rawValue ?? "",
+        "area": section.areaTitle ?? "",
         "sqft": sqft > 0 ? "\(sqft.formatted(.number.precision(.fractionLength(0...2)))) sq ft" : "",
     ])
 }
@@ -404,5 +404,14 @@ extension DecorativeItem {
         } else {
             locations.append(option.key)
         }
+    }
+}
+
+
+extension EstimateSection {
+    /// What the area is called on the estimate and its screens: its kind,
+    /// or "Vanity Backsplash" for a vanity's own area (owner, 2026-10-19).
+    var areaTitle: String? {
+        scanTakeoff?.vanityID != nil ? "Vanity Backsplash" : area?.rawValue
     }
 }

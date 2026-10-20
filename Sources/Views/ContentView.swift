@@ -334,7 +334,7 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         ForEach(sections.indices, id: \.self) { j in
                             let sec   = sections[j]
-                            let title = sec.area?.rawValue ?? "Area \(j + 1)"
+                            let title = sec.areaTitle ?? "Area \(j + 1)"
                             let isSel = (j == currentSectionIndex)
                             
                             Button {

@@ -1427,6 +1427,8 @@ struct ScanEditor: View {
                floorRect: floorRectBinding,
                floorRectName: selectedSkip != nil ? "No tile" : area == .tub ? (takeoff.tubKind == .dropIn ? "Tub deck" : "Tub") : "Shower floor",
                tubInner: area == .tub ? takeoff.tubInDeck(in: room)?.corners ?? [] : [],
+               catchOutlines: area == .shower ? (room.tubPlaced && room.tubOutline.count == 4 ? [room.tubOutline] : [])
+                   : area == .tub ? othersHere.compactMap { $0.floor?.corners } : [],
                tiledFloor: tiledFloor,
                floorHoles: floorHoles,
                skipBoxes: tiledFloor != nil ? takeoff.skipBoxes : [],
@@ -2759,6 +2761,9 @@ struct PlanCanvas: View {
     var floorRectName = "Shower floor"
     /// A drop-in tub inside its deck, drawn lighter.
     var tubInner: [ScannedRoom.Point] = []
+    /// Other outlines a dragged floor catches on, as on walls: the tub beside
+    /// a shower, the shower beside a tub (owner, 2026-10-19).
+    var catchOutlines: [[ScannedRoom.Point]] = []
     /// A Floor area on the scanned floor (owner, 2026-10-12): its tiled
     /// outline, filled in this area's colour less the holes (other areas'
     /// floors, unless continuous) and the "no tile" boxes; a tap on a box
@@ -3527,7 +3532,14 @@ struct PlanCanvas: View {
                 moved.origin = .init(x: start.origin.x + start.u.x * da + start.v.x * db,
                                      y: start.origin.y + start.u.y * da + start.v.y * db)
                 // (A floor already past the walls, e.g. a rough scan, moves freely.)
-                if fitsRoom(moved) || !fitsRoom(start) { binding.wrappedValue = moved; break }
+                if fitsRoom(moved) || !fitsRoom(start) {
+                    // Catching on a wall, or the tub or shower beside it (owner, 2026-10-19).
+                    let caught = caughtMove(moved, reach: reach)
+                    let use = fitsRoom(caught) || !fitsRoom(start) ? caught : moved
+                    cue(use != moved, at: use.center)
+                    binding.wrappedValue = use
+                    break
+                }
             }
             shown = binding.wrappedValue?.center
         case .floorEdge(let axis, let near):
@@ -3619,16 +3631,27 @@ struct PlanCanvas: View {
 
     /// A length rounded to the sixteenth, or to where it would meet a wall
     /// when within 1½″, measured from `from` toward `dir`.
+    /// The lines a dragged floor catches on: the walls, and `catchOutlines`' edges.
+    private var catchSegments: [(ScannedRoom.Point, ScannedRoom.Point)] {
+        room.walls.map { ($0.start, $0.end) }
+            + catchOutlines.flatMap { p in p.indices.map { (p[$0], p[($0 + 1) % p.count]) } }
+    }
+
+    /// A floor moved so an edge lies on a line within `reach`.
+    private func caughtMove(_ r: AreaTakeoff.FloorRect, reach: Double) -> AreaTakeoff.FloorRect {
+        r.caught(on: catchSegments, reach: reach)
+    }
+
     private func snapLength(_ length: Double, from o: ScannedRoom.Point, toward dir: ScannedRoom.Point,
                             reach: Double = Steering.catchFt) -> Double {
         var best = max(6.0 / 12, Steering.sixteenth(length))
         var bestGap = reach
-        for w in room.walls {
-            let ex = w.end.x - w.start.x, ey = w.end.y - w.start.y
+        for (start, end) in catchSegments {
+            let ex = end.x - start.x, ey = end.y - start.y
             let den = dir.x * ey - dir.y * ex
             guard abs(den) > 1e-6 else { continue }
-            let t = ((w.start.x - o.x) * ey - (w.start.y - o.y) * ex) / den
-            let s = ((w.start.x - o.x) * dir.y - (w.start.y - o.y) * dir.x) / den
+            let t = ((start.x - o.x) * ey - (start.y - o.y) * ex) / den
+            let s = ((start.x - o.x) * dir.y - (start.y - o.y) * dir.x) / den
             guard t > 0.5, s >= -0.05, s <= 1.05, abs(t - length) < bestGap else { continue }
             best = t
             bestGap = abs(t - length)

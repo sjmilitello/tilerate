@@ -127,11 +127,11 @@ struct EstimateReviewView: View {
         ForEach(t.sections, id: \.section.id) { item in
             let list = NDAreaText.warnings(item.section)
             if areaWording(item.section, wording: store.pricingRates.wording).isOutOfDate {
-                NDWarning(title: "\(item.room.name) · \(item.section.area?.rawValue ?? "New area")",
+                NDWarning(title: "\(item.room.name) · \(item.section.areaTitle ?? "New area")",
                           message: "Its wording was edited before the area changed. Check it below before sending.")
             }
             if let first = list.first {
-                NDWarning(title: "\(item.room.name) · \(item.section.area?.rawValue ?? "New area")",
+                NDWarning(title: "\(item.room.name) · \(item.section.areaTitle ?? "New area")",
                           message: list.count > 1 ? "\(first) (and \(list.count - 1) more)" : first,
                           actionTitle: "Fix",
                           action: {
@@ -214,7 +214,7 @@ struct EstimateReviewView: View {
         Button { onEditArea(item.room.id, item.section.id, 4) } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("\(item.room.name) · \(item.section.area?.rawValue ?? "New area")")
+                    Text("\(item.room.name) · \(item.section.areaTitle ?? "New area")")
                         .font(.system(size: 17, weight: .semibold))
                     Spacer()
                     Text(ND.money(item.subtotal)).font(.system(size: 17, weight: .bold).monospacedDigit())

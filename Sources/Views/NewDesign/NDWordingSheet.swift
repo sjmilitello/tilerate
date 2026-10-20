@@ -16,7 +16,7 @@ struct NDWordingSheet: View {
     @State private var suggested = false
 
     private var current: AreaWording { areaWording(section, wording: wording) }
-    private var areaName: String { section.area?.rawValue ?? "area" }
+    private var areaName: String { section.areaTitle ?? "area" }
 
     var body: some View {
         NavigationStack {

@@ -296,6 +296,32 @@ extension AreaTakeoff.FloorRect {
 }
 
 extension AreaTakeoff.FloorRect {
+    /// Moved so an edge lies on one of `segments` running alongside it,
+    /// within `reach`, each way on its own (owner, 2026-10-19: a shower
+    /// dragged up to a tub's deck, or a tub to a shower, catches on it as on
+    /// a wall).
+    func caught(on segments: [(ScannedRoom.Point, ScannedRoom.Point)], reach: Double) -> Self {
+        guard reach > 0 else { return self }
+        var out = self
+        for (axis, size, other, otherSize) in [(u, widthFt, v, depthFt), (v, depthFt, u, widthFt)] {
+            var best: Double? = nil
+            for (a, b) in segments {
+                let ex = b.x - a.x, ey = b.y - a.y, len = max(hypot(ex, ey), 1e-9)
+                guard abs((ex * axis.x + ey * axis.y) / len) < 0.05 else { continue }
+                let pos = (a.x - origin.x) * axis.x + (a.y - origin.y) * axis.y
+                let s0 = (a.x - origin.x) * other.x + (a.y - origin.y) * other.y
+                let s1 = (b.x - origin.x) * other.x + (b.y - origin.y) * other.y
+                guard min(otherSize, max(s0, s1)) - max(0, min(s0, s1)) > 0.25 else { continue }
+                for edge in [0, size] {
+                    let g = pos - edge
+                    if abs(g) < reach, abs(g) > 1e-6, abs(g) < abs(best ?? .infinity) { best = g }
+                }
+            }
+            if let g = best { out.origin = .init(x: out.origin.x + axis.x * g, y: out.origin.y + axis.y * g) }
+        }
+        return out
+    }
+
     /// Turned a quarter about its middle.
     var turnedInPlace: Self {
         let c = center

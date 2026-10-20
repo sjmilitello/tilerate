@@ -1062,7 +1062,10 @@ of its front — or **Runs in as a bench** — the shower gets a framed bench
 and height, 15″ into the shower, priced as the shower's bench, and the
 deck's end is no longer front. The room keeps them tied whenever an area
 is saved (`EstimateRoom.tieTubsAndShowers`, run by `refreshFloorCutouts`;
-`AreaTakeoff.tubNeighbors`).
+`AreaTakeoff.tubNeighbors`). Dragged, they catch on each other as on
+a wall (`FloorRect.caught(on:reach:)`, the plan's `catchOutlines`: a shower
+on the placed tub, a tub on the room's showers; a moved floor catches on
+walls too), and the bench shows on the tub's model as soon as it settles.
 
 **Freestanding tubs** are the room's, decoration only — nothing about the
 tile changes (owner): ⋯ → Add a freestanding tub in any area's model, a tap
@@ -1083,7 +1086,8 @@ width, depth and height; sinks (1, or 2 from 60″ wide unless typed,
 **Stone** (4″ to start), **Tile** or **None** — its height, and which of the
 walls it touches get it (`splashWalls`, `wallsTouching`, `vanitySplash`);
 Move, Turn, Remove. Each vanity has its **own area**: a Backsplash area
-named "Vanity" on the chips (`AreaTakeoff.vanityID`, `areaName`), made and
+called **Vanity Backsplash** on the chips, the estimate and its screens
+(`AreaTakeoff.vanityID`, `EstimateSection.areaTitle`, `areaName`), made and
 removed with it and measured again whenever the room is saved
 (`EstimateRoom.syncVanities`, run by `refreshFloorCutouts`). There a tile
 backsplash is square feet at the backsplash price, in that area's tile (kept
