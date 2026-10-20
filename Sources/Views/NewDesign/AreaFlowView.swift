@@ -353,8 +353,14 @@ struct AreaFlowView: View {
 
     /// An area's name in its room: "Shower", or "Shower 2" for the second.
     static func areaName(_ a: EstimateSection, in areas: [EstimateSection]) -> String {
+        // A vanity's own area (owner, 2026-10-19).
+        if a.scanTakeoff?.vanityID != nil {
+            let vanities = areas.filter { $0.scanTakeoff?.vanityID != nil }
+            let n = vanities.firstIndex { $0.id == a.id } ?? 0
+            return vanities.count > 1 && n > 0 ? "Vanity \(n + 1)" : "Vanity"
+        }
         guard let kind = a.area else { return "New area" }
-        let same = areas.filter { $0.area == kind }
+        let same = areas.filter { $0.area == kind && $0.scanTakeoff?.vanityID == nil }
         guard same.count > 1, let n = same.firstIndex(where: { $0.id == a.id }) else { return kind.rawValue }
         return n == 0 ? kind.rawValue : "\(kind.rawValue) \(n + 1)"
     }

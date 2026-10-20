@@ -153,6 +153,17 @@ struct ScanEditor: View {
     @State private var addingFullWall = false
     /// Waiting for a tap on the corner the shower goes in.
     @State private var placingShower = false
+    /// Waiting for a tap on where the tub goes (owner, 2026-10-19).
+    @State private var placingTub = false
+    /// Waiting for a tap on where a freestanding tub goes, or (with an index) where one moves.
+    @State private var placingFreeTub = false
+    @State private var movingFreeTub: Int? = nil
+    /// Vanities and toilets (owner, 2026-10-19): waiting for a tap to add or move one, and the vanity open.
+    @State private var placingVanity = false
+    @State private var placingToilet = false
+    @State private var movingVanity: Int? = nil
+    @State private var movingToilet: Int? = nil
+    @State private var editingVanity: Int? = nil
     /// The shower just placed: walls come next (owner, 2026-10-12).
     @State private var wallsNext = false
     /// While guided through the walls: a wall or bench was just added, so
@@ -308,6 +319,7 @@ struct ScanEditor: View {
             return Binding(get: { takeoff.skipBoxes.indices.contains(i) ? takeoff.skipBoxes[i] : nil },
                            set: { if let r = $0, takeoff.skipBoxes.indices.contains(i) { takeoff.skipBoxes[i] = r } })
         }
+        if area == .tub { return $takeoff.tubRect }
         return takeoff.floor == .drawn ? $takeoff.floorRect : nil
     }
 
@@ -526,6 +538,33 @@ struct ScanEditor: View {
                         } else {
                         Button { onRescan() } label: { Label("Scan again", systemImage: "viewfinder") }
                         }
+                        // A freestanding tub: the room's, decoration only (owner, 2026-10-19).
+                        Button { show3D = false; placingFreeTub = true } label: {
+                            Label("Add a freestanding tub", systemImage: "bathtub")
+                        }
+                        // A vanity (its own area, priced) and a toilet (decoration), owner 2026-10-19.
+                        Button { show3D = false; placingVanity = true } label: { Label("Add a vanity", systemImage: "sink") }
+                        Button { show3D = false; placingToilet = true } label: { Label("Add a toilet", systemImage: "toilet") }
+                        ForEach(room.vanities.indices, id: \.self) { i in
+                            Button { editingVanity = i } label: {
+                                Label(room.vanities.count > 1 ? "Vanity \(i + 1)…" : "Vanity…", systemImage: "sink")
+                            }
+                        }
+                        ForEach(room.toilets.indices, id: \.self) { i in
+                            Menu {
+                                Button { show3D = false; movingToilet = i } label: { Label("Move", systemImage: "arrow.up.and.down.and.arrow.left.and.right") }
+                                Button { room.toilets[i] = room.toilets[i].turnedInPlace } label: { Label("Turn", systemImage: "rotate.right") }
+                                Button(role: .destructive) { room.toilets.remove(at: i) } label: { Label("Remove", systemImage: "trash") }
+                            } label: { Label(room.toilets.count > 1 ? "Toilet \(i + 1)" : "Toilet", systemImage: "toilet") }
+                        }
+                        ForEach(room.freestandingTubs.indices, id: \.self) { i in
+                            let name = room.freestandingTubs.count > 1 ? "freestanding tub \(i + 1)" : "freestanding tub"
+                            Menu {
+                                Button { show3D = false; movingFreeTub = i } label: { Label("Move", systemImage: "arrow.up.and.down.and.arrow.left.and.right") }
+                                Button { room.freestandingTubs[i] = room.freestandingTubs[i].turnedInPlace } label: { Label("Turn", systemImage: "rotate.right") }
+                                Button(role: .destructive) { room.freestandingTubs.remove(at: i) } label: { Label("Remove", systemImage: "trash") }
+                            } label: { Label(name.prefix(1).uppercased() + name.dropFirst(), systemImage: "bathtub") }
+                        }
                         if !takeoff.pieces.isEmpty {
                             Button(role: .destructive) {
                                 takeoff.pieces = []
@@ -560,6 +599,29 @@ struct ScanEditor: View {
             // Switched to another area mid-change: keep what was pending.
             if embedding != nil, keepToken != nil { keepToken = nil; onUse(takeoff, room) }
         }
+        .sheet(item: Binding(get: { editingVanity.map { VanityIndex(id: $0) } }, set: { editingVanity = $0?.id })) { item in
+            if room.vanities.indices.contains(item.id) {
+                VanitySheet(vanity: $room.vanities[item.id], room: room,
+                            onMove: { show3D = false; movingVanity = item.id },
+                            onRemove: { if room.vanities.indices.contains(item.id) { room.vanities.remove(at: item.id) } })
+                    .presentationDetents([.medium, .large])
+            }
+        }
+        .onAppear {
+            // A tub surround saved before (or opened on a scan with a tub)
+            // takes the scanned tub as its own.
+            if area == .tub, takeoff.tubRect == nil { takeoff.adoptScannedTub(from: room) }
+        }
+        .onChange(of: takeoff.tubRect) { old, new in
+            // The walls follow the tub, and the room's tub is this one, for
+            // the floor and every other area's view (owner, 2026-10-19).
+            guard area == .tub else { return }
+            if let old, let new, old != new { takeoff.tubChanged(from: old, in: room) }
+            room.tubOutline = new?.corners ?? []
+            room.tubLengthFt = new.map { max($0.widthFt, $0.depthFt) }
+            room.tubPlaced = new != nil
+            takeoff.tubNeighbors = tubNeighborsHere
+        }
         .onChange(of: takeoff.floorRect) { old, new in
             // A framed bench out to the curb stays flush with it as the floor changes.
             guard let old, let new, old != new else { return }
@@ -591,6 +653,7 @@ struct ScanEditor: View {
         addingWall = false
         placingBench = false
         placingShower = false
+        placingTub = false
         placing3D = nil
         selectedItem = nil
         selectedOpening = nil
@@ -732,6 +795,17 @@ struct ScanEditor: View {
     /// Takes the shower off the plan: its floor, curb, drain, tiled walls and
     /// built-ins (owner, 2026-10-13). Walls drawn in stay — they're the
     /// room's. Undo puts it back.
+    /// Takes the tub off the plan, with the tile that ran along it. Undo puts it back.
+    private func removeTub() {
+        if let r = takeoff.tubRect {
+            let spans = AreaTakeoff.tubSpans(r.corners, in: room)
+            takeoff.pieces.removeAll { p in spans[p.wallID].map { abs(p.fromFt - $0.lowerBound) < 0.1 && abs(p.toFt - $0.upperBound) < 0.1 } ?? false }
+        }
+        takeoff.trim.removeAll { $0.key.hasPrefix("tubDeck:") }
+        takeoff.tubRect = nil
+        placingTub = false
+    }
+
     private func removeShower() {
         takeoff.floorRect = nil
         takeoff.coveDepthFt = nil
@@ -908,6 +982,10 @@ struct ScanEditor: View {
     /// What the plan is waiting for a tap on, if anything.
     private var waitingFor: String? {
         if placingShower { return "Tap the plan where the shower goes" }
+        if placingTub { return "Tap the plan where the tub goes" }
+        if placingFreeTub || movingFreeTub != nil { return "Tap the plan where the freestanding tub goes" }
+        if placingVanity || movingVanity != nil { return "Tap the plan by the wall where the vanity goes" }
+        if placingToilet || movingToilet != nil { return "Tap the plan by the wall where the toilet goes" }
         if addingWall, !editingWalls { return openSides.isEmpty ? "Drag on the plan to draw the wall" : "Tap the curb, or drag to draw the wall" }
         if placingBench, !editingWalls { return "Tap the wall the bench goes against" }
         if let p = placing3D { return "Tap the wall where the \(p.title.lowercased()) goes" }
@@ -929,7 +1007,9 @@ struct ScanEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 4)
                 Button("Cancel") {
-                    placingShower = false; addingWall = false; placingBench = false; placing3D = nil
+                    placingShower = false; placingTub = false; placingFreeTub = false; movingFreeTub = nil
+                    placingVanity = false; placingToilet = false; movingVanity = nil; movingToilet = nil
+                    addingWall = false; placingBench = false; placing3D = nil
                 }
                 .font(.subheadline.weight(.semibold))
             }
@@ -942,6 +1022,11 @@ struct ScanEditor: View {
                 if shower, takeoff.floorRect == nil {
                     Button { show3D = false; editingWalls = false; placingShower = true } label: {
                         Label("Choose Shower Area", systemImage: "hand.tap").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else if area == .tub, takeoff.tubRect == nil {
+                    Button { show3D = false; editingWalls = false; placingTub = true } label: {
+                        Label("Choose Tub Area", systemImage: "hand.tap").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
@@ -968,6 +1053,17 @@ struct ScanEditor: View {
                             .buttonStyle(.bordered)
                             .tint(.red)
                             .accessibilityLabel("Remove the shower")
+                    }
+                    if area == .tub {
+                        Button { show3D = false; editingWalls = false; placingTub = true } label: {
+                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Move the tub")
+                        Button(role: .destructive) { removeTub() } label: { Image(systemName: "trash") }
+                            .buttonStyle(.bordered)
+                            .tint(.red)
+                            .accessibilityLabel("Remove the tub")
                     }
                 }
             }
@@ -1329,7 +1425,8 @@ struct ScanEditor: View {
     private var planView: some View {
     PlanCanvas(room: room, mine: takeoff.pieces, others: othersHere, selectedWall: selectedWall,
                floorRect: floorRectBinding,
-               floorRectName: selectedSkip != nil ? "No tile" : "Shower floor",
+               floorRectName: selectedSkip != nil ? "No tile" : area == .tub ? (takeoff.tubKind == .dropIn ? "Tub deck" : "Tub") : "Shower floor",
+               tubInner: area == .tub ? takeoff.tubInDeck(in: room)?.corners ?? [] : [],
                tiledFloor: tiledFloor,
                floorHoles: floorHoles,
                skipBoxes: tiledFloor != nil ? takeoff.skipBoxes : [],
@@ -1346,6 +1443,44 @@ struct ScanEditor: View {
                    } else {
                        placeNote = "There's no cove or corner there. Tap inside the cove, or near the corner where the shower goes."
                    }
+               } : placingTub ? { p in
+                   placingTub = false
+                   let how = takeoff.placeTub(near: p, in: room, avoid: othersHere.compactMap { $0.floor?.corners })
+                   if how == nil {
+                       placeNote = "There's no corner there. Tap near the corner or in the alcove where the tub goes."
+                   } else if how == .corner, takeoff.tubKind == .alcove {
+                       // An alcove tub has three full walls (owner, 2026-10-19).
+                       addTubEndWalls()
+                   }
+                   takeoff.tubNeighbors = tubNeighborsHere
+               } : placingVanity ? { p in
+                   placingVanity = false
+                   if room.addVanity(at: p) != nil {
+                       var v = room.vanities[room.vanities.count - 1]
+                       v.fitSinks()
+                       room.vanities[room.vanities.count - 1] = v
+                       editingVanity = room.vanities.count - 1
+                   }
+               } : placingToilet ? { p in
+                   placingToilet = false
+                   room.addToilet(at: p)
+               } : movingVanity != nil ? { p in
+                   if let i = movingVanity { room.moveVanity(i, to: p) }
+                   movingVanity = nil
+               } : movingToilet != nil ? { p in
+                   if let i = movingToilet { room.moveToilet(i, to: p) }
+                   movingToilet = nil
+               } : placingFreeTub ? { p in
+                   placingFreeTub = false
+                   room.addFreestandingTub(at: p)
+               } : movingFreeTub != nil ? { p in
+                   if let i = movingFreeTub, room.freestandingTubs.indices.contains(i) {
+                       var r = room.freestandingTubs[i]
+                       let c = r.center
+                       r.origin = .init(x: r.origin.x + p.x - c.x, y: r.origin.y + p.y - c.y)
+                       room.freestandingTubs[i] = r
+                   }
+                   movingFreeTub = nil
                } : nil,
                onResetFloor: placeShowerFloor,
                onFloorChanged: area == .shower ? { takeoff.tileWallsAroundFloor(in: room) } : nil,
@@ -1412,7 +1547,8 @@ struct ScanEditor: View {
     }
 
     private var planHint: String? {
-        if addingWall || placingShower { return nil }
+        if addingWall || placingShower || placingTub || placingFreeTub || movingFreeTub != nil
+            || placingVanity || placingToilet || movingVanity != nil || movingToilet != nil { return nil }
         if pickingTile { return "Tap a wall or floor to add or change its tile" }
         if editingWalls && mode == .measure { return nil }   // the row under the plan says it
         if !usesWalls { return "Pinch to zoom" }
@@ -1429,7 +1565,8 @@ struct ScanEditor: View {
     /// What the plan is waiting for, over its top.
     @ViewBuilder
     private var planBanners: some View {
-        if placingShower {
+        if placingShower || placingTub || placingFreeTub || movingFreeTub != nil
+            || placingVanity || placingToilet || movingVanity != nil || movingToilet != nil {
             EmptyView()   // above the plan instead, so none of the room is covered
         } else if placing3D != nil {
             EmptyView()
@@ -2396,12 +2533,84 @@ struct ScanEditor: View {
                 }
                 Toggle("Tile the ceiling (the floor's size)", isOn: $takeoff.tileCeiling)
             case .tub:
+                tubControls
                 Text("Ceiling").font(.ndTitle(20))
                 Toggle("Tile the ceiling over the tub", isOn: $takeoff.tileCeiling)
                 if takeoff.tileCeiling { sizeFields }
             default:
                 EmptyView()
             }
+        }
+    }
+
+    private var tubNote: String {
+        switch takeoff.tubKind {
+        case .alcove: "Tile starts at the tub's rim; the wall below it isn't counted. Tap the tub, then drag anywhere to move it; tap an edge to drag that edge. A wall drawn in at its end can be edited or deleted like any other."
+        case .dropIn: "The deck's top and front are tile or stone (Extras → Drop-in tub deck). Tile on the walls starts at the deck's top. Beside a shower, there's no curb along the deck."
+        }
+    }
+
+    /// The shower floors of this room's other areas that the tub's deck meets.
+    private var tubNeighborsHere: [[ScannedRoom.Point]] {
+        guard takeoff.tubKind == .dropIn, let r = takeoff.tubRect else { return [] }
+        let deck = r.corners
+        return othersHere.compactMap { $0.floor?.corners }.filter { f in
+            (0..<4).contains { AreaTakeoff.edgeTouches(deck[$0], deck[($0 + 1) % 4], [f]) }
+        }
+    }
+
+    /// A full wall drawn in at each open end of the tub (owner, 2026-10-19).
+    private func addTubEndWalls() {
+        takeoff.closeTubEnds(in: &room, thicknessIn: kneeWallThicknessIn)
+    }
+
+    /// The tub (owner, 2026-10-19): its kind, size and where the tile starts;
+    /// a drop-in's deck and how far it runs past the tub.
+    @ViewBuilder
+    private var tubControls: some View {
+        Text("Tub").font(.ndTitle(20))
+        if let r = takeoff.tubRect {
+            Picker("Tub", selection: Binding(get: { takeoff.tubKind }, set: { takeoff.setTubKind($0, in: room) })) {
+                ForEach(AreaTakeoff.TubKind.allCases) { Text($0.name).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            let deck = takeoff.tubKind == .dropIn
+            HStack(spacing: 12) {
+                InchField(title: deck ? "Deck length" : "Length",
+                          inches: Binding(get: { r.widthFt * 12 }, set: { takeoff.tubRect?.widthFt = max(12, $0) / 12 }))
+                InchField(title: deck ? "Deck width" : "Width",
+                          inches: Binding(get: { r.depthFt * 12 }, set: { takeoff.tubRect?.depthFt = max(12, $0) / 12 }))
+            }
+            HStack(spacing: 12) {
+                InchField(title: deck ? "Deck height" : "Rim height",
+                          inches: Binding(get: { takeoff.tubRimHeightIn }, set: { takeoff.tubRimIn = max(6, min(36, $0)) }))
+                if deck {
+                    InchField(title: "Deck past the tub",
+                              inches: Binding(get: { takeoff.tubLipIn }, set: { takeoff.tubLipIn = max(0, min(18, $0)) }))
+                }
+            }
+            HStack(spacing: 10) {
+                Button { takeoff.tubRect = r.turned } label: { Label("Rotate", systemImage: "rotate.right") }
+                if !takeoff.tubOpenEnds(in: room).isEmpty {
+                    Button { addTubEndWalls() } label: { Label("Full wall at the open end", systemImage: "rectangle.portrait.and.arrow.right") }
+                }
+            }
+            .buttonStyle(.bordered).font(.subheadline)
+            if takeoff.tubKind == .dropIn, !takeoff.tubNeighbors.isEmpty {
+                Picker("Where the deck meets the shower", selection: $takeoff.tubDeckIntoShower) {
+                    Text("Deck stops at the shower").tag(false)
+                    Text("Runs in as a bench").tag(true)
+                }
+                .pickerStyle(.segmented)
+                Text(takeoff.tubDeckIntoShower
+                     ? "The deck runs into the shower as its bench, 15″ in, priced with the shower's bench. Open the shower to size it."
+                     : "The deck's end, inside the shower, is part of the deck's front: tile or stone with the deck.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text(tubNote).font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("Tap Choose Tub Area under the drawing, then tap the alcove or corner where the tub goes: 60″ × 30″, against the wall.")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -2548,6 +2757,8 @@ struct PlanCanvas: View {
     var floorRect: Binding<AreaTakeoff.FloorRect?>? = nil
     /// What that rectangle is, for the strip above the plan ("Shower floor", "No tile").
     var floorRectName = "Shower floor"
+    /// A drop-in tub inside its deck, drawn lighter.
+    var tubInner: [ScannedRoom.Point] = []
     /// A Floor area on the scanned floor (owner, 2026-10-12): its tiled
     /// outline, filled in this area's colour less the holes (other areas'
     /// floors, unless continuous) and the "no tile" boxes; a tap on a box
@@ -3591,6 +3802,61 @@ struct PlanCanvas: View {
             let c = f.at(ScannedRoom.Point(x: room.tubOutline.map(\.x).reduce(0, +) / Double(room.tubOutline.count),
                                            y: room.tubOutline.map(\.y).reduce(0, +) / Double(room.tubOutline.count)))
             ctx.draw(Text("Tub").font(.caption2).foregroundColor(Color(white: 0.6)), at: c)
+        }
+        // Vanities (cabinet, top and backsplash) and toilets (owner, 2026-10-19).
+        for v in room.vanities {
+            let top = room.vanityTop(v)
+            var t = Path(); t.addLines(top.corners.map(f.at)); t.closeSubpath()
+            ctx.fill(t, with: .color(Color(white: 0.85)))
+            var cab = Path(); cab.addLines(v.rect.corners.map(f.at)); cab.closeSubpath()
+            ctx.stroke(cab, with: .color(Color(white: 0.45)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            for s in room.vanitySplash(v) {
+                var l = Path()
+                l.move(to: f.at(room.point(on: s.wall, along: s.span.lowerBound)))
+                l.addLine(to: f.at(room.point(on: s.wall, along: s.span.upperBound)))
+                ctx.stroke(l, with: .color(v.splash == .stone ? Color(white: 0.95) : .blue), lineWidth: 3)
+            }
+            ctx.draw(Text("Vanity").font(.caption2).foregroundColor(Color(white: 0.25)), at: f.at(v.rect.center))
+        }
+        for r in room.toilets {
+            let c = r.corners
+            var tank = Path()
+            let k = 7.0 / 28
+            tank.addLines([c[0], c[1], .init(x: c[1].x + (c[2].x - c[1].x) * k, y: c[1].y + (c[2].y - c[1].y) * k),
+                           .init(x: c[0].x + (c[3].x - c[0].x) * k, y: c[0].y + (c[3].y - c[0].y) * k)].map(f.at))
+            tank.closeSubpath()
+            ctx.fill(tank, with: .color(Color(white: 0.88)))
+            let mid = ScannedRoom.Point(x: (c[0].x + c[1].x) / 2 + (c[3].x - c[0].x) * 0.6, y: (c[0].y + c[1].y) / 2 + (c[3].y - c[0].y) * 0.6)
+            var bowl = Path()
+            bowl.addLines((0..<30).map { j in
+                let a = Double(j) / 30 * 2 * .pi
+                return f.at(.init(x: mid.x + r.u.x * cos(a) * r.widthFt * 0.42 + r.v.x * sin(a) * r.depthFt * 0.36,
+                                  y: mid.y + r.u.y * cos(a) * r.widthFt * 0.42 + r.v.y * sin(a) * r.depthFt * 0.36))
+            })
+            bowl.closeSubpath()
+            ctx.fill(bowl, with: .color(Color(white: 0.92)))
+            ctx.stroke(bowl, with: .color(Color(white: 0.55)), lineWidth: 1)
+        }
+        // Freestanding tubs: the room's, drawn as ovals (owner, 2026-10-19).
+        for r in room.freestandingTubs {
+            let c = r.center
+            var oval = Path()
+            oval.addLines((0..<40).map { k in
+                let a = Double(k) / 40 * 2 * .pi
+                return f.at(.init(x: c.x + r.u.x * cos(a) * r.widthFt / 2 + r.v.x * sin(a) * r.depthFt / 2,
+                                  y: c.y + r.u.y * cos(a) * r.widthFt / 2 + r.v.y * sin(a) * r.depthFt / 2))
+            })
+            oval.closeSubpath()
+            ctx.fill(oval, with: .color(Color(white: 0.26)))
+            ctx.stroke(oval, with: .color(Color(white: 0.5)), lineWidth: 1)
+            ctx.draw(Text("Tub").font(.caption2).foregroundColor(Color(white: 0.65)), at: f.at(c))
+        }
+        if tubInner.count == 4 {
+            var tub = Path()
+            tub.addLines(tubInner.map(f.at))
+            tub.closeSubpath()
+            ctx.fill(tub, with: .color(Color(white: 0.4)))
+            ctx.stroke(tub, with: .color(Color(white: 0.7)), lineWidth: 1)
         }
         // Walls not built yet: dashed, as thick as they'll be.
         for w in room.walls where w.planned {
@@ -4740,3 +5006,7 @@ private struct FloorHandle: View {
             .contentShape(Rectangle())
     }
 }
+
+
+/// A vanity's index, for the sheet that edits it.
+private struct VanityIndex: Identifiable { let id: Int }

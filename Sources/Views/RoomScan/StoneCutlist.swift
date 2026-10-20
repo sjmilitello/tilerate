@@ -196,6 +196,26 @@ extension AreaTakeoff {
                 }
                 continue
             }
+            // A vanity's stone backsplash: a piece per wall, the splash's height.
+            if parts[0] == "vanity", let v = room.vanity(vanityID) {
+                add(e.key, piece("Vanity", v.id.uuidString, 0, "Backsplash", side: parts.count > 2 ? room.wall(UUID(uuidString: parts[2]) ?? UUID()).map { room.name(of: $0) } : nil,
+                                 .vanitySplash, length: ft, width: v.splashHeightIn, thickness: .twoCm))
+                continue
+            }
+            // A drop-in tub's deck (owner, 2026-10-19): the top as one slab
+            // over the whole deck (the tub's opening cut at fabrication), the
+            // front a piece per open side, the deck's height.
+            if parts[0] == "tubDeck", let r = tubRect {
+                if parts.last == "top" {
+                    add(e.key, piece("Tub Deck", "deck", 0, "Top", .tubDeckTop, length: r.widthFt * 12, width: r.depthFt * 12))
+                } else {
+                    for (n, edge) in tubOpenEdges(in: room).enumerated() {
+                        add(e.key, piece("Tub Deck", "deck", 0, "Front", side: "\(n + 1)", .tubDeckFront,
+                                         length: hypot(edge.1.x - edge.0.x, edge.1.y - edge.0.y) * 12, width: tubRimHeightIn))
+                    }
+                }
+                continue
+            }
             // Benches.
             if let b = item, b.kind.isBench {
                 let o = benchOrder.firstIndex(of: b.id) ?? 99
@@ -303,6 +323,7 @@ extension AreaTakeoff {
             return cuts
         }
         pieces += cornerCutPieces(in: room)
+        pieces += vanityCutPieces(in: room)
         for i in pieces.indices {
             let key = pieces[i].key.isEmpty ? "corner:\(pieces[i].object)" : pieces[i].key
             if let look = chosenStone(for: key) {

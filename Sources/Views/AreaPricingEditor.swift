@@ -179,6 +179,21 @@ struct StoneGroupEditor: View {
             } footer: {
                 Text("What it costs to install each part in stone. On the estimate they add up on one \"\(group.line)\" line.")
             }
+            if group == .vanity {
+                Section {
+                    AmountRow(title: "Top, per sq ft", value: $rates.vanityTopPerSqft, prefix: "$")
+                    AmountRow(title: "Sink cut-out, each", value: $rates.sinkCutoutEach, prefix: "$")
+                } header: { Text("Top (materials)") } footer: {
+                    Text("A vanity's stone top — the cabinet plus its overhang — and each sink cut-out, as materials lines. They're charged only when Stone material is listed as its own line.")
+                }
+            }
+            if group == .tubDeck {
+                Section {
+                    AmountRow(title: "Tile deck, per sq ft", value: $rates.tubDeckTilePerSqft, prefix: "$")
+                } footer: {
+                    Text("A drop-in tub's deck in tile, top and front, goes on its own \"Tub deck tile\" line at this price.")
+                }
+            }
             if group == .framedBench {
                 Section {
                     AmountRow(title: "Top overhang", value: $rates.benchTopOverhangIn, suffix: "in")

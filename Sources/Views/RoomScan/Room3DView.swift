@@ -34,7 +34,7 @@ extension Room3DContent {
     static func otherAreas(in room: EstimateRoom, except id: UUID) -> [OtherAreaPieces] {
         room.sections.compactMap { other in
             guard other.id != id, other.roomScan == nil, let t = other.scanTakeoff,
-                  !t.pieces.isEmpty || t.floor == .drawn || (other.area == .floor && t.floor == .room) else { return nil }
+                  !t.pieces.isEmpty || t.floor == .drawn || t.tubRect != nil || (other.area == .floor && t.floor == .room) else { return nil }
             let shape: (outline: [ScannedRoom.Point], holes: [[ScannedRoom.Point]], continuous: [[ScannedRoom.Point]])? =
                 other.area == .floor && t.floor == .room ? room.scan.map { scan in
                     floorShape(t, tile: other.mainTile, scan: scan,
@@ -801,13 +801,24 @@ enum Room3DScene {
             }
         }
 
-        // Fixtures the scanner found.
+        // Tubs (owner, 2026-10-19): each tub surround's, as its kind; else
+        // the scanned tub, as an alcove tub.
+        var tubs: [(AreaTakeoff, StoneKeys, TileChoice?)] = sources.compactMap { s in s.t.tubRect != nil ? (s.t, s.stone, s.tile) : nil }
+        if tubs.isEmpty, room.tubOutline.count == 4 {
+            var t = AreaTakeoff()
+            t.adoptScannedTub(from: room)
+            if t.tubRect != nil { tubs = [(t, StoneKeys(), nil)] }
+        }
+        for (t, stone, tile) in tubs {
+            if let n = tubNode(t, room: room, stone: stone, tile: tile) { root.addChildNode(n) }
+        }
+        for r in room.freestandingTubs { root.addChildNode(freeTubNode(r)) }
+        for v in room.vanities { root.addChildNode(vanityNode(v, room: room)) }
+        for r in room.toilets { root.addChildNode(toiletNode(r)) }
+
+        // Fixtures the scanner found (the tub is drawn above).
         if c.showFixtures {
-            var found = room.fixtures
-            if found.isEmpty, room.tubOutline.count == 4 {
-                found = [ScannedRoom.Fixture(kind: "Bathtub", outline: room.tubOutline, heightFt: 1.75)]
-            }
-            for f in found where f.outline.count == 4 {
+            for f in room.fixtures where f.outline.count == 4 && f.kind != "Bathtub" {
                 let p = f.outline
                 let wdt = hypot(p[1].x - p[0].x, p[1].y - p[0].y)
                 let dep = hypot(p[3].x - p[0].x, p[3].y - p[0].y)
@@ -1107,6 +1118,237 @@ enum Room3DScene {
             m.shininess = 0.6
         }
         return m
+    }
+
+    /// A tub as its kind (owner, 2026-10-19): an alcove tub — white, its
+    /// apron to the room, a rim round a basin; a drop-in — a deck of tile or
+    /// stone (top and front each), the tub's white rim set into it; a
+    /// freestanding tub — an oval white tub.
+    private static func tubNode(_ t: AreaTakeoff, room: ScannedRoom, stone: StoneKeys, tile: TileChoice?) -> SCNNode? {
+        guard let r = t.tubRect else { return nil }
+        let h = t.tubRimHeightIn / 12
+        let c = r.corners
+        let angle = atan2(r.u.y, r.u.x)
+        // Local +z is v, or −v: which way the box's front and back faces lie.
+        let vPlus = r.v.x * -r.u.y + r.v.y * r.u.x > 0
+        func place(_ n: SCNNode, _ rect: AreaTakeoff.FloorRect, y: Double) {
+            let k = rect.corners
+            n.position = SCNVector3((k[0].x + k[2].x) / 2, y, (k[0].y + k[2].y) / 2)
+            n.eulerAngles.y = Float(-angle)
+        }
+        let enamel = SCNMaterial()
+        enamel.diffuse.contents = UIColor(white: 0.97, alpha: 1)
+        enamel.lightingModel = .blinn
+        enamel.specular.contents = UIColor(white: 0.55, alpha: 1)
+        enamel.shininess = 0.5
+        let basin = SCNMaterial()
+        basin.diffuse.contents = UIColor(red: 0.9, green: 0.92, blue: 0.93, alpha: 1)
+        basin.lightingModel = .blinn
+        basin.specular.contents = UIColor(white: 0.35, alpha: 1)
+        /// A rounded rectangle (or oval) lying flat, `thick` deep.
+        func flat(_ w: Double, _ d: Double, radius: Double, thick: Double, oval: Bool = false, _ m: SCNMaterial) -> SCNNode {
+            let rect = CGRect(x: -w / 2, y: -d / 2, width: w, height: d)
+            let path = oval ? UIBezierPath(ovalIn: rect) : UIBezierPath(roundedRect: rect, cornerRadius: min(radius, min(w, d) / 2))
+            path.flatness = 0.005
+            let shape = SCNShape(path: path, extrusionDepth: thick)
+            shape.firstMaterial = m
+            let n = SCNNode(geometry: shape)
+            n.eulerAngles.x = -.pi / 2
+            let holder = SCNNode()
+            holder.addChildNode(n)
+            return holder
+        }
+        let root = SCNNode()
+        root.name = "tub"
+        switch t.tubKind {
+        case .alcove:
+            let box = SCNBox(width: r.widthFt, height: h, length: r.depthFt, chamferRadius: 0.02)
+            box.firstMaterial = enamel
+            let body = SCNNode(geometry: box)
+            place(body, r, y: h / 2)
+            root.addChildNode(body)
+            // The basin: inside the rim (about 3″ at the sides, 4″ at the ends).
+            let bw = max(0.5, r.widthFt - 8.0 / 12), bd = max(0.5, r.depthFt - 6.0 / 12)
+            let b = flat(bw, bd, radius: 0.35, thick: 0.01, basin)
+            place(b, r, y: h + 0.006)
+            root.addChildNode(b)
+            // Its drain, near the end with the faucet.
+            let drain = flat(1.6 / 12, 1.6 / 12, radius: 0.8 / 12, thick: 0.012, plain(UIColor(white: 0.55, alpha: 1)))
+            let k = r.corners
+            let along = r.widthFt / 2 - 8.0 / 12
+            drain.position = SCNVector3((k[0].x + k[2].x) / 2 - r.u.x * along, h + 0.012, (k[0].y + k[2].y) / 2 - r.u.y * along)
+            root.addChildNode(drain)
+        case .dropIn:
+            let walls = AreaTakeoff.tubEdgeWalls(c, in: room)
+            let open = walls.count == 4 ? walls.map { $0 == nil } : [true, true, true, true]
+            func finish(_ key: String, _ w: Double, _ hh: Double) -> SCNMaterial {
+                stone.contains(key) ? stoneMaterial(stone.look(key), widthFt: w, heightFt: hh)
+                    : tileMaterial(tile, widthFt: w, heightFt: hh, x0: 0, y0: 0)
+            }
+            let box = SCNBox(width: r.widthFt, height: h, length: r.depthFt, chamferRadius: 0)
+            let wallSide = plain(UIColor(white: 0.62, alpha: 1))
+            let front = finish("tubDeck:front", r.widthFt, h), end = finish("tubDeck:front", r.depthFt, h)
+            // Faces: +z, +x, −z, −x, top, bottom. Edge 0 is v = 0, 1 is u = width, 2 is v = depth, 3 is u = 0.
+            let plusZ = vPlus ? 2 : 0, minusZ = vPlus ? 0 : 2
+            box.materials = [open[plusZ] ? front : wallSide, open[1] ? end : wallSide,
+                             open[minusZ] ? front : wallSide, open[3] ? end : wallSide,
+                             finish("tubDeck:top", r.widthFt, r.depthFt), wallSide]
+            let deck = SCNNode(geometry: box)
+            place(deck, r, y: h / 2)
+            root.addChildNode(deck)
+            // The tub's rim on the deck, and its basin.
+            if let inner = t.tubInDeck(in: room) {
+                let rim = flat(inner.widthFt, inner.depthFt, radius: 0.25, thick: 0.6 / 12, enamel)
+                place(rim, inner, y: h + 0.3 / 12)
+                root.addChildNode(rim)
+                let b = flat(max(0.5, inner.widthFt - 6.0 / 12), max(0.5, inner.depthFt - 5.0 / 12), radius: 0.35, thick: 0.01, basin)
+                place(b, inner, y: h + 0.65 / 12)
+                root.addChildNode(b)
+            }
+        }
+        return root
+    }
+
+    /// Something on the plan, placed: centred on `r`, turned with it, at height `y`.
+    private static func placed(_ n: SCNNode, _ r: AreaTakeoff.FloorRect, y: Double, along: Double = 0, out: Double = 0) -> SCNNode {
+        let c = r.center
+        n.position = SCNVector3(c.x + r.u.x * along + r.v.x * out, y, c.y + r.u.y * along + r.v.y * out)
+        n.eulerAngles.y = Float(-atan2(r.u.y, r.u.x))
+        return n
+    }
+
+    /// An oval lying flat, `thick` high.
+    private static func flatOval(_ w: Double, _ d: Double, thick: Double, _ m: SCNMaterial) -> SCNNode {
+        let path = UIBezierPath(ovalIn: CGRect(x: -w / 2, y: -d / 2, width: w, height: d))
+        path.flatness = 0.005
+        let shape = SCNShape(path: path, extrusionDepth: thick)
+        shape.firstMaterial = m
+        let n = SCNNode(geometry: shape)
+        n.eulerAngles.x = -.pi / 2
+        let holder = SCNNode()
+        holder.addChildNode(n)
+        return holder
+    }
+
+    /// A vanity (owner, 2026-10-19): a white cabinet, its stone top with
+    /// its sinks, and its backsplash in stone or tile on the walls it's on.
+    private static func vanityNode(_ v: ScannedRoom.Vanity, room: ScannedRoom) -> SCNNode {
+        let root = SCNNode()
+        root.name = "vanity"
+        let h = v.heightIn / 12, topT = 1.25 / 12
+        // The cabinet over a 4″ toe kick set back 3″, its doors' seams on the front.
+        let kick = 4.0 / 12, front = vanityFront(v, room: room)
+        let cab = SCNBox(width: v.rect.widthFt, height: h - kick, length: v.rect.depthFt, chamferRadius: 0.01)
+        cab.firstMaterial = plain(UIColor(red: 0.93, green: 0.91, blue: 0.88, alpha: 1))
+        root.addChildNode(placed(SCNNode(geometry: cab), v.rect, y: kick + (h - kick) / 2))
+        let toe = SCNBox(width: v.rect.widthFt - 0.05, height: kick, length: v.rect.depthFt - 3.0 / 12, chamferRadius: 0)
+        toe.firstMaterial = plain(UIColor(white: 0.32, alpha: 1))
+        root.addChildNode(placed(SCNNode(geometry: toe), v.rect, y: kick / 2, out: -front * 1.5 / 12))
+        let doors = max(2, Int((v.rect.widthFt / 1.5).rounded()))
+        for k in 1..<doors {
+            let seam = SCNBox(width: 0.25 / 12, height: h - kick - 2.0 / 12, length: 0.1 / 12, chamferRadius: 0)
+            seam.firstMaterial = plain(UIColor(white: 0.55, alpha: 1))
+            let along = Double(k) / Double(doors) * v.rect.widthFt - v.rect.widthFt / 2
+            root.addChildNode(placed(SCNNode(geometry: seam), v.rect, y: kick + (h - kick) / 2, along: along, out: front * (v.rect.depthFt / 2 + 0.05 / 12)))
+        }
+        let look = v.top ?? .standard
+        let t = room.vanityTop(v)
+        let slab = SCNBox(width: t.widthFt, height: topT, length: t.depthFt, chamferRadius: 0)
+        slab.firstMaterial = stoneMaterial(look, widthFt: t.widthFt, heightFt: t.depthFt)
+        root.addChildNode(placed(SCNNode(geometry: slab), t, y: h + topT / 2))
+        // Its sinks, evenly along it, a little toward the front.
+        let basin = SCNMaterial()
+        basin.diffuse.contents = UIColor(white: 0.9, alpha: 1)
+        basin.lightingModel = .blinn
+        let n = max(0, v.sinks)
+        for k in 0..<n {
+            let along = (Double(k) + 0.5) / Double(n) * v.rect.widthFt - v.rect.widthFt / 2
+            let oval = flatOval(min(16.0 / 12, v.rect.widthFt / Double(n) * 0.7), min(12.0 / 12, v.rect.depthFt * 0.6), thick: 0.01, basin)
+            root.addChildNode(placed(oval, v.rect, y: h + topT + 0.006, along: along, out: front * 1.5 / 12))
+        }
+        // The backsplash on each wall it's on, standing on the top.
+        let mid = v.rect.center
+        for s in room.vanitySplash(v) {
+            let w = s.wall
+            let len = s.span.upperBound - s.span.lowerBound, sh = v.splashHeightIn / 12
+            let thick = v.splash == .stone ? 0.75 / 12 : 0.3 / 12
+            let box = SCNBox(width: len, height: sh, length: thick, chamferRadius: 0)
+            box.firstMaterial = v.splash == .stone ? stoneMaterial(look, widthFt: len, heightFt: sh)
+                : tileMaterial(v.splashTile, widthFt: len, heightFt: sh, x0: s.span.lowerBound, y0: 0)
+            let a = room.point(on: w, along: (s.span.lowerBound + s.span.upperBound) / 2)
+            let ux = (w.end.x - w.start.x) / max(w.lengthFt, 1e-9), uy = (w.end.y - w.start.y) / max(w.lengthFt, 1e-9)
+            var nx = -uy, ny = ux
+            if (mid.x - a.x) * nx + (mid.y - a.y) * ny < 0 { nx = -nx; ny = -ny }
+            // On the wall's face.
+            let face = AreaTakeoff.drawnThicknessFt(w) / 2
+            let node = SCNNode(geometry: box)
+            node.position = SCNVector3(a.x + nx * (face + thick / 2), h + topT + sh / 2, a.y + ny * (face + thick / 2))
+            node.eulerAngles.y = Float(-atan2(uy, ux))
+            root.addChildNode(node)
+        }
+        return root
+    }
+
+    /// Which way along v is the vanity's front (away from its back wall): +1 or −1.
+    private static func vanityFront(_ v: ScannedRoom.Vanity, room: ScannedRoom) -> Double {
+        let walls = AreaTakeoff.tubEdgeWalls(v.rect.corners, in: room)
+        return walls.count == 4 && walls[2] != nil && walls[0] == nil ? -1 : 1
+    }
+
+    /// A toilet: its tank against the wall, a bowl and seat in front.
+    private static func toiletNode(_ r: AreaTakeoff.FloorRect) -> SCNNode {
+        let root = SCNNode()
+        root.name = "toilet"
+        let china = SCNMaterial()
+        china.diffuse.contents = UIColor(white: 0.97, alpha: 1)
+        china.lightingModel = .blinn
+        china.specular.contents = UIColor(white: 0.5, alpha: 1)
+        let tankD = 7.0 / 12, tankH = 30.0 / 12
+        let tank = SCNBox(width: r.widthFt, height: 1.15, length: tankD, chamferRadius: 0.04)
+        tank.firstMaterial = china
+        root.addChildNode(placed(SCNNode(geometry: tank), r, y: tankH - 1.15 / 2, out: -r.depthFt / 2 + tankD / 2))
+        let base = SCNBox(width: r.widthFt * 0.45, height: tankH - 1.15, length: tankD * 1.2, chamferRadius: 0.03)
+        base.firstMaterial = china
+        root.addChildNode(placed(SCNNode(geometry: base), r, y: (tankH - 1.15) / 2, out: -r.depthFt / 2 + tankD / 2))
+        let bowlD = r.depthFt - tankD
+        root.addChildNode(placed(flatOval(r.widthFt * 0.8, bowlD, thick: 15.0 / 12, china), r, y: 7.5 / 12, out: tankD / 2))
+        let seat = SCNMaterial()
+        seat.diffuse.contents = UIColor(white: 0.93, alpha: 1)
+        root.addChildNode(placed(flatOval(r.widthFt * 0.84, bowlD * 1.02, thick: 0.6 / 12, seat), r, y: 15.3 / 12, out: tankD / 2))
+        return root
+    }
+
+    /// A freestanding tub (the room's, decoration only): an oval white tub, 22″ high.
+    private static func freeTubNode(_ r: AreaTakeoff.FloorRect) -> SCNNode {
+        var t = AreaTakeoff()
+        t.tubRect = r
+        let h = 22.0 / 12
+        let enamel = SCNMaterial()
+        enamel.diffuse.contents = UIColor(white: 0.97, alpha: 1)
+        enamel.lightingModel = .blinn
+        enamel.specular.contents = UIColor(white: 0.55, alpha: 1)
+        let basin = SCNMaterial()
+        basin.diffuse.contents = UIColor(red: 0.9, green: 0.92, blue: 0.93, alpha: 1)
+        basin.lightingModel = .blinn
+        func oval(_ w: Double, _ d: Double, thick: Double, _ m: SCNMaterial, y: Double) -> SCNNode {
+            let path = UIBezierPath(ovalIn: CGRect(x: -w / 2, y: -d / 2, width: w, height: d))
+            path.flatness = 0.005
+            let shape = SCNShape(path: path, extrusionDepth: thick)
+            shape.firstMaterial = m
+            let n = SCNNode(geometry: shape)
+            n.eulerAngles.x = -.pi / 2
+            let holder = SCNNode()
+            holder.addChildNode(n)
+            let k = r.corners
+            holder.position = SCNVector3((k[0].x + k[2].x) / 2, y, (k[0].y + k[2].y) / 2)
+            holder.eulerAngles.y = Float(-atan2(r.u.y, r.u.x))
+            return holder
+        }
+        let root = SCNNode()
+        root.name = "freestandingTub"
+        root.addChildNode(oval(r.widthFt, r.depthFt, thick: h, enamel, y: h / 2))
+        root.addChildNode(oval(r.widthFt - 5.0 / 12, r.depthFt - 5.0 / 12, thick: 0.01, basin, y: h + 0.006))
+        return root
     }
 
     private static func plain(_ c: UIColor) -> SCNMaterial {

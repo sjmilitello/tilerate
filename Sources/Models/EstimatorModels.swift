@@ -387,6 +387,13 @@ struct Rates: Codable, Equatable {
     /// How far a framed bench's stone top runs past its front and open end
     /// (owner, 2026-10-16: ¾″).
     var benchTopOverhangIn: Double = 0.75
+    /// A drop-in tub's tiled deck, top and front, per sq ft (owner,
+    /// 2026-10-19: its own line, "Tub deck tile"; $0 until set).
+    var tubDeckTilePerSqft: Double = 0
+    /// A vanity's stone top, per sq ft, and each sink cut-out: materials,
+    /// charged only when stone material is its own line (owner, 2026-10-19).
+    var vanityTopPerSqft: Double = 0
+    var sinkCutoutEach: Double = 0
     /// A bench placed on a scan: the higher of `unitBench` (its minimum) and
     /// its length at this price.
     var benchPerLinFt: Double = 0
@@ -616,6 +623,9 @@ extension Rates {
         c.read(.stoneMaterialPerSqft, into: &stoneMaterialPerSqft)
         c.read(.stoneMaterialSeparate, into: &stoneMaterialSeparate)
         c.read(.benchTopOverhangIn, into: &benchTopOverhangIn)
+        c.read(.tubDeckTilePerSqft, into: &tubDeckTilePerSqft)
+        c.read(.vanityTopPerSqft, into: &vanityTopPerSqft)
+        c.read(.sinkCutoutEach, into: &sinkCutoutEach)
         c.read(.benchPerLinFt, into: &benchPerLinFt)
         c.read(.unitSeat, into: &unitSeat)
         c.read(.unitWindow, into: &unitWindow)
@@ -907,9 +917,11 @@ struct StoneThickness: Codable, Equatable, Hashable {
 
 /// Every stone piece with a price in Admin.
 enum StoneItem: String, CaseIterable, Codable {
-    case curb, cap, jamb, benchTop, benchFront, niche, window
+    case curb, cap, jamb, benchTop, benchFront, niche, window, tubDeck, vanity
     var title: String {
         switch self {
+        case .tubDeck: "Tub deck"
+        case .vanity: "Vanity"
         case .curb: "Curb"
         case .cap: "Wall cap & header"
         case .jamb: "Jambs"
@@ -924,10 +936,12 @@ enum StoneItem: String, CaseIterable, Codable {
 /// The groups of stone pieces in Admin, on the model and on the estimate
 /// (owner, 2026-10-13): one estimate line each.
 enum StoneGroup: String, CaseIterable, Identifiable {
-    case curb, wall, door, window, niche, ceiling, floatingBench, framedBench
+    case curb, wall, door, window, niche, ceiling, floatingBench, framedBench, tubDeck, vanity
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .tubDeck: "Drop-in tub deck"
+        case .vanity: "Vanity"
         case .curb: "Curb"
         case .wall: "Wall"
         case .door: "Door"
@@ -948,16 +962,20 @@ enum StoneGroup: String, CaseIterable, Identifiable {
         case .ceiling: "Stone ceiling header"
         case .floatingBench: "Stone floating bench"
         case .framedBench: "Stone framed bench"
+        case .tubDeck: "Stone tub deck"
+        case .vanity: "Stone vanity backsplash"
         }
     }
-    var parts: [StonePart] { StonePart.allCases.filter { $0.group == self } }
+    /// Its parts with an install price (a vanity's top is priced as materials).
+    var parts: [StonePart] { StonePart.allCases.filter { $0.group == self && $0 != .vanityTop } }
 }
 
 /// Every stone part with its own install price in Admin (owner, 2026-10-13).
 enum StonePart: String, CaseIterable, Codable, Identifiable {
     case curbTop, curbInside, curbOutside, wallCap, wallJamb, doorJamb, doorHeader,
          windowSill, windowJamb, windowHeader, nicheBack, nicheShelf, nicheJamb, nicheHeader, nicheDivider,
-         ceilingHeader, floatingBenchTop, framedBenchTop, framedBenchFront, framedBenchSide
+         ceilingHeader, floatingBenchTop, framedBenchTop, framedBenchFront, framedBenchSide,
+         tubDeckTop, tubDeckFront, vanityTop, vanitySplash
     var id: String { rawValue }
     var group: StoneGroup {
         switch self {
@@ -969,6 +987,8 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .ceilingHeader: .ceiling
         case .floatingBenchTop: .floatingBench
         case .framedBenchTop, .framedBenchFront, .framedBenchSide: .framedBench
+        case .tubDeckTop, .tubDeckFront: .tubDeck
+        case .vanityTop, .vanitySplash: .vanity
         }
     }
     var title: String {
@@ -984,8 +1004,10 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .nicheShelf: "Base shelf"
         case .nicheDivider: "Divider shelves"
         case .floatingBenchTop, .framedBenchTop: "Top"
-        case .framedBenchFront: "Front"
+        case .framedBenchFront, .tubDeckFront: "Front"
         case .framedBenchSide: "Sides"
+        case .tubDeckTop, .vanityTop: "Top"
+        case .vanitySplash: "Backsplash"
         }
     }
     /// A panel priced by its own area when by the square foot, not by a
@@ -993,7 +1015,7 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
     /// top, front and sides, which are dragged to any size).
     var isPanel: Bool {
         switch self {
-        case .nicheBack, .floatingBenchTop, .framedBenchTop, .framedBenchFront, .framedBenchSide: true
+        case .nicheBack, .floatingBenchTop, .framedBenchTop, .framedBenchFront, .framedBenchSide, .tubDeckTop, .tubDeckFront: true
         default: false
         }
     }
@@ -1004,6 +1026,8 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .floatingBenchTop, .framedBenchTop: "the bench's length × its depth"
         case .framedBenchFront: "the bench's length × its height"
         case .framedBenchSide: "the bench's depth × its height"
+        case .tubDeckTop: "the deck less the tub's opening"
+        case .tubDeckFront: "each open side's length × the deck's height"
         default: ""
         }
     }
@@ -1018,6 +1042,8 @@ enum StonePart: String, CaseIterable, Codable, Identifiable {
         case .nicheBack, .nicheShelf, .nicheJamb, .nicheHeader, .nicheDivider: .niche
         case .floatingBenchTop, .framedBenchTop: .benchTop
         case .framedBenchFront, .framedBenchSide: .benchFront
+        case .tubDeckTop, .tubDeckFront: .tubDeck
+        case .vanityTop, .vanitySplash: .vanity
         }
     }
 }
@@ -1356,6 +1382,46 @@ struct ScannedRoom: Codable, Hashable, Equatable {
     /// Drawn from typed sides (`RoomSketch`), not scanned: a room measured
     /// by hand, with the same model (owner, 2026-10-12).
     var sketched: Bool = false
+    /// Freestanding tubs: the room's, decoration only — nothing about the
+    /// tile changes (owner, 2026-10-19). Each one's footprint; drawn oval.
+    var freestandingTubs: [AreaTakeoff.FloorRect] = []
+    /// Whether `tubOutline` is a tub a tub surround placed (owner,
+    /// 2026-10-19) — a shower beside it ties to it — rather than one only
+    /// scanned, which a shower over it replaces (a conversion).
+    var tubPlaced: Bool = false
+    /// Vanities and toilets (owner, 2026-10-19), added from any area's model
+    /// like a freestanding tub. A toilet is decoration only; each vanity has
+    /// its own area for its backsplash and stone (`AreaTakeoff.vanityID`).
+    var vanities: [Vanity] = []
+    var toilets: [AreaTakeoff.FloorRect] = []
+
+    /// A vanity (owner, 2026-10-19): the cabinet's footprint, its stone top
+    /// (1″ past it on open sides), its sinks, and a backsplash — stone, 4″ to
+    /// start, or tile, or none — on any of the walls it touches.
+    struct Vanity: Codable, Hashable, Equatable, Identifiable {
+        enum Splash: String, Codable, CaseIterable, Identifiable {
+            case stone, tile, none
+            var id: String { rawValue }
+            var name: String { rawValue.capitalized }
+        }
+        var id = UUID()
+        /// The cabinet on the plan: along its back wall (u) and out (v).
+        var rect = AreaTakeoff.FloorRect(widthFt: 3, depthFt: 1.75)
+        /// The cabinet's height; the top sits on it (inches).
+        var heightIn: Double = 34.5
+        var sinks: Int = 1
+        /// Typed, so sizing it doesn't change it.
+        var sinksTyped: Bool = false
+        var overhangIn: Double = 1
+        var splash: Splash = .stone
+        var splashHeightIn: Double = 4
+        /// The walls it touches that get the backsplash.
+        var splashWalls: [UUID] = []
+        /// The top's (and a stone backsplash's) stone; nil: the standard.
+        var top: StoneAppearance? = nil
+        /// A tile backsplash's tile, kept from its area for drawing.
+        var splashTile: TileChoice? = nil
+    }
 
     /// Something the scanner found in the room: its footprint and height.
     struct Fixture: Codable, Hashable, Equatable {
@@ -1410,6 +1476,21 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
             }
             return [at(0, 0), at(widthFt, 0), at(widthFt, depthFt), at(0, depthFt)]
         }
+    }
+
+    /// A tub surround's kind of tub (owner, 2026-10-19).
+    enum TubKind: String, Codable, CaseIterable, Identifiable {
+        /// Walls round three sides, a finished apron on the open side.
+        case alcove
+        /// Set in a built deck whose top and front are tile or stone; the
+        /// deck runs a few inches past the tub on each open side.
+        case dropIn
+        var id: String { rawValue }
+        var name: String {
+            switch self { case .alcove: "Alcove"; case .dropIn: "Drop-in" }
+        }
+        /// Its usual rim (or deck) height, inches.
+        var usualRimIn: Double { self == .dropIn ? 20 : 15 }
     }
 
     enum FloorSource: String, Codable, CaseIterable {
@@ -1468,6 +1549,9 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
         /// A niche's own tile (owner asked 2026-10-08); nil is the wall's
         /// tile. Shown on the drawing; not priced.
         var tile: TileChoice? = nil
+        /// A bench a drop-in tub's deck runs into the shower as (owner,
+        /// 2026-10-19): kept by the room with the tub, not placed by hand.
+        var fromTubDeck: Bool = false
         var widthFt: Double { max(0, toFt - fromFt) }
     }
 
@@ -1492,6 +1576,24 @@ struct AreaTakeoff: Codable, Hashable, Equatable {
     var floorDepthFt: Double = 0
     /// `drawn`: the rectangle on the plan.
     var floorRect: FloorRect? = nil
+    /// A tub surround's tub (owner, 2026-10-19): its footprint on the plan —
+    /// the tub itself, or a drop-in's deck — and its kind and heights. Kept
+    /// apart from `floorRect`, which is a shower's floor.
+    var tubRect: FloorRect? = nil
+    var tubKind: TubKind = .alcove
+    /// Where the tile starts: the tub's rim, or a drop-in deck's top
+    /// (inches); nil: 15″, or 20″ for a deck.
+    var tubRimIn: Double? = nil
+    /// How far a drop-in deck runs past the tub on each open side (inches).
+    var tubLipIn: Double = 3
+    /// Where a drop-in's deck meets a shower: it runs into the shower as a
+    /// bench (the shower's), else it stops at it (owner, 2026-10-19).
+    var tubDeckIntoShower: Bool = false
+    /// The shower floors the tub's deck meets, kept by the room
+    /// (`EstimateRoom.tieTubsAndShowers`).
+    var tubNeighbors: [[ScannedRoom.Point]] = []
+    /// The room's vanity this area prices (its backsplash and stone), if any.
+    var vanityID: UUID? = nil
     var tileCeiling: Bool = false
     /// A shower with no curb (owner's call, 2026-10-08): no curb line or
     /// charge, jambs from the floor, and Curbless Shower on the estimate.
@@ -2223,6 +2325,10 @@ extension ScannedRoom {
         lettering = 0
         c.read(.lettering, into: &lettering)
         c.read(.sketched, into: &sketched)
+        c.read(.freestandingTubs, into: &freestandingTubs)
+        c.read(.tubPlaced, into: &tubPlaced)
+        c.read(.vanities, into: &vanities)
+        c.read(.toilets, into: &toilets)
     }
 }
 
@@ -2239,6 +2345,24 @@ struct ScanCalibration: Codable, Equatable, Hashable {
     var tapeIn: [String: Double] = [:]
     var ceilingIn: Double? = nil
     var date = Date()
+}
+
+extension ScannedRoom.Vanity {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        c.read(.id, into: &id)
+        c.read(.rect, into: &rect)
+        c.read(.heightIn, into: &heightIn)
+        c.read(.sinks, into: &sinks)
+        c.read(.sinksTyped, into: &sinksTyped)
+        c.read(.overhangIn, into: &overhangIn)
+        c.read(.splash, into: &splash)
+        c.read(.splashHeightIn, into: &splashHeightIn)
+        c.read(.splashWalls, into: &splashWalls)
+        c.read(.top, into: &top)
+        c.read(.splashTile, into: &splashTile)
+    }
 }
 
 extension ScanCalibration {
@@ -2335,6 +2459,13 @@ extension AreaTakeoff {
         c.read(.floorWidthFt, into: &floorWidthFt)
         c.read(.floorDepthFt, into: &floorDepthFt)
         c.read(.floorRect, into: &floorRect)
+        c.read(.tubRect, into: &tubRect)
+        c.read(.tubKind, into: &tubKind)
+        c.read(.tubRimIn, into: &tubRimIn)
+        c.read(.tubLipIn, into: &tubLipIn)
+        c.read(.tubDeckIntoShower, into: &tubDeckIntoShower)
+        c.read(.tubNeighbors, into: &tubNeighbors)
+        c.read(.vanityID, into: &vanityID)
         c.read(.tileCeiling, into: &tileCeiling)
         c.read(.curbless, into: &curbless)
         c.read(.coveDepthFt, into: &coveDepthFt)
@@ -2403,6 +2534,7 @@ extension AreaTakeoff.Item {
         c.read(.dividers, into: &dividers)
         c.read(.stone, into: &stone)
         c.read(.tile, into: &tile)
+        c.read(.fromTubDeck, into: &fromTubDeck)
     }
 }
 

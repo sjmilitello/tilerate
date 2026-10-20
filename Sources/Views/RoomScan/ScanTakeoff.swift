@@ -546,7 +546,10 @@ extension AreaTakeoff {
             let outline = tiledOutline(in: room)
             var sq = FloorGeometry.area(outline)
             for c in cutouts + skipBoxes.map(\.corners) { sq -= FloorGeometry.area(FloorGeometry.clip(outline, to: c)) }
-            if excludeTub, room.tubOutline.count > 2 { sq -= FloorGeometry.area(FloorGeometry.clip(outline, to: room.tubOutline)) }
+            // The scanned tub, unless a tub surround already cut it out.
+            let tubCut = cutouts.contains { c in c.count == room.tubOutline.count
+                && zip(c, room.tubOutline).allSatisfy { hypot($0.x - $1.x, $0.y - $1.y) < 0.05 } }
+            if excludeTub, room.tubOutline.count > 2, !tubCut { sq -= FloorGeometry.area(FloorGeometry.clip(outline, to: room.tubOutline)) }
             return max(0, sq - excludeSqft)
         case .size:
             return floorWidthFt * floorDepthFt
@@ -571,6 +574,9 @@ extension AreaTakeoff {
     /// What this area puts on the floor that a Floor area mustn't tile: a
     /// drawn shower floor, and its curb's strip just outside it.
     func floorFootprints(in room: ScannedRoom, curbWidthFt: Double = 4.5 / 12) -> [[ScannedRoom.Point]] {
+        // A tub surround's tub (or its deck) isn't on tiled floor (owner,
+        // 2026-10-19); a freestanding tub, the room's, stands on it.
+        if let t = tubRect { return [t.corners] }
         guard floor == .drawn, let r = floorRect else { return [] }
         var out = [r.corners]
         let mid = r.center
@@ -634,6 +640,8 @@ extension AreaTakeoff {
                 t.floorWidthFt = (max(w, d) * 192).rounded() / 192
                 t.floorDepthFt = (min(w, d) * 192).rounded() / 192
             }
+            // A scanned tub is the tub surround's own, to move and change.
+            t.adoptScannedTub(from: room)
         default:
             break
         }
@@ -744,6 +752,11 @@ extension AreaTakeoff {
         switch section.area {
         case .floor:
             section.measurements.sqft = r2(floorSqft(in: room))
+        case .backsplash where vanityID != nil:
+            // A vanity's area: its tile backsplash, and any wall tile added.
+            let v = room.vanity(vanityID)
+            let splash = v.map { $0.splash == .tile ? room.vanityMeasures($0).splashSqft : 0 } ?? 0
+            section.measurements.sqft = r2(walls + splash)
         case .wall, .backsplash, .fireplace:
             section.measurements.sqft = walls
         case .shower:
@@ -751,7 +764,8 @@ extension AreaTakeoff {
             section.measurements.showerFloorSqft = r2(floorSqft(in: room))
             section.measurements.ceilingSqft = r2(ceilingSqft(in: room))
         case .tub:
-            setWalls(room, total: walls, keyPath: \.sqft, section: &section)
+            // Tiled from the tub's rim (or deck) up (owner, 2026-10-19).
+            setWalls(room, total: r2(max(0, wallsSqft(in: room) - tubBelowRimSqft(in: room))), keyPath: \.sqft, section: &section)
             section.measurements.ceilingSqft = r2(ceilingSqft(in: room))
         case nil:
             break
@@ -851,6 +865,39 @@ extension AreaTakeoff {
         // linear drain takes Linear Drain, per foot of drain (owner's calls,
         // 2026-10-08). Their lines keep fixed ids, so a price changed on the
         // estimate stays; they go when the curb or the linear drain does.
+        // A drop-in tub's deck in tile: its own line, "Tub deck tile", per sq ft
+        // (owner, 2026-10-19); a price changed on the estimate stays.
+        let deckID = Self.extraLineID(section.id, 3)
+        let deckTile = pieces.filter { $0.part.group == .tubDeck && $0.finish == .tile }
+            .reduce(0.0) { $0 + ($1.areaSqft ?? 0) }
+        if section.area == .tub, deckTile > 0.01 {
+            let qty = (deckTile * 100).rounded() / 100
+            if let i = section.additionsLabor.firstIndex(where: { $0.id == deckID }) {
+                section.additionsLabor[i].qty = qty
+            } else {
+                section.additionsLabor.append(AdditionItem(id: deckID, activity: "Tub deck tile", qty: qty,
+                                                           rate: prices.tubDeckTilePerSqft, unit: "sq ft"))
+            }
+        } else {
+            section.additionsLabor.removeAll { $0.id == deckID }
+        }
+        // A vanity's top and sink cut-outs (owner, 2026-10-19): materials,
+        // only when stone material is its own line; prices in Admin.
+        let topID = Self.extraLineID(section.id, 4), sinkID = Self.extraLineID(section.id, 5)
+        if let v = room.vanity(vanityID), prices.materialSeparate {
+            let top = (room.vanityMeasures(v).topSqft * 100).rounded() / 100
+            for (id, name, qty, rate, unit) in [(topID, "Vanity top", top, prices.vanityTopPerSqft, "sq ft"),
+                                                (sinkID, "Sink cut-outs", Double(v.sinks), prices.sinkCutoutEach, "each")] {
+                if qty <= 0 { section.additionsMaterials.removeAll { $0.id == id }; continue }
+                if let i = section.additionsMaterials.firstIndex(where: { $0.id == id }) {
+                    section.additionsMaterials[i].qty = qty
+                } else {
+                    section.additionsMaterials.append(AdditionItem(id: id, activity: name, qty: qty, rate: rate, taxable: true, unit: unit))
+                }
+            }
+        } else {
+            section.additionsMaterials.removeAll { $0.id == topID || $0.id == sinkID }
+        }
         let shower = section.area == .shower && floor == .drawn
         setPriceListLine(prices.curblessItem, id: Self.extraLineID(section.id, 1),
                          qty: shower && curbless ? section.measurements.showerFloorSqft : nil, in: &section)
@@ -1157,11 +1204,11 @@ func inchText(_ feet: Double) -> String { Lengths.inchesText(feet: feet) }
 /// What frames a shower or a knee wall: tile by default (part of the wall
 /// square feet), or stone, charged per linear foot on its own line.
 enum TrimKind: String, CaseIterable {
-    case curb, cap, jamb, benchTop, benchFront, niche, window
+    case curb, cap, jamb, benchTop, benchFront, niche, window, tubDeck, vanity
     /// Ids of the lines stone went on before it was grouped (2026-10-13),
     /// so they're taken off when measured again.
     var salt: Int {
-        switch self { case .curb: 1; case .cap: 2; case .jamb: 3; case .benchTop: 4; case .benchFront: 5; case .niche: 6; case .window: 7 }
+        switch self { case .curb: 1; case .cap: 2; case .jamb: 3; case .benchTop: 4; case .benchFront: 5; case .niche: 6; case .window: 7; case .tubDeck: 8; case .vanity: 9 }
     }
     /// Names the app gives the cap line (headers are priced as caps).
     static let capLineNames: Set<String> = ["Stone wall cap", "Stone header", "Stone wall cap & header"]
@@ -1184,6 +1231,11 @@ struct StonePrices {
     var materialSeparate: Bool = false
     /// How far a framed bench's stone top runs past its front and open end.
     var benchOverhangIn: Double = 0.75
+    /// A drop-in tub's tiled deck, per sq ft (its own line).
+    var tubDeckTilePerSqft: Double = 0
+    /// A vanity's top per sq ft and each sink cut-out (materials).
+    var vanityTopPerSqft: Double = 0
+    var sinkCutoutEach: Double = 0
     var defaults = ScanItemDefaults()
     /// The price list's Curbless Shower and Linear Drain, nil once deleted there.
     var curblessItem: PriceListItem? = PriceListItem.curblessShower
@@ -1222,6 +1274,8 @@ extension TrimKind {
         case .benchFront: .benchFront
         case .niche: .niche
         case .window: .window
+        case .tubDeck: .tubDeck
+        case .vanity: .vanity
         }
     }
 }
@@ -1234,6 +1288,8 @@ extension StonePrices {
                   parts: Dictionary(uniqueKeysWithValues: StonePart.allCases.map { ($0, r.stoneRate($0)) }),
                   materialPerSqft: r.stoneMaterialPerSqft, materialSeparate: r.stoneMaterialSeparate,
                   benchOverhangIn: r.benchTopOverhangIn,
+                  tubDeckTilePerSqft: r.tubDeckTilePerSqft,
+                  vanityTopPerSqft: r.vanityTopPerSqft, sinkCutoutEach: r.sinkCutoutEach,
                   defaults: r.scanDefaults,
                   curblessItem: r.priceList.first { $0.id == PriceListItem.curblessShower.id },
                   linearDrainItem: r.priceList.first { $0.id == PriceListItem.linearDrain.id })
@@ -1292,7 +1348,12 @@ extension AreaTakeoff {
             if finish == .none, !allowNone { finish = .tile }
             // A panel (a niche's back, a bench's top, front and end) by its own area.
             let panel = key.hasSuffix(":back") || key.hasPrefix("benchTop:") || key.hasPrefix("benchFront:") || key.hasPrefix("benchSide:")
-            let scaled = sqft.map { measured > 0 ? $0 * length / measured : $0 }
+                || key.hasPrefix("tubDeck:")
+            var scaled = sqft.map { measured > 0 ? $0 * length / measured : $0 }
+            // A tub deck is priced as placed: the top less the tub's opening,
+            // the front each open side × its height (the slab ordered is whole).
+            if key == "tubDeck:top" { scaled = tubDeckSqft(in: room).top }
+            if key == "tubDeck:front" { scaled = tubDeckSqft(in: room).front }
             return TrimPiece(key: key, kind: kind, areaSqft: panel ? scaled : nil,
                              part: Self.stonePart(key, kind: kind, doors: doorIDs, items: items),
                              name: name, measuredFt: measured,
@@ -1435,6 +1496,12 @@ extension AreaTakeoff {
                 out.append(("soffit:\(sf.id.uuidString)", .cap, "Header \(name)", len))
             }
         }
+        // A drop-in tub's deck: its top and front, tile or stone (owner, 2026-10-19).
+        if area == .tub, tubKind == .dropIn, let r = tubRect {
+            out.append(("tubDeck:top", .tubDeck, "Tub deck top", r.widthFt))
+            let front = tubOpenEdges(in: room).reduce(0.0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+            if front > 0.01 { out.append(("tubDeck:front", .tubDeck, "Tub deck front", front)) }
+        }
         // Each bench's top, and a framed bench's front.
         for b in items where b.kind.isBench {
             out.append(("benchTop:\(b.id)", .benchTop, "\(b.kind.name) top", b.widthFt))
@@ -1443,6 +1510,8 @@ extension AreaTakeoff {
         // A niche's and a window's stone parts (owner, 2026-10-13): each part
         // chosen on its own, starting from the niche's or window's choice.
         var defaults: [String: Bool] = [:]
+        // A vanity's stone backsplash (owner, 2026-10-19): stone from the start.
+        for e in vanityEntries(in: room) { out.append(e); defaults[e.0] = true }
         for i in items where i.kind == .niche || i.kind == .window {
             let w = i.widthFt, h = i.heightIn / 12
             // Each piece named by what it is and its own size (owner, 2026-10-14:
@@ -1553,6 +1622,10 @@ extension AreaTakeoff {
                                 case "dividers": return .nicheDivider; default: return .nicheShelf }
         case .window:
             switch parts.last { case "jambs": return .windowJamb; case "header": return .windowHeader; default: return .windowSill }
+        case .tubDeck:
+            return parts.last == "front" ? .tubDeckFront : .tubDeckTop
+        case .vanity:
+            return .vanitySplash
         }
     }
 
@@ -1598,6 +1671,21 @@ extension AreaTakeoff {
                 let lo = max(0, min(t0, t1)), hi = min(length, max(t0, t1))
                 return hi - lo > 1.0 / 12 ? (lo, hi, w) : nil
             }
+            // A tub's deck (or an alcove tub) beside the shower stands in for
+            // a wall: no curb along it (owner, 2026-10-19). No jamb at it either.
+            let tub = room.tubPlaced ? room.tubOutline : []
+            if tub.count == 4 {
+                for k in 0..<4 {
+                    let p = tub[k], q = tub[(k + 1) % 4]
+                    func off(_ x: ScannedRoom.Point) -> Double { abs((x.x - a.x) * -u.y + (x.y - a.y) * u.x) }
+                    guard off(p) < 0.15, off(q) < 0.15 else { continue }
+                    let t0 = (p.x - a.x) * u.x + (p.y - a.y) * u.y, t1 = (q.x - a.x) * u.x + (q.y - a.y) * u.y
+                    let lo = max(0, min(t0, t1)), hi = min(length, max(t0, t1))
+                    if hi - lo > 1.0 / 12 {
+                        cover.append((lo, hi, ScannedRoom.Wall(id: Self.tubDeckWallID, label: "Tub", lengthFt: hi - lo, planned: true)))
+                    }
+                }
+            }
             cover.sort { $0.lo < $1.lo }
             // The wall at a corner of the floor: one across this edge's end.
             func cornerWall(_ p: ScannedRoom.Point) -> ScannedRoom.Wall? {
@@ -1619,8 +1707,17 @@ extension AreaTakeoff {
                 out.append(OpenSide(a: at(cursor), b: b, startWall: cursor == 0 ? cornerWall(a) : last, endWall: cornerWall(b)))
             }
         }
-        return out
+        // A side ending at the tub's deck has no jamb there.
+        return out.map { s in
+            var s = s
+            if s.startWall?.id == Self.tubDeckWallID { s.startWall = nil }
+            if s.endWall?.id == Self.tubDeckWallID { s.endWall = nil }
+            return s
+        }
     }
+
+    /// Stands for a tub's deck along a shower floor's edge, in `openSides`.
+    static let tubDeckWallID = UUID(uuidString: "7AB0DEC0-0000-4000-8000-000000000001")!
 
     /// Where a new wall goes to close the shower: on the curb, along each
     /// open side.
@@ -2598,6 +2695,18 @@ extension AreaTakeoff {
     /// floor in the nearest inside corner (as far as its walls go). The walls
     /// round it are tiled. False with no cove or corner near.
     mutating func placeShower(near tap: ScannedRoom.Point, in room: ScannedRoom, curbWidthFt: Double) -> Bool {
+        guard placeShowerFloor(near: tap, in: room, curbWidthFt: curbWidthFt) else { return false }
+        // Beside a tub (owner, 2026-10-19): the part on the tap's side,
+        // ending at the tub's deck, tied together with it.
+        if room.tubPlaced, room.tubOutline.count == 4, let r = floorRect, let cut = r.clipped(awayFrom: room.tubOutline, toward: tap) {
+            floorRect = cut
+            coveDepthFt = nil
+            tileWallsAroundFloor(in: room)
+        }
+        return true
+    }
+
+    private mutating func placeShowerFloor(near tap: ScannedRoom.Point, in room: ScannedRoom, curbWidthFt: Double) -> Bool {
         if let cove = room.cove(around: tap) {
             floor = .drawn
             coveDepthFt = cove.depthFt
@@ -3422,7 +3531,9 @@ extension EstimateRoom {
     /// measured again (owner, 2026-10-12). Run whenever an area is saved
     /// from the model or the scan changes.
     mutating func refreshFloorCutouts(prices: StonePrices) {
+        syncVanities(prices: prices)
         guard let scan else { return }
+        tieTubsAndShowers(prices: prices)
         for i in sections.indices {
             guard sections[i].roomScan == nil, !sections[i].measuredByHand,
                   var t = sections[i].scanTakeoff, t.floor == .room else { continue }

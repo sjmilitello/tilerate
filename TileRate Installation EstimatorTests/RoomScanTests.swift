@@ -165,7 +165,10 @@ struct RoomScanTests {
 
         var tubSection = PricingCases.section(.tub, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
         tub.apply(room, to: &tubSection)
-        #expect(tubSection.measurements.sqft == 35 + 17.5)
+        // Less wall A under the tub's 15″ rim (owner, 2026-10-19: tiled from
+        // the rim up); this D piece is at D's far end, away from the tub.
+        let expected: Double = 35 + 17.5 - 5.0 * 15.0 / 12.0
+        #expect(tubSection.measurements.sqft == expected)
         var wallSection = PricingCases.section(.wall, tile: PricingCases.tile(.ceramic, .hexagon, .straightStacked))
         wainscot.apply(room, to: &wallSection)
         #expect(wallSection.measurements.sqft == 16)

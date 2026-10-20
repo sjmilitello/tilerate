@@ -1012,6 +1012,96 @@ re-lettered while editing. On the plan the letter is a badge centred on its
 wall, over the dimension lines, slid along the wall only where it would
 sit on another wall's letter. `WallLetteringTests`.
 
+## Tubs (owner's calls, 2026-10-19)
+
+A tub surround's tub is its own, on the model (`AreaTakeoff.tubRect`,
+`tubKind`, `tubRimIn`, `tubLipIn`; Sources/Views/RoomScan/Tub.swift) —
+kept apart from `floorRect`, which is a shower's floor everywhere. Before,
+a tub was only the scanner's grey box; a sketched room or a missed tub had
+none. **Choose Tub Area** (Measure tab, like Choose Shower Area) and a tap
+(`placeTub`): in a space of three walls the tub fills it, wall to wall (30″
+deep, or the space's depth under 3½′); else 60″ × 30″ from the nearest
+inside corner, long side against the wall nearer the tap. **An alcove tub
+has three full walls** (owner): placed in a corner, a full wall is drawn in
+at its open end, its face flush with the tub, tiled on the tub's side
+(`closeTubEnds`) — an ordinary wall drawn in, edited or deleted like any
+other. A drop-in in a corner starts open; **Full wall at the open end** (Tub
+panel) closes it in, for either kind. The tub is held, dragged and resized
+on the plan like the shower floor (the plan's floor binding is the tub for a
+tub surround), turned with Rotate, typed in the Tub panel; Move / Remove sit
+under the drawing. A scanned tub becomes the tub surround's own
+(`adoptScannedTub`). The room's `tubOutline` follows it, with `tubPlaced`
+set, so the floor, the other areas and 3-D see it.
+
+Kinds: **Alcove** (rim 15″) and **Drop-in** (a deck 20″ high, the tub
+`tubLipIn` 3″ inside it on each open side, `tubInDeck`; switching grows or
+shrinks the deck). The walls the tub is against are tiled along it
+(`tubChanged`: pieces that ran along it follow, keeping their height), and
+the wall **below the rim** (or the deck's top) isn't counted
+(`tubBelowRimSqft`, in `apply`). A drop-in's deck **top** (the deck less the
+tub's opening) and **front** (each open side × the deck height) are tile or
+stone (`tubDeck:top`, `tubDeck:front`, Extras → Drop-in tub deck): tile on
+its own line, "Tub deck tile", per sq ft at Admin → Stone pieces → Drop-in
+tub deck (`Rates.tubDeckTilePerSqft`, $0); stone in its group
+(`StoneGroup.tubDeck`, Top and Front, panels by the square foot as placed, $0
+until set) on a "Stone tub deck" line, and in the cutlist (the top one slab
+over the whole deck, a front piece per open side). The floor leaves the tub
+out (`floorFootprints`) and never cuts the scanned tub twice.
+
+**A deck beside a shower ties to it** (owner): a shower tapped beside a
+placed tub takes the part of the space on the tap's side, ending at the
+tub (`placeShower` → `FloorRect.clipped`, either way across), and a tub
+tapped beside a shower likewise (`placeTub(avoid:)`); the shower has **no
+curb and no jamb along the tub** (`openSides`, the tub's edges standing in
+for a wall, `tubDeckWallID`) — only a tub a tub surround placed
+(`ScannedRoom.tubPlaced`); a scanned tub in a shower's cove is still a
+conversion. Where a drop-in's deck meets the shower, the Tub panel chooses:
+**Deck stops at the shower** — the deck's end, inside the shower, is part
+of its front — or **Runs in as a bench** — the shower gets a framed bench
+(`Item.fromTubDeck`) along their back wall from the deck, the deck's depth
+and height, 15″ into the shower, priced as the shower's bench, and the
+deck's end is no longer front. The room keeps them tied whenever an area
+is saved (`EstimateRoom.tieTubsAndShowers`, run by `refreshFloorCutouts`;
+`AreaTakeoff.tubNeighbors`).
+
+**Freestanding tubs** are the room's, decoration only — nothing about the
+tile changes (owner): ⋯ → Add a freestanding tub in any area's model, a tap
+where it goes, 66″ × 32″ square to the room (`ScannedRoom.freestandingTubs`,
+`addFreestandingTub`); ⋯ → Freestanding tub → Move (a tap), Turn, Remove.
+Drawn as an oval on the plan and a 22″ oval tub in 3-D; the floor's tile
+runs under it, and tile on the wall behind it is whatever area tiles it.
+
+**Vanities and toilets** (owner, 2026-10-19), from the same ⋯ in any
+area's model: **Add a vanity** / **Add a toilet**, then a tap by the wall
+it goes against (set against the wall's face, half its drawn thickness off
+the line). A toilet (20″ × 28″) is decoration: ⋯ → Toilet → Move, Turn,
+Remove. A vanity (`ScannedRoom.vanities`, `Vanity`; Sources/Views/RoomScan/
+Vanity.swift, `VanitySheet`) starts 36″ × 21″, 34½″ high, opening its sheet:
+width, depth and height; sinks (1, or 2 from 60″ wide unless typed,
+`fitSinks`); the stone top 1″ past the cabinet on its open sides
+(`vanityTop`) and its stone (`top`, the stone picker); the backsplash —
+**Stone** (4″ to start), **Tile** or **None** — its height, and which of the
+walls it touches get it (`splashWalls`, `wallsTouching`, `vanitySplash`);
+Move, Turn, Remove. Each vanity has its **own area**: a Backsplash area
+named "Vanity" on the chips (`AreaTakeoff.vanityID`, `areaName`), made and
+removed with it and measured again whenever the room is saved
+(`EstimateRoom.syncVanities`, run by `refreshFloorCutouts`). There a tile
+backsplash is square feet at the backsplash price, in that area's tile (kept
+on the vanity, `splashTile`, for drawing); a stone backsplash is
+`StonePart.vanitySplash` on a "Stone vanity backsplash" line (Admin →
+Stone pieces → Vanity, $0 until set) and in the cutlist; the top is always
+in the cutlist (one slab, the cabinet plus overhang, `vanityCutPieces`) and
+is charged as **materials** — "Vanity top" (sq ft × `Rates.vanityTopPerSqft`)
+and "Sink cut-outs" (each × `sinkCutoutEach`) — only when stone material is
+its own line (`stoneMaterialSeparate`; owner's call). Drawn on the plan
+(cabinet, top, backsplash lines; toilet) and in 3-D (`vanityNode`: cabinet
+over a toe kick with door seams, stone top with oval sinks, backsplash on
+the wall's face; `toiletNode`). `VanityTests`.
+
+3-D draws each (`Room3DScene.tubNode`, `freeTubNode`): a white alcove tub
+with its apron, rim, basin and drain; a deck in tile or stone with the tub's
+rim set in it. `TubTests`.
+
 ## Placing a shower, curbless showers and drains (owner's calls, 2026-10-08)
 
 - **Put the shower here** (`AreaTakeoff.placeShower(near:in:curbWidthFt:)`):
