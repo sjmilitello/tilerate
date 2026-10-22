@@ -2866,6 +2866,10 @@ struct PlanCanvas: View {
     @State private var flash: (at: ScannedRoom.Point, id: UUID)? = nil
     /// The plan's size, for the nudge buttons' directions.
     @State private var planSize: CGSize = .zero
+    /// The held thing's controls go along the plan's bottom when it's in
+    /// the top part, so they don't cover it (owner, 2026-10-21: a tub
+    /// against the top wall was hidden under them, its edges out of reach).
+    @State private var controlsBelow = false
     @State private var lastTranslation: CGSize = .zero
     @State private var steered: ScannedRoom.Point = .init()
     @State private var steering = false
@@ -2944,13 +2948,14 @@ struct PlanCanvas: View {
         VStack(spacing: 0) {
             plan
                 .overlay(alignment: .bottomLeading) {
-                    if let text = hold == nil ? hint : "Drag anywhere to move it · tap empty space to let go" {
+                    if let text = hold == nil ? hint : hold == .floor ? "Drag anywhere to move it · tap an edge to size it"
+                        : "Drag anywhere to move it · tap empty space to let go" {
                         // In blue so it's noticed (owner, 2026-10-15).
                         Text(text).font(.caption.weight(.semibold)).foregroundStyle(ND.link).padding(8)
                             .allowsHitTesting(false)
                     }
                 }
-                .overlay(alignment: .top) {
+                .overlay(alignment: controlsBelow ? .bottom : .top) {
                     VStack(spacing: 6) {
                         holdStrip
                         holdControls
@@ -2958,9 +2963,11 @@ struct PlanCanvas: View {
                         drainBar
                     }
                     .padding(.top, 6)
+                    .padding(.bottom, controlsBelow ? Self.controlStrip + 6 : 0)
                 }
         }
         .onChange(of: hold) { _, h in
+            controlsBelow = h.map(controlsGoBelow) ?? false
             caught = false
             if h == nil { catchOff = false }
             if case .floorEdge = h {} else { curbHeld = false }
@@ -3254,6 +3261,25 @@ struct PlanCanvas: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { if flash?.id == id { flash = nil } }
         }
         caught = isCaught
+    }
+
+    /// Whether a held thing has more room below it on screen than above,
+    /// counting the strip kept for the hint and the 2D/3D switch.
+    private func controlsGoBelow(_ hold: Hold) -> Bool {
+        guard planSize != .zero else { return false }
+        let pts: [ScannedRoom.Point]
+        switch hold {
+        case .wall(let id): pts = room.wall(id).map { [$0.start, $0.end] } ?? []
+        case .wallEnd(let id, let start): pts = room.wall(id).map { [start ? $0.start : $0.end] } ?? []
+        case .floor, .floorEdge, .drain, .drainEnd: pts = floorRect?.wrappedValue?.corners ?? []
+        case .outlineEdge(let i):
+            let o = outline?.wrappedValue ?? room.floorOutline
+            pts = o.indices.contains(i) ? [o[i], o[(i + 1) % o.count]] : []
+        }
+        guard !pts.isEmpty else { return false }
+        let f = frame(planSize)
+        let ys = pts.map { f.at($0).y }
+        return ys.min()! < planSize.height - Self.controlStrip - ys.max()!
     }
 
     /// While something is held: the magnet (catching on or off for it) and

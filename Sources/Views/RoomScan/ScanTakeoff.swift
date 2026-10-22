@@ -3532,6 +3532,13 @@ extension EstimateRoom {
     /// from the model or the scan changes.
     mutating func refreshFloorCutouts(prices: StonePrices) {
         syncVanities(prices: prices)
+        // A tub a tub surround placed goes with the last area that has one
+        // (owner, 2026-10-21: deleting the area left it on the plan and in 3-D).
+        if scan?.tubPlaced == true, !sections.contains(where: { $0.scanTakeoff?.tubRect != nil }) {
+            scan?.tubOutline = []
+            scan?.tubLengthFt = nil
+            scan?.tubPlaced = false
+        }
         guard let scan else { return }
         tieTubsAndShowers(prices: prices)
         for i in sections.indices {

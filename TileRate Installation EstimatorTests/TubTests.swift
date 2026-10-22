@@ -218,6 +218,24 @@ struct TubTests {
         #expect(left.isEmpty)
     }
 
+    @Test func deletingTheTubSurroundTakesItsTubOffTheRoom() throws {
+        var room = tubAndShower()
+        room.sections[0].scanTakeoff?.tubDeckIntoShower = true
+        room.refreshFloorCutouts(prices: StonePrices())
+        #expect(room.sections[1].scanTakeoff?.items.contains(where: \.fromTubDeck) == true)
+        room.sections.remove(at: 0)
+        room.refreshFloorCutouts(prices: StonePrices())
+        let scan = try #require(room.scan)
+        #expect(scan.tubOutline.isEmpty && !scan.tubPlaced && scan.tubLengthFt == nil)
+        #expect(room.sections[0].scanTakeoff?.items.contains(where: \.fromTubDeck) == false)
+        // A scanned tub with no tub surround stays (a conversion, say).
+        var scanned = room
+        scanned.scan?.tubOutline = AreaTakeoff.FloorRect(origin: .init(x: 0, y: 0), u: .init(x: 1, y: 0), v: .init(x: 0, y: 1),
+                                                          widthFt: 5, depthFt: 2.5).corners
+        scanned.refreshFloorCutouts(prices: StonePrices())
+        #expect(scanned.scan?.tubOutline.count == 4)
+    }
+
     @Test func aDraggedShowerCatchesOnTheDeckBesideIt() {
         // A deck 0–5¼′ along the wall; a shower floor dragged to start 1½″ past it.
         let deck: [ScannedRoom.Point] = [.init(x: 0, y: 0), .init(x: 5.25, y: 0), .init(x: 5.25, y: 2.75), .init(x: 0, y: 2.75)]
